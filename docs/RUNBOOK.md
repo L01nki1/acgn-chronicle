@@ -175,6 +175,25 @@ G1a bake-off decides.
 - News-dedup clustering practice prefers complete/average linkage over single linkage (chaining risk is
   textbook) and entity-aware keys for multilingual streams — independently supports the dedup design
   (entity key primary, complete-linkage text auxiliary, RUNBOOK §3.2a).
+**GPU-lane numbers (2026-10-29; quality identical to CPU everywhere — all hit/MRR values match the CPU
+bake-off exactly, fp16 included, so the model choice stays a CPU-quality question and throughput is a
+per-lane question):**
+
+| lane | model | tok/s | notes |
+|---|---|---|---|
+| A380 / OpenVINO fp32 | e5-base | 6,244 | 3.8× its CPU lane; vectors agree with CPU at cosine ≥ 0.9999998, identical rankings |
+| A380 / OpenVINO fp32 | bge-m3 (dense) | 2,967 | 6.9× its CPU lane; same parity checks |
+| Colab T4 / torch 2.11+cu130, fp32 → fp16 | e5-base | 14,660 → 51,235 | same-GPU cross-model table below |
+| Colab T4, fp32 → fp16 | bge-m3 (dense) | 3,389 → 16,380 | |
+| Colab T4, fp32 → fp16 | Qwen3-Embedding-0.6B | 2,039 → 6,883 | |
+
+Same-GPU (T4) ordering: e5-base > bge-m3 > Qwen3 in both precisions — on a 40k-chunk × 512-token corpus
+(≈20.5M tokens) even the slowest lane builds one config in **≤ 50 min (Qwen3 fp16)**, so the encoding
+budget is no longer a constraint on any GPU lane; the A380 lane builds e5-base in ~55 min and bge-m3 in
+~1.9 h per config. Do **not** compare tok/s across different GPUs (A380 vs T4 rows answer "can this lane
+build in time", not "which model is faster"). fp16 changed no hit/MRR value on this sample, but fp16
+remains a distinct encoder-identity dimension: builds record it, caches key on it.
+
 - **Embed-time context headers (adopted, zero cost):** what gets encoded is not the raw chunk but
   `title | publisher | published date | chunk body`. RSS bodies routinely lose their parent context
   (who announced, when); a chunk that says "will begin airing on 2026-10-05" is unretrievable without it.
