@@ -115,6 +115,24 @@ Secondary responsibilities (revised 2026-10-28):
 ## 7. How we track work
 
 - **Gate status** = this document. Update it when a gate passes or slips; do not keep private progress notes.
-- **Task detail** = GitHub issues, one per actionable unit, each labeled `WPn` and linked to its gate.
+- **Member issue** = **one persistent issue per member** (`[A]`, `[B]`…) labeled `WPn`, with no milestone
+  because it spans every gate. It is a workbench, not a ticket for one task. Do not open a task issue for
+  each unit of work.
+- **Stage report** = a comment on your own member issue at the end of each stage, in this fixed shape. A
+  report missing the evidence line does not count:
+
+  ```
+  Stage:     G1a
+  Delivered: <file path / command / artifact>
+  Evidence:  <the number, or the command output pasted>
+  Blocked:   <none / what is blocked, and on whom>
+  Next:      <first thing in the next stage>
+  ```
+
+  Progress is judged by that evidence line, never by "basically done".
+- **Interface issue** = opened only when someone must hand something to someone else, titled
+  `[interface] <needer> -> <provider>: <what you need>`. It is temporary: once both sides agree, the
+  conclusion is written into `docs/DECISIONS.md` (one line) or into `contracts/`, and only then is the issue
+  deleted. **Deleting it before the conclusion is in the repository loses the decision, not just the chat.**
 - **Decisions** = `docs/DECISIONS.md`, one line per decision. Verbal agreements do not count.
 - **Weekly** = D updates the contribution log; E archives one `run_eval.py` result.
