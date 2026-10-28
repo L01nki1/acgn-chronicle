@@ -1,7 +1,7 @@
-"""WP6 后置：日报样例 consumer（DailyDigest → 文字版/看板），读快照目录，无调度器无数据库
+"""WP6 later stage: daily digest consumer (DailyDigest -> text report / board); reads the snapshot dir, no scheduler, no database.
 
-负责人：C　|　依据：07 §1
-状态：scaffold 占位，待实现。
+Owner: C | Spec: 07 §1
+Status: scaffold placeholder, to be implemented.
 """
 
 __all__: list[str] = []

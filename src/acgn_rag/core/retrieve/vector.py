@@ -1,7 +1,7 @@
-"""纯向量 top-k + filters（source_types / since-until / media_ids）；必须 over-fetch 兜住过滤后不足
+"""Vector top-k with filters (source_types / since-until / media_ids); must over-fetch, filtering can return fewer than top_k.
 
-负责人：E　|　依据：04 §1.3 ③
-状态：scaffold 占位，待实现。
+Owner: E | Spec: 04 §1.3 item 3
+Status: scaffold placeholder, to be implemented.
 """
 
 __all__: list[str] = []

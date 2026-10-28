@@ -1,9 +1,9 @@
-"""统一命令行入口（pyproject 里注册为 `acgn`）。
+"""Single command-line entry point (registered as `acgn` in pyproject).
 
-负责人：D　|　依据：02 §1 / docs/RUNBOOK.md
+Owner: D | Spec: 02 §1 / docs/RUNBOOK.md
 
-原则：所有可重复动作走 `python -m` 或本入口，不写 shell 脚本 ——
-组内 macOS（zsh + 系统 bash 3.2）与 Windows（Git Bash）共用同一套命令。
+Rule: repeatable actions go through `python -m` or this entry point, never a shell script -
+the team runs macOS (zsh, system bash 3.2) and Windows (Git Bash), and both must share one command set.
 """
 
 from __future__ import annotations
@@ -13,18 +13,20 @@ import typer
 from acgn_rag import __version__
 from acgn_rag.contracts_export import check, write
 
-app = typer.Typer(add_completion=False, help="acgn-rag 命令行入口")
+app = typer.Typer(add_completion=False, help="acgn-rag command line interface")
 
 
 @app.command()
 def version() -> None:
-    """打印当前包版本。"""
+    """Print the current package version."""
     typer.echo(f"acgn-rag {__version__}")
 
 
 @app.command()
-def schema(check_only: bool = typer.Option(False, "--check", help="只校验不写文件")) -> None:
-    """导出 / 校验 KnowledgePort JSON Schema（CI 必过项）。"""
+def schema(
+    check_only: bool = typer.Option(False, "--check", help="verify only, do not write"),
+) -> None:
+    """Export or verify the KnowledgePort JSON Schema (a CI gate)."""
     if check_only:
         ok, message = check()
         typer.echo(message)

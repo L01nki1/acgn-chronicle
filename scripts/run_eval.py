@@ -1,7 +1,7 @@
-"""评测入口：--config A --snapshot <id>
+"""Evaluation entry point: --config A --snapshot <id>.
 
-负责人：E　|　依据：04 §4.3
-状态：scaffold 占位，待实现。
+Owner: E | Spec: 04 §4.3
+Status: scaffold placeholder, to be implemented.
 """
 
 __all__: list[str] = []

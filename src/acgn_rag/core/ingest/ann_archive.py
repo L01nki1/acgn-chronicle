@@ -1,7 +1,7 @@
-"""ANN 按日归档（回填主力）；RSS 只有 7–8 天窗口，历史只走这里
+"""ANN per-day archive (backfill workhorse). The ANN RSS feed only covers 7-8 days.
 
-负责人：A　|　依据：01 §2.3 / §6
-状态：scaffold 占位，待实现。
+Owner: A | Spec: 01 §2.3 / §6
+Status: scaffold placeholder, to be implemented.
 """
 
 __all__: list[str] = []

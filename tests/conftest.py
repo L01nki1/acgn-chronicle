@@ -1,7 +1,7 @@
-"""全局测试夹具：默认禁止真实网络。
+"""Global fixtures: no real network access by default.
 
-规则（docs/ONBOARDING.md §4）：CI 与本地常规测试都不联网。
-需要真网的用例请标 `@pytest.mark.network`，默认 addopts 会把它排除。
+Rule (docs/ONBOARDING.md §4): neither CI nor a normal local run touches the network.
+Tests that genuinely need it are marked `@pytest.mark.network`, which the default addopts exclude.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import pytest
 
 
 class NetworkBlocked(RuntimeError):
-    """测试期间任何真实出站连接都会命中这个异常。"""
+    """Raised when a test attempts a real outbound connection."""
 
 
 @pytest.fixture(autouse=True)
@@ -23,8 +23,8 @@ def block_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatc
 
     def guard(*_args: object, **_kwargs: object) -> None:
         raise NetworkBlocked(
-            "测试禁止真实网络访问：请用 respx/fixture 模拟 HTTP，"
-            "或给用例标 @pytest.mark.network 并在本地手动运行。"
+            "Network access is blocked in tests: mock HTTP with respx/fixtures, "
+            "or mark the test @pytest.mark.network and run it locally."
         )
 
     monkeypatch.setattr(socket.socket, "connect", guard, raising=True)
@@ -34,7 +34,7 @@ def block_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatc
 
 @pytest.fixture()
 def fake_embedder() -> Callable[[list[str]], list[list[float]]]:
-    """确定性假向量：不下载模型、不联网，供切片/检索单测使用。"""
+    """Deterministic fake vectors: no model download, no network."""
 
     def encode(texts: list[str], dim: int = 8) -> list[list[float]]:
         out: list[list[float]] = []

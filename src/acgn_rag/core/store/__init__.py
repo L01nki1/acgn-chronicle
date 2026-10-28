@@ -1,7 +1,7 @@
-"""两区存储：事实字段区（可对外）/ 原文区（仅内部检索，永不序列化）
+"""Two-zone storage: fact zone (publishable) / raw zone (internal retrieval only, never serialized).
 
-负责人：F　|　依据：06 §3 C2
-状态：scaffold 占位，待实现。
+Owner: F | Spec: 06 §3 C2
+Status: scaffold placeholder, to be implemented.
 """
 
 __all__: list[str] = []

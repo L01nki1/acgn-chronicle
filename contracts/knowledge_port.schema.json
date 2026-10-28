@@ -25,10 +25,10 @@
       "type": "object"
     },
     "Citation": {
-      "description": "结构化引用，不是拼接的字符串。",
+      "description": "A structured citation, not a concatenated string.",
       "properties": {
         "chunk_id": {
-          "description": "引用必须能定位到块",
+          "description": "a citation must be able to locate its chunk",
           "title": "Chunk Id",
           "type": "string"
         },
@@ -42,7 +42,7 @@
           "type": "string"
         },
         "source_type": {
-          "description": "决定前端展示强度与合规裁剪",
+          "description": "drives display strength and compliance clipping",
           "enum": [
             "official",
             "media",
@@ -74,10 +74,10 @@
     "ClusterCard": {
       "$defs": {
         "Citation": {
-          "description": "结构化引用，不是拼接的字符串。",
+          "description": "A structured citation, not a concatenated string.",
           "properties": {
             "chunk_id": {
-              "description": "引用必须能定位到块",
+              "description": "a citation must be able to locate its chunk",
               "title": "Chunk Id",
               "type": "string"
             },
@@ -91,7 +91,7 @@
               "type": "string"
             },
             "source_type": {
-              "description": "决定前端展示强度与合规裁剪",
+              "description": "drives display strength and compliance clipping",
               "enum": [
                 "official",
                 "media",
@@ -121,10 +121,10 @@
           "type": "object"
         }
       },
-      "description": "日报热点簇：一张卡片 = 一个去重簇",
+      "description": "Daily hot cluster: one card = one deduplicated cluster.",
       "properties": {
         "citations": {
-          "description": "复用 Citation；前端走合规裁剪",
+          "description": "reuses Citation; the client applies compliance clipping",
           "items": {
             "$ref": "#/$defs/Citation"
           },
@@ -151,7 +151,7 @@
           "type": "string"
         },
         "size": {
-          "description": "簇大小 = 热度代理",
+          "description": "cluster size as a heat proxy",
           "title": "Size",
           "type": "integer"
         }
@@ -168,14 +168,14 @@
       "type": "object"
     },
     "CorpusSnapshot": {
-      "description": "一次冻结的语料状态。语料更新产生新快照，不修改旧快照。",
+      "description": "A frozen corpus state. A new crawl produces a new snapshot; old ones are immutable.",
       "properties": {
         "created_at": {
           "title": "Created At",
           "type": "string"
         },
         "deduped_count": {
-          "description": "去重后条目数 —— 一切指标的口径",
+          "description": "items after deduplication - the denominator of every metric",
           "title": "Deduped Count",
           "type": "integer"
         },
@@ -184,7 +184,7 @@
           "type": "integer"
         },
         "snapshot_id": {
-          "description": "内容哈希 + 日期；同语料重建必须一致",
+          "description": "content hash + date; rebuilding the same corpus must match",
           "title": "Snapshot Id",
           "type": "string"
         },
@@ -197,7 +197,7 @@
           "type": "string"
         },
         "window_start": {
-          "description": "语料时间跨度，评估可复现的必要字段",
+          "description": "corpus time span; required for reproducible evaluation",
           "title": "Window Start",
           "type": "string"
         }
@@ -241,10 +241,10 @@
           "type": "object"
         },
         "Citation": {
-          "description": "结构化引用，不是拼接的字符串。",
+          "description": "A structured citation, not a concatenated string.",
           "properties": {
             "chunk_id": {
-              "description": "引用必须能定位到块",
+              "description": "a citation must be able to locate its chunk",
               "title": "Chunk Id",
               "type": "string"
             },
@@ -258,7 +258,7 @@
               "type": "string"
             },
             "source_type": {
-              "description": "决定前端展示强度与合规裁剪",
+              "description": "drives display strength and compliance clipping",
               "enum": [
                 "official",
                 "media",
@@ -288,10 +288,10 @@
           "type": "object"
         },
         "ClusterCard": {
-          "description": "日报热点簇：一张卡片 = 一个去重簇",
+          "description": "Daily hot cluster: one card = one deduplicated cluster.",
           "properties": {
             "citations": {
-              "description": "复用 Citation；前端走合规裁剪",
+              "description": "reuses Citation; the client applies compliance clipping",
               "items": {
                 "$ref": "#/$defs/Citation"
               },
@@ -318,7 +318,7 @@
               "type": "string"
             },
             "size": {
-              "description": "簇大小 = 热度代理",
+              "description": "cluster size as a heat proxy",
               "title": "Size",
               "type": "integer"
             }
@@ -335,14 +335,14 @@
           "type": "object"
         },
         "FactUpdate": {
-          "description": "L0 当日新增结构化事实",
+          "description": "A structured fact newly extracted today (L0).",
           "properties": {
             "chunk_id": {
               "title": "Chunk Id",
               "type": "string"
             },
             "field": {
-              "description": "发售日 / 平台 / 事件类型 ...",
+              "description": "release date / platform / event type ...",
               "title": "Field",
               "type": "string"
             },
@@ -375,7 +375,7 @@
           "type": "object"
         }
       },
-      "description": "日报按日候选集（看板 / 阶段二文字版账号日报共用）。\n\n按日取数仍用 RetrievalFilters.since/until，禁止新增时间分桶索引（02 不变量 4）。",
+      "description": "Per-day candidate set shared by the board and the stage-2 text digest.\n\nPer-day retrieval still goes through RetrievalFilters.since/until; a time-bucketed index is\nforbidden because it would contaminate the chunking comparison (invariant 4, spec 02).",
       "properties": {
         "by_category": {
           "items": {
@@ -389,7 +389,7 @@
           "type": "string"
         },
         "episode_table": {
-          "description": "B站时间表直通",
+          "description": "Bilibili schedule passthrough",
           "items": {
             "additionalProperties": true,
             "type": "object"
@@ -412,7 +412,7 @@
           "additionalProperties": {
             "type": "integer"
           },
-          "description": "per-source 当日条数（01 §5.5 采集监控复用）",
+          "description": "items per source for that day (also feed monitoring, 01 §5.5)",
           "title": "Source Coverage",
           "type": "object"
         },
@@ -437,7 +437,7 @@
       "type": "object"
     },
     "DailyReportPort": {
-      "description": "日报生成入口（后置实现）",
+      "description": "Daily report entry point (implemented in a later stage).",
       "properties": {
         "date": {
           "title": "Date",
@@ -456,14 +456,14 @@
       "type": "object"
     },
     "FactUpdate": {
-      "description": "L0 当日新增结构化事实",
+      "description": "A structured fact newly extracted today (L0).",
       "properties": {
         "chunk_id": {
           "title": "Chunk Id",
           "type": "string"
         },
         "field": {
-          "description": "发售日 / 平台 / 事件类型 ...",
+          "description": "release date / platform / event type ...",
           "title": "Field",
           "type": "string"
         },
@@ -498,10 +498,10 @@
     "GroundedAnswer": {
       "$defs": {
         "Citation": {
-          "description": "结构化引用，不是拼接的字符串。",
+          "description": "A structured citation, not a concatenated string.",
           "properties": {
             "chunk_id": {
-              "description": "引用必须能定位到块",
+              "description": "a citation must be able to locate its chunk",
               "title": "Chunk Id",
               "type": "string"
             },
@@ -515,7 +515,7 @@
               "type": "string"
             },
             "source_type": {
-              "description": "决定前端展示强度与合规裁剪",
+              "description": "drives display strength and compliance clipping",
               "enum": [
                 "official",
                 "media",
@@ -617,7 +617,7 @@
             }
           ],
           "default": null,
-          "description": "日报“只取今天的”也走这里，禁止新增时间分桶索引",
+          "description": "daily views (\"today only\") also use this; never add a time-bucketed index",
           "title": "Since"
         },
         "source_types": {
@@ -685,7 +685,7 @@
                 }
               ],
               "default": null,
-              "description": "日报“只取今天的”也走这里，禁止新增时间分桶索引",
+              "description": "daily views (\"today only\") also use this; never add a time-bucketed index",
               "title": "Since"
             },
             "source_types": {
@@ -738,7 +738,7 @@
           "default": null
         },
         "snapshot_id": {
-          "description": "绑定快照，保证可复现",
+          "description": "binds the query to a snapshot, which makes results reproducible",
           "title": "Snapshot Id",
           "type": "string"
         },
@@ -762,10 +762,10 @@
     "RetrievedChunk": {
       "$defs": {
         "Citation": {
-          "description": "结构化引用，不是拼接的字符串。",
+          "description": "A structured citation, not a concatenated string.",
           "properties": {
             "chunk_id": {
-              "description": "引用必须能定位到块",
+              "description": "a citation must be able to locate its chunk",
               "title": "Chunk Id",
               "type": "string"
             },
@@ -779,7 +779,7 @@
               "type": "string"
             },
             "source_type": {
-              "description": "决定前端展示强度与合规裁剪",
+              "description": "drives display strength and compliance clipping",
               "enum": [
                 "official",
                 "media",
@@ -830,7 +830,7 @@
           "type": "string"
         },
         "text": {
-          "description": "内部使用；对外由 ground/serialize 裁剪（≤200 字符片段）",
+          "description": "internal use; clipped to a <=200 character excerpt by ground/serialize for clients",
           "title": "Text",
           "type": "string"
         }

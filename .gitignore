@@ -1,9 +1,9 @@
-# ---- 数据（02 不变量 6：data/ 永不进 git）----
-# raw/ 原文区仅内部检索，永不对外；index/ 与 snapshots/ 由脚本可重建
+# ---- Data (invariant 6 of spec 02: data/ never enters git) ----
+# raw/ holds full article bodies (internal retrieval only); index/ and snapshots/ are rebuildable.
 /data/*
 !/data/.gitkeep
 
-# ---- 凭证与本地配置 ----
+# ---- Credentials and local configuration ----
 .env
 .env.*
 !.env.example
@@ -25,7 +25,7 @@ venv/
 ENV/
 site/
 
-# ---- 工具缓存 ----
+# ---- Tool caches ----
 .ruff_cache/
 .pytest_cache/
 .mypy_cache/
@@ -34,11 +34,11 @@ site/
 htmlcov/
 coverage.xml
 
-# ---- Notebook ----
+# ---- Notebooks ----
 .ipynb_checkpoints/
 *.nbconvert.ipynb
 
-# ---- 模型与编码缓存（体积大，可重下）----
+# ---- Model and embedding caches (large, downloadable again) ----
 .cache/
 .hf/
 models/
@@ -46,19 +46,19 @@ models/
 *.bin
 *.onnx
 
-# ---- 运行时产物（注意：eval/qa_set.jsonl 与 eval/runs/ 必须进 git）----
+# ---- Runtime artifacts (note: eval/qa_set.jsonl and eval/runs/ MUST stay tracked) ----
 logs/
 *.log
 /tmp/
 
-# ---- 前端 ----
+# ---- Frontend ----
 node_modules/
 
-# ---- 系统 ----
+# ---- OS ----
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# ---- 内部工作文档（组内约定：不进版本库；需要提交时删掉这一行）----
+# ---- Internal working notes (team convention: not committed; delete this line to include) ----
 /PLAN.md
 /.workbuddy/

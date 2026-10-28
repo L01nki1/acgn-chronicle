@@ -1,10 +1,11 @@
 name: CI
 
-# 组内约定（docs/ONBOARDING.md §4）：
-#   - CI 只允许「装依赖」联网；**测试运行期间零外部请求**（tests/conftest.py 会拦截 socket）。
-#   - 不打真站、不下载模型、不调用 LLM API：这些一律走 fixture / respx 模拟。
-#   - ubuntu 抓大小写敏感（macOS 默认不敏感，组员的 case bug 只有这里能抓到）；
-#     macos 抓组员本机平台差异。
+# Team convention (docs/ONBOARDING.md §4):
+#   - CI may go online only to install dependencies; **tests make zero external requests**
+#     (tests/conftest.py intercepts sockets).
+#   - No live crawling, no model download, no LLM API calls: all mocked via fixtures / respx.
+#   - ubuntu catches case-sensitivity bugs (macOS is case-insensitive, so only CI sees them);
+#     macos catches differences on the team's actual platform.
 
 on:
   push:
@@ -34,7 +35,7 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Install (dev only — 不含 embed/llm 重依赖)
+      - name: Install (dev extras only - no embed/llm heavy deps)
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
@@ -45,7 +46,7 @@ jobs:
       - name: Format check
         run: ruff format --check .
 
-      - name: Contract schema in sync (02 不变量 5)
+      - name: Contract schema in sync (invariant 5)
         run: python scripts/export_schema.py --check
 
       - name: Tests (no network)

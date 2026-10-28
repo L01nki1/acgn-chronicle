@@ -1,7 +1,7 @@
-"""QA 集加载与校验：四类 A/B/C/D，A 类 ≤1/3，拒答 ≥5
+"""QA set loading and validation: types A/B/C/D, type A <= 1/3 of the total, at least 5 abstention items.
 
-负责人：D　|　依据：04 §4.1
-状态：scaffold 占位，待实现。
+Owner: D | Spec: 04 §4.1
+Status: scaffold placeholder, to be implemented.
 """
 
 __all__: list[str] = []

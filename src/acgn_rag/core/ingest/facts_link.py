@@ -1,7 +1,7 @@
-"""实体抽取（聚类前置子步骤），与 F 协作；产出 mediaIds / 事件类型
+"""Entity extraction, a pre-step of clustering; collaborates with WP2.
 
-负责人：A　|　依据：01 §4.3
-状态：scaffold 占位，待实现。
+Owner: A | Spec: 01 §4.3
+Status: scaffold placeholder, to be implemented.
 """
 
 __all__: list[str] = []

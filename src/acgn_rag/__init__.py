@@ -1,8 +1,9 @@
-"""acgn-rag —— ACGN 跨时间档案问答 RAG 系统（CS5481 Topic 5）。
+"""acgn-rag - ACGN cross-time archive QA over RAG (CS5481 Topic 5).
 
-负责人：D　|　依据：02 §1
+Owner: D | Spec: 02 §1
 
-子包并列：`core/`（唯一核心产物）、`daily/`（日报 consumer）、`web/`（FastAPI + 静态前端）。
+Sibling packages: `core/` (the only production artifact), `daily/` (daily digest consumer),
+`web/` (FastAPI + static frontend).
 """
 
 __version__ = "0.1.0"

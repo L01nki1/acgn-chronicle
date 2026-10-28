@@ -1,7 +1,7 @@
-"""B：事件级聚合，同簇多源合并、按来源分句
+"""Config B: event-level aggregation, merging sources inside a cluster, sentence-split per source.
 
-负责人：F　|　依据：04 §4.3
-状态：scaffold 占位，待实现。
+Owner: F | Spec: 04 §4.3
+Status: scaffold placeholder, to be implemented.
 """
 
 __all__: list[str] = []

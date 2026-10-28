@@ -1,7 +1,7 @@
-"""RssAdapter：`discover()` 增量；处理 304、全文 vs 标题探针
+"""RSS/Atom adapter: discover() only; handles 304 and full-text vs title-only feeds.
 
-负责人：A　|　依据：01 §4.1 / §5.3
-状态：scaffold 占位，待实现。
+Owner: A | Spec: 01 §4.1 / §5.3
+Status: scaffold placeholder, to be implemented.
 """
 
 __all__: list[str] = []

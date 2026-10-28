@@ -1,4 +1,4 @@
-"""冒烟用例：包可导入、配置可加载、默认值符合文档口径。"""
+"""Smoke tests: the package imports, settings load, defaults match the documented values."""
 
 from __future__ import annotations
 
@@ -16,11 +16,11 @@ def test_settings_defaults() -> None:
     assert settings.store.over_fetch_factor >= 2
     assert settings.embed.query_prefix == "query: "
     assert settings.embed.passage_prefix == "passage: "
-    assert settings.embed.device == "cpu"  # 跨机器指标可比的前提
+    assert settings.embed.device == "cpu"  # identical device is what keeps metrics comparable
 
 
 def test_user_agent_is_self_describing() -> None:
-    # 01 §5.2：自描述 UA 是合规姿态，不是伪装
+    # 01 §5.2: a self-describing UA is a compliance stance, not a disguise
     assert DEFAULT_UA.startswith("AcgnRagBot/")
     assert "CS5481" in DEFAULT_UA
 

@@ -1,7 +1,7 @@
-"""历史回填入口（W1 关键路径）
+"""Historical backfill entry point (W1 critical path).
 
-负责人：A　|　依据：01 §6 / §7
-状态：scaffold 占位，待实现。
+Owner: A | Spec: 01 §6 / §7
+Status: scaffold placeholder, to be implemented.
 """
 
 __all__: list[str] = []

@@ -1,10 +1,10 @@
-"""命令行包装：导出 / 校验 KnowledgePort JSON Schema。
+"""CLI wrapper: export or verify the KnowledgePort JSON Schema.
 
-用法：
-    python scripts/export_schema.py            # 写入 contracts/knowledge_port.schema.json
-    python scripts/export_schema.py --check    # 只校验，不一致退出码 1（CI 用这个）
+Usage:
+    python scripts/export_schema.py            # write contracts/knowledge_port.schema.json
+    python scripts/export_schema.py --check    # verify only, exit code 1 on drift (used by CI)
 
-真正的逻辑在 acgn_rag/contracts_export.py，本文件只负责退出码。
+The logic lives in acgn_rag/contracts_export.py; this file only owns the exit code.
 """
 
 from __future__ import annotations
@@ -19,8 +19,8 @@ from acgn_rag.contracts_export import check, write
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="导出 / 校验 KnowledgePort JSON Schema")
-    parser.add_argument("--check", action="store_true", help="仅校验，不写文件")
+    parser = argparse.ArgumentParser(description="Export or verify the KnowledgePort JSON Schema")
+    parser.add_argument("--check", action="store_true", help="verify only, do not write")
     args = parser.parse_args()
 
     if args.check:

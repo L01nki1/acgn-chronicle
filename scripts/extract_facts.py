@@ -1,7 +1,7 @@
-"""L0 事实抽取入口；失败降级纯文本 chunk，不丢弃
+"""L0 fact extraction entry point; failures degrade to plain-text chunks instead of dropping data.
 
-负责人：F　|　依据：01 §4.4
-状态：scaffold 占位，待实现。
+Owner: F | Spec: 01 §4.4
+Status: scaffold placeholder, to be implemented.
 """
 
 __all__: list[str] = []

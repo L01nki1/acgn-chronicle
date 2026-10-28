@@ -1,7 +1,7 @@
-"""每日增量入口
+"""Daily incremental ingestion entry point.
 
-负责人：A　|　依据：01 §4.1
-状态：scaffold 占位，待实现。
+Owner: A | Spec: 01 §4.1
+Status: scaffold placeholder, to be implemented.
 """
 
 __all__: list[str] = []

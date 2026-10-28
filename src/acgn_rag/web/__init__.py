@@ -1,7 +1,7 @@
-"""FastAPI 服务 + 静态前端（web/static）
+"""FastAPI service + static frontend (web/static).
 
-负责人：C　|　依据：05 §3
-状态：scaffold 占位，待实现。
+Owner: C | Spec: 05 §3
+Status: scaffold placeholder, to be implemented.
 """
 
 __all__: list[str] = []

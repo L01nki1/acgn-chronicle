@@ -1,7 +1,7 @@
-"""切块配置 A(512/64) / A'(256/0) / B(事件聚合)
+"""Chunking configs: A(512/64) / A'(256/0) / B(event aggregation).
 
-负责人：F　|　依据：02 §4
-状态：scaffold 占位，待实现。
+Owner: F | Spec: 02 §4
+Status: scaffold placeholder, to be implemented.
 """
 
 __all__: list[str] = []

@@ -1,7 +1,8 @@
-# 统一 LF：CRLF 会污染 tests/ingest/fixtures 与快照内容哈希（snapshotId 必须跨平台一致）
+# Enforce LF: CRLF pollutes tests/ingest/fixtures and shifts the corpus content hash
+# (snapshotId must be identical across platforms).
 * text=auto eol=lf
 
-# 二进制资产不参与换行转换
+# Binary assets bypass newline conversion
 *.png binary
 *.jpg binary
 *.jpeg binary
@@ -14,5 +15,6 @@
 *.bin binary
 *.onnx binary
 
-# 注意：tests/ingest/fixtures/ 里会有 EUC-JP / Shift_JIS 原始字节样本（用于测字符集兜底），
-# 因此该目录不设 working-tree-encoding，也不得被编辑器"自动修正编码"重写。
+# Note: tests/ingest/fixtures/ contains raw EUC-JP / Shift_JIS samples (used to test charset
+# fallbacks). That directory must not carry working-tree-encoding and must not be re-encoded by
+# an editor's "fix encoding" action.

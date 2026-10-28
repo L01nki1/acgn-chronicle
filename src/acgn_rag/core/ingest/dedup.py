@@ -1,7 +1,7 @@
-"""SimHash + 72h 时间窗聚类；聚类键 = mediaIds + 事件类型，文本相似度仅同语言辅助
+"""SimHash + 72h window clustering; cluster key = mediaIds + event type, text similarity only within a language.
 
-负责人：A　|　依据：01 §4.3
-状态：scaffold 占位，待实现。
+Owner: A | Spec: 01 §4.3
+Status: scaffold placeholder, to be implemented.
 """
 
 __all__: list[str] = []

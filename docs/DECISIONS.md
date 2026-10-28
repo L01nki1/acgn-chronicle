@@ -1,27 +1,28 @@
-# DECISIONS —— 决策日志
+# DECISIONS — decision log
 
-> 规则（06 §2）：任何范围 / 接口 / 指标口径的变更记一行（日期、决定、理由、影响人）。
-> **口头决定不算数。** 本文件是唯一记录处，正文文档不写变更过程。
+> Rule (06 §2): every change of scope, interface or metric definition gets one line here
+> (date, decision, reason, who it affects). **Verbal decisions do not count.**
+> This file is the only place for change history; the spec documents describe the current truth only.
 
-## 基线决策（04 §7）
+## Baseline decisions (04 §7)
 
-| # | 决定 | 内容 | 状态 |
+| # | Decision | Content | Status |
 |---|---|---|---|
-| D1 | 核心语言 | Python（题面许可 / 生态匹配 / 评估可复现；Isla 走 JSON 契约不受影响） | 已定 |
-| D2 | 评估窗口 | 90 天（≈8,000–12,000 篇） | 已定 |
-| D3 | 日报 | 只做样例，完整实现留到 Isla 联动阶段；不进 RAG 必要性论证 | 已定 |
-| D4 | 向量库 | Chroma（embedded persistent），基线下文见 2026-10-28 记录 | 已定（10-28） |
-| D5 | LLM API | OpenAI 兼容端点；抽取线与生成线允许不同厂商 | 已定（10-28） |
+| D1 | Core language | Python (permitted by the brief / ecosystem fit / reproducible evaluation; Isla consumes a JSON contract and is unaffected) | fixed |
+| D2 | Evaluation window | 90 days (~8,000–12,000 items) | fixed |
+| D3 | Daily report | Sample only; the full implementation waits for the Isla stage; not used to justify RAG | fixed |
+| D4 | Vector store | Chroma (embedded persistent); see the 2026-10-28 entry for the baseline rationale | fixed (10-28) |
+| D5 | LLM API | OpenAI-compatible endpoints; extraction and answer generation may use different vendors | fixed (10-28) |
 
-## 变更记录
+## Change log
 
-| 日期 | 决定 | 理由 | 影响人 |
+| Date | Decision | Reason | Affects |
 |---|---|---|---|
-| 2026-10-28 | 仓库名定为 `acgn-daily` | 与产品方向一致；远端已改名，本地 remote 同步 | 全员 |
-| 2026-10-28 | 包路径用 `src/acgn_rag/core/` | `src/acgn_rag/` 下有 `core/` `daily/` `web/` 三个并列子包，不适用简化的 `src/core/`；05 §1 边界图需订正 | B、C、F |
-| 2026-10-28 | 向量库基线 = Chroma | 唯一同时满足「字面是向量库 + 内建 metadata filter + 持久化目录 + 零服务」；三个坑的绕法见 PLAN §D4 | F、E |
-| 2026-10-28 | 抽取线与生成线允许用不同厂商 | 两条线需求相反：抽取要便宜+JSON 稳，生成要指令遵循+引用不编；用 Protocol + `.env` 隔离，换厂商不改代码 | B、F |
-| 2026-10-28 | 测试零网络，CI 只在装依赖时联网 | 外部站点可用性与 403 会造成假红，假红会让人无视 CI；真实网络用例标 `network` 仅本地跑 | 全员 |
-| 2026-10-28 | Isla 对接从 B 移到 F；指标定义从 F 移到 E | F 是知识库与 DailyDigest 产出方，最了解检索结果形态；B 仍是 ports.py 唯一作者，形成「F 对外、B 对内」双人结构；指标与 runner 归一人降低对齐成本 | B、E、F |
-| 2026-10-28 | 日报看板改为条件触发 | 需其他成员模块出闸后才启动；排期不足则只交付 D2 样例 | C、D |
-| 2026-10-28 | 评测统一 `ACGN_EMBED_DEVICE=cpu` | 不同 device 浮点结果不一致，跨机器指标不可比 | E、F |
+| 2026-10-28 | Repository name is `acgn-daily` | Matches the product direction; the remote was renamed and the local remote updated | everyone |
+| 2026-10-28 | Package path is `src/acgn_rag/core/` | `src/acgn_rag/` has three sibling packages (`core/`, `daily/`, `web/`), so the simplified `src/core/` does not apply; the boundary diagram in 05 §1 needs correcting | B, C, F |
+| 2026-10-28 | Vector store baseline = Chroma | The only option that is literally a vector database while offering built-in metadata filters, a persistent directory and zero services; workarounds for the three pitfalls are in PLAN §D4 | F, E |
+| 2026-10-28 | Extraction and answer generation may use different vendors | The two lines have opposite needs: extraction wants cheap, strict JSON; generation wants instruction following and no invented citations. A Protocol plus `.env` keeps the vendor swappable without code changes | B, F |
+| 2026-10-28 | Tests use no network; CI goes online only to install dependencies | Site availability and 403s produce false failures, and a false-failing CI gets ignored. Online cases carry the `network` marker and run locally | everyone |
+| 2026-10-28 | Isla contact moves from B to F; metric definitions move from F to E | F produces the knowledge base and `DailyDigest` and knows what retrieval output looks like; B remains the sole author of `ports.py`, forming an "F outward, B inward" pair. Metrics belong with the runner | B, E, F |
+| 2026-10-28 | Daily board becomes conditionally triggered | It starts only after other members' modules land; if the schedule is tight, only the D2 sample ships | C, D |
+| 2026-10-28 | Evaluation pins `ACGN_EMBED_DEVICE=cpu` | Floating-point results differ per device, so cross-machine metrics would not be comparable | E, F |

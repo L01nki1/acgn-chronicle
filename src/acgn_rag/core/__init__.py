@@ -1,7 +1,7 @@
-"""唯一核心产物层；web / daily / Isla 都只是 KnowledgePort 的消费者
+"""Core layer: the only production artifact; web / daily / Isla are KnowledgePort consumers.
 
-负责人：B　|　依据：02 §1
-状态：scaffold 占位，待实现。
+Owner: B | Spec: 02 §1
+Status: scaffold placeholder, to be implemented.
 """
 
 __all__: list[str] = []

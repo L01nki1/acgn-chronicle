@@ -1,7 +1,7 @@
-"""WP2：L0 一手公告的事实字段抽取（作品名/发售日/平台/事件类型），必须带 chunkId + url
+"""WP2: L0 fact extraction from first-party posts (title / date / platform / event), always with chunkId + url.
 
-负责人：F　|　依据：01 §4.4
-状态：scaffold 占位，待实现。
+Owner: F | Spec: 01 §4.4
+Status: scaffold placeholder, to be implemented.
 """
 
 __all__: list[str] = []

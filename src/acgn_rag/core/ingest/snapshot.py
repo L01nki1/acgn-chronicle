@@ -1,7 +1,7 @@
-"""snapshotId = sha256(内容清单)[:12] + 日期；同语料重建必须一致
+"""snapshotId = sha256(content manifest)[:12] + date; the same corpus must rebuild the same id.
 
-负责人：A　|　依据：02 §4 / 06 §5
-状态：scaffold 占位，待实现。
+Owner: A | Spec: 02 §4 / 06 §5
+Status: scaffold placeholder, to be implemented.
 """
 
 __all__: list[str] = []

@@ -1,9 +1,9 @@
-"""KnowledgePort 契约的导出与一致性校验（05 §5 冻结纪律的工程实现）。
+"""Export and verify the KnowledgePort contract schema (the engineering side of 05 §5).
 
-负责人：B　|　依据：05 §1 / §5、02 §3 不变量 5
+Owner: B | Spec: 05 §1 / §5, invariant 5 of spec 02
 
-`ports.py` 是唯一真相；本模块把它的 Pydantic 类型渲染成确定性 JSON Schema。
-CI 会跑 `check()`，不一致即失败 —— 改 ports 不重新导出 schema 等于没改完。
+`ports.py` is the source of truth; this module renders its Pydantic types into a deterministic
+JSON Schema. CI calls `check()`: a change to `ports.py` without re-exporting is a failed build.
 """
 
 from __future__ import annotations
@@ -46,12 +46,15 @@ def dump(schema: dict | None = None) -> str:
 
 
 def check() -> tuple[bool, str]:
-    """返回 (是否一致, 说明)。不写文件。"""
+    """Return (in_sync, message). Never writes."""
     if not SCHEMA_PATH.exists():
-        return False, f"MISSING: {SCHEMA_PATH} 尚未生成，先跑 `python scripts/export_schema.py`"
+        return (
+            False,
+            f"MISSING: {SCHEMA_PATH} does not exist, run `python scripts/export_schema.py`",
+        )
     if SCHEMA_PATH.read_text(encoding="utf-8") != dump():
-        return False, "DRIFT: ports.py 与 contracts/knowledge_port.schema.json 不一致"
-    return True, "OK: 契约 schema 与 ports.py 一致"
+        return False, "DRIFT: ports.py and contracts/knowledge_port.schema.json disagree"
+    return True, "OK: contract schema matches ports.py"
 
 
 def write() -> Path:

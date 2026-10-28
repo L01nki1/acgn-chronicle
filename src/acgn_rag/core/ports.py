@@ -1,14 +1,15 @@
-"""KnowledgePort 契约类型 —— 全项目唯一真相（05 §2）。
+"""KnowledgePort contract types - the single source of truth for the whole project (spec 05 §2).
 
-负责人：B（契约变更仲裁）　|　依据：05 §2
-冻结纪律（05 §5）：
-  1. 本文件是唯一真相；`contracts/knowledge_port.schema.json` 由 `scripts/export_schema.py` 导出，
-     CI 校验二者一致，不一致即失败。
-  2. 字段语义变更（改名 / 改类型 / 改必填）必须 PR 说明理由 → 重新导出 schema → 通知 C（web）与 F（Isla 对接）。
-  3. 新增字段一律 Optional + 默认值，保证旧 consumer 不破。
-  4. W2 起禁止破坏性变更；W3 起完全冻结（含新增字段）。
+Owner: B (contract arbitration) | Spec: 05 §2
+Freeze policy (05 §5):
+  1. This file is the source of truth; `contracts/knowledge_port.schema.json` is exported from it
+     by `scripts/export_schema.py`. CI verifies both sides; any drift fails the build.
+  2. Semantic changes (rename / retype / new required field) require a PR with a reason,
+     a re-exported schema, and a notice to C (web) and F (Isla contact).
+  3. New fields are always Optional with a default, so old consumers keep working.
+  4. No breaking change from W2 onwards; fully frozen (including additions) from W3.
 
-禁止在此文件写任何实现逻辑：这里只有类型。
+No implementation logic belongs here - types only.
 """
 
 from __future__ import annotations
@@ -24,20 +25,29 @@ SCHEMA_VERSION = "0.1.0"
 
 
 class CorpusSnapshot(BaseModel):
-    """一次冻结的语料状态。语料更新产生新快照，不修改旧快照。"""
+    """A frozen corpus state. A new crawl produces a new snapshot; old ones are immutable."""
 
-    snapshot_id: str = Field(..., description="内容哈希 + 日期；同语料重建必须一致")
+    snapshot_id: str = Field(
+        ..., description="content hash + date; rebuilding the same corpus must match"
+    )
     created_at: str
     item_count: int
-    deduped_count: int = Field(..., description="去重后条目数 —— 一切指标的口径")
+    deduped_count: int = Field(
+        ..., description="items after deduplication - the denominator of every metric"
+    )
     source_count: int
-    window_start: str = Field(..., description="语料时间跨度，评估可复现的必要字段")
+    window_start: str = Field(
+        ..., description="corpus time span; required for reproducible evaluation"
+    )
     window_end: str
 
 
 class RetrievalFilters(BaseModel):
     source_types: Sequence[SourceType] | None = None
-    since: str | None = Field(None, description="日报“只取今天的”也走这里，禁止新增时间分桶索引")
+    since: str | None = Field(
+        None,
+        description='daily views ("today only") also use this; never add a time-bucketed index',
+    )
     until: str | None = None
     media_ids: Sequence[int] | None = None
 
@@ -45,19 +55,23 @@ class RetrievalFilters(BaseModel):
 class RetrievalQuery(BaseModel):
     text: str
     top_k: int = 5
-    snapshot_id: str = Field(..., description="绑定快照，保证可复现")
+    snapshot_id: str = Field(
+        ..., description="binds the query to a snapshot, which makes results reproducible"
+    )
     filters: RetrievalFilters | None = None
 
 
 class Citation(BaseModel):
-    """结构化引用，不是拼接的字符串。"""
+    """A structured citation, not a concatenated string."""
 
-    source_type: SourceType = Field(..., description="决定前端展示强度与合规裁剪")
+    source_type: SourceType = Field(
+        ..., description="drives display strength and compliance clipping"
+    )
     publisher: str = Field(..., description="'Capcom' | 'ANN' | 'AniList' ...")
     title: str
     url: str
     published_at: str
-    chunk_id: str = Field(..., description="引用必须能定位到块")
+    chunk_id: str = Field(..., description="a citation must be able to locate its chunk")
 
 
 class RetrievedChunk(BaseModel):
@@ -66,7 +80,7 @@ class RetrievedChunk(BaseModel):
     snapshot_id: str
     text: str = Field(
         ...,
-        description="内部使用；对外由 ground/serialize 裁剪（≤200 字符片段）",
+        description="internal use; clipped to a <=200 character excerpt by ground/serialize for clients",
     )
     score: float
     citation: Citation
@@ -80,11 +94,11 @@ class GroundedAnswer(BaseModel):
     abstain_reason: str | None = None
 
 
-# ---- 附加任务端口（接口先行，本阶段只定义不实现完整逻辑）----
+# ---- Secondary task ports (interface first; full logic lands later) ----
 
 
 class DailyReportPort(BaseModel):
-    """日报生成入口（后置实现）"""
+    """Daily report entry point (implemented in a later stage)."""
 
     snapshot_id: str
     date: str
@@ -97,21 +111,23 @@ class CategoryDigest(BaseModel):
 
 
 class ClusterCard(BaseModel):
-    """日报热点簇：一张卡片 = 一个去重簇"""
+    """Daily hot cluster: one card = one deduplicated cluster."""
 
     cluster_id: str
-    size: int = Field(..., description="簇大小 = 热度代理")
+    size: int = Field(..., description="cluster size as a heat proxy")
     media_ids: Sequence[int]
     representative_title: str
     first_seen: str
-    citations: Sequence[Citation] = Field(..., description="复用 Citation；前端走合规裁剪")
+    citations: Sequence[Citation] = Field(
+        ..., description="reuses Citation; the client applies compliance clipping"
+    )
 
 
 class FactUpdate(BaseModel):
-    """L0 当日新增结构化事实"""
+    """A structured fact newly extracted today (L0)."""
 
     media: str
-    field: str = Field(..., description="发售日 / 平台 / 事件类型 ...")
+    field: str = Field(..., description="release date / platform / event type ...")
     value: str
     chunk_id: str
     url: str
@@ -119,9 +135,10 @@ class FactUpdate(BaseModel):
 
 
 class DailyDigest(BaseModel):
-    """日报按日候选集（看板 / 阶段二文字版账号日报共用）。
+    """Per-day candidate set shared by the board and the stage-2 text digest.
 
-    按日取数仍用 RetrievalFilters.since/until，禁止新增时间分桶索引（02 不变量 4）。
+    Per-day retrieval still goes through RetrievalFilters.since/until; a time-bucketed index is
+    forbidden because it would contaminate the chunking comparison (invariant 4, spec 02).
     """
 
     snapshot_id: str
@@ -129,9 +146,9 @@ class DailyDigest(BaseModel):
     by_category: Sequence[CategoryDigest]
     top_clusters: Sequence[ClusterCard]
     fact_updates: Sequence[FactUpdate]
-    episode_table: Sequence[dict] = Field(..., description="B站时间表直通")
+    episode_table: Sequence[dict] = Field(..., description="Bilibili schedule passthrough")
     source_coverage: dict[str, int] = Field(
-        ..., description="per-source 当日条数（01 §5.5 采集监控复用）"
+        ..., description="items per source for that day (also feed monitoring, 01 §5.5)"
     )
 
 

@@ -1,6 +1,6 @@
-"""契约一致性（02 §3 不变量 5 / 05 §5）：改 ports 不重新导出 schema 必须在这里红。
+"""Contract consistency (invariant 5 of spec 02 / 05 §5): editing ports without re-exporting fails here.
 
-这条用例是 CI 的契约闸门本体 —— 别把它删成 skip。
+This test is the CI contract gate itself - do not turn it into a skip.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from acgn_rag.contracts_export import SCHEMA_PATH, build_schema, check
 
 def test_schema_matches_ports() -> None:
     ok, message = check()
-    assert ok, f"{message}（修复：python scripts/export_schema.py）"
+    assert ok, f"{message} (fix: python scripts/export_schema.py)"
 
 
 def test_schema_file_is_valid_json() -> None:
@@ -37,4 +37,4 @@ def test_every_port_model_is_exported() -> None:
         "DailyDigest",
     }
     missing = expected - exported
-    assert not missing, f"schema 缺少模型：{sorted(missing)}"
+    assert not missing, f"models missing from the schema: {sorted(missing)}"

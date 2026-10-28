@@ -1,12 +1,13 @@
-"""对外序列化的合规裁剪（06 §3 C3）—— 前端之前的最后一道闸。
+"""Compliance clipping for outbound payloads (06 §3 C3) - the last gate before the client.
 
-负责人：B（C 复核前端层）　|　依据：06 §3 C3/C4、02 §3 不变量 1
+Owner: B (front-end layer reviewed by C) | Spec: 06 §3 C3/C4, invariant 1 of spec 02
 
-对外只允许输出四件东西：摘要 + 原文 URL + ≤200 字符片段 + 强制出处。
-原文全文永不响应 —— 本模块是全项目唯一允许"缩短正文"的地方，别处不要自己 slice。
+Clients may only receive four things: a summary, the source URL, a <=200 character excerpt,
+and a mandatory attribution. Full text is never served - this module is the only place in the
+project allowed to shorten an article body; do not slice text anywhere else.
 
-计量口径：**按 Unicode 字符计**（不是字节、不是 UTF-8 码元）。日中英混排统一用 len(str)，
-理由见 docs/COMPLIANCE.md。
+Measurement unit: **Unicode characters** (not bytes, not UTF-8 code units), so Japanese,
+Chinese and English excerpts share one budget. Rationale in docs/COMPLIANCE.md.
 """
 
 from __future__ import annotations
@@ -16,14 +17,14 @@ from typing import Any
 from acgn_rag.core.ports import RetrievedChunk
 
 MAX_QUOTE_CHARS = 200
-ELLIPSIS = "…"
+ELLIPSIS = "\u2026"
 
 
 def clip_quote(text: str, limit: int = MAX_QUOTE_CHARS) -> str:
-    """把正文截到 limit 个字符以内，被截断时以省略号收尾且总长仍 ≤ limit。
+    """Clip the body to at most `limit` characters, ending with an ellipsis that fits the budget.
 
-    空白归一（连续空白压成一个空格）只做格式整理，不改变原意 —— C4 禁止的是转述媒体观点，
-    不是去除排版噪声。
+    Whitespace normalisation only collapses runs of whitespace; it does not change wording.
+    C4 forbids paraphrasing media commentary, not removing layout noise.
     """
     if limit <= 0:
         raise ValueError("limit must be positive")
@@ -34,7 +35,7 @@ def clip_quote(text: str, limit: int = MAX_QUOTE_CHARS) -> str:
 
 
 def serialize_chunk(chunk: RetrievedChunk, limit: int = MAX_QUOTE_CHARS) -> dict[str, Any]:
-    """把内部 chunk 转成可直接响应的对外载荷（/retrieve 的返回单元）。"""
+    """Turn an internal chunk into a client-safe payload (the response unit of /retrieve)."""
     citation = chunk.citation
     return {
         "chunk_id": chunk.chunk_id,
@@ -47,7 +48,7 @@ def serialize_chunk(chunk: RetrievedChunk, limit: int = MAX_QUOTE_CHARS) -> dict
             "url": citation.url,
             "published_at": citation.published_at,
         },
-        # 强制出处：前端不许渲染没有 url 的引用
+        # Mandatory attribution: the client must not render a citation without a url
         "attribution_required": True,
     }
 

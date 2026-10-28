@@ -1,20 +1,21 @@
-# EVAL_PROTOCOL —— 评测执行标准
+# EVAL_PROTOCOL — how evaluation is executed
 
-> 归属：评估的**执行细则**。设计理由与配置矩阵在 04 §4；本文件只写「怎么标、怎么判、怎么记」。
-> 目标：同一份 QA 集 + 同一份语料快照，任何人重跑都得到同一组数字。
+> Scope: the **execution rules**. Design rationale and the config matrix are in spec 04 §4; this file only says
+> how to annotate, how to judge, and how to record.
+> Goal: the same QA set against the same corpus snapshot must produce the same numbers for anyone who reruns it.
 
-## 1. QA 集格式（`eval/qa_set.jsonl`，一行一题）
+## 1. QA set format (`eval/qa_set.jsonl`, one item per line)
 
 ```json
 {
   "qa_id": "A-007",
   "type": "A",
-  "question": "《XXX》第二季的放送开始日是？",
+  "question": "When does season 2 of <title> start airing?",
   "gold_answer": "2026-10-05",
   "gold_evidence": {
     "chunk_ids": ["c_8f21"],
     "urls": ["https://www.toei-anim.co.jp/news/..."],
-    "publisher": "東映アニメーション"
+    "publisher": "Toei Animation"
   },
   "key_entities": ["2026-10-05"],
   "source_type": "official",
@@ -24,30 +25,35 @@
 }
 ```
 
-- `key_entities`：规则匹配命中率的判定依据（实体/数值），必须能在 `gold_answer` 里找到。
-- `window`：该题的有效时间窗，超出窗的语料不参与判定。
-- 四类配额：A 10–12 / B 8–10 / C 6–8 / D ≥8（含拒答 ≥5），总量 ≥30，**A 类 ≤ 总量 1/3**。
+- `key_entities`: the judgement basis for rule-based hit rate; each must appear in `gold_answer`.
+- `window`: the validity window for this item; corpus outside it does not count.
+- Quotas: A 10–12 / B 8–10 / C 6–8 / D >=8 (>=5 abstention), total >=30, **type A <= one third of the total**.
 
-## 2. 三档判定细则（`answer_correctness`）
+## 2. Three-level judgement (`answer_correctness`)
 
-| 档位 | 判定 | 例子 |
+| Level | Rule | Example |
 |---|---|---|
-| `fully_correct` | 关键实体/数值全对，且无与 `gold_evidence` 矛盾的陈述 | 日期、平台、话数均对 |
-| `partially_correct` | 核心正确但缺 1 项，或正确但夹带 1 处未被支持的多余断言 | 日期对、平台漏 |
-| `incorrect` | 关键实体错、答非所问、或引用与答案不一致 | 说 10-05 实际 10-12 |
+| `fully_correct` | all key entities/figures correct, no statement contradicting `gold_evidence` | date, platform, episode count all right |
+| `partially_correct` | core correct but one item missing, or correct with one unsupported extra claim | date right, platform missing |
+| `incorrect` | key entity wrong, off-topic, or citations contradict the answer | says 10-05 but the source says 10-12 |
 
-判定纪律：
-1. **先看引用，再看答案**。引用不到原文的答案，即便文字对也降一档（可验证性是本题核心）。
-2. 两人独立标 10 条对表，一致率 <85% 就回来改细则，不要把分歧留到最后。
-3. 争议题由 D 裁决并记进 `eval/runs/<run_id>/disputes.md`。
+Discipline:
+1. **Read the citations before the answer.** An answer whose citations do not reach the source drops one level
+   even if the text is right — verifiability is the point of this topic.
+2. Two people annotate 10 items independently; if agreement is below 85%, revise these rules instead of
+   leaving the disagreement to the end.
+3. Disputed items are adjudicated by D and logged in `eval/runs/<run_id>/disputes.md`.
 
-## 3. 拒答（`abstention_accuracy`）
+## 3. Abstention (`abstention_accuracy`)
 
-- 拒答成立的条件：知识库确实无答案，且回答里**明确说明"知识库中没有"**而非猜测。
-- 校准集：20 条有答案 + 10 条无答案，扫拒答阈值，画出「误拒 / 漏拒」曲线后取工作点。
-- 报告里必须同时给两个数：无答案集拒答率、有答案集误拒率。只报一个数会被质疑。
+- Abstention counts only when the knowledge base truly lacks the answer *and* the response says so explicitly
+  rather than guessing.
+- Calibration set: 20 answerable + 10 unanswerable items; sweep the threshold and pick an operating point from
+  the false-refusal / missed-refusal curve.
+- Report both numbers: refusal rate on the unanswerable set and false-refusal rate on the answerable set.
+  Reporting one alone invites the obvious objection.
 
-## 4. run 记录（`eval/runs/<run_id>/meta.json`）
+## 4. Run record (`eval/runs/<run_id>/meta.json`)
 
 ```json
 {
@@ -58,23 +64,23 @@
   "chunk_config": "A",
   "retrieval": {"mode": "vector", "top_k": 5, "over_fetch": 5},
   "embed": {"model": "intfloat/multilingual-e5-base", "device": "cpu"},
-  "llm": {"provider": "…", "model": "…", "version": "…", "temperature": 0.0},
-  "git_sha": "…",
+  "llm": {"provider": "...", "model": "...", "version": "...", "temperature": 0.0},
+  "git_sha": "...",
   "metrics": {"retrieval_hit_rate": 0.0, "answer_correctness": {}, "abstention_accuracy": {}}
 }
 ```
 
-**缺 `snapshot_id` 或 `window` 的 run 记录无效**（02 §3 不变量 2）。
+**A run without `snapshot_id` or `window` is invalid** (invariant 2, spec 02).
 
-## 5. 复现纪律
+## 5. Reproducibility
 
-- `temperature=0` **不等于确定性**：MoE 路由与批处理仍会带来抖动。报告里必须写明
-  「同版本同参数重跑存在极小非确定性」，并给出重跑两次的差异范围。
-- 换 `device`（cpu ↔ mps）、换模型版本、换 chunk 配置，都必须产生新 run_id。
-- 指标分母一律 `deduped_count`（02 §3 不变量 3）。
+- `temperature=0` **is not determinism**: MoE routing and batching still introduce jitter. The report must state
+  that reruns differ slightly and give the observed spread across two reruns.
+- Changing the device (cpu <-> mps), the model version or the chunk config produces a new `run_id`.
+- Metric denominators are always `deduped_count` (invariant 3, spec 02).
 
-## 6. 报告口径（写进 §6 的三条）
+## 6. Reporting rules (three lines that go into §6)
 
-1. 总体数字之外，**按 `sourceType` 分组**报告：官方短公告上 A/B 几乎无差异，长文档上才有差异。
-2. 结论必须条件化：「细节题 A'/A 优；跨源综合题 B 优」，不要写"A 更好"。
-3. 30 条样本的置信区间很宽（±10 个百分点量级），必须附区间或明确说明样本量限制。
+1. Besides totals, **group by `sourceType`**: on short official notices A and B barely differ; only long documents separate them.
+2. Conclusions must be conditional: "A'/A win on detail questions, B wins on cross-source synthesis" — never "A is better".
+3. With ~30 items the confidence interval is wide (order of ±10 points); attach it or state the sample-size limit.

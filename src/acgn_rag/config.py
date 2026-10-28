@@ -1,11 +1,13 @@
-"""运行时配置：只从环境变量 / .env 读取，不在代码里写死密钥与厂商。
+"""Runtime configuration: read from environment / .env only, never hard-coded.
 
-负责人：D　|　依据：04 §7 D4/D5、06 §1
+Owner: D | Spec: 04 §7 D4/D5, 06 §1
 
-设计约束：
-  - 换向量库或换模型厂商 → 只改 .env，不改代码（内部接口 LLMClient / Embedder 保持不变）。
-  - 密钥永不入库：.env 进 .gitignore，仓库只提交 .env.example。
-  - 一切影响实验结果的配置（模型名、版本、device）都必须能被 eval run 记录带走。
+Design constraints:
+  - Swapping the vector store or the LLM vendor changes `.env` only, never code
+    (the internal LLMClient / Embedder interfaces stay stable).
+  - Secrets never enter the repo: `.env` is gitignored, only `.env.example` is committed.
+  - Every setting that can change an experimental result (model name, version, device)
+    must be recordable in an eval run.
 """
 
 from __future__ import annotations
@@ -53,17 +55,18 @@ class EmbedConfig:
     model_name: str = field(
         default_factory=lambda: _env("ACGN_EMBED_MODEL", "intfloat/multilingual-e5-base") or ""
     )
-    # 评测与建索引统一在此 device 上跑；跨机器数字可比的前提是 device 一致
+    # Indexing and evaluation both run on this device; identical device is what makes
+    # numbers comparable across machines.
     device: str = field(default_factory=lambda: _env("ACGN_EMBED_DEVICE", "cpu") or "cpu")
     batch_size: int = field(default_factory=lambda: _env_int("ACGN_EMBED_BATCH", 32))
-    # e5 系列必须加前缀，否则召回系统性偏低（PLAN §3 第 1 条）
+    # e5 models require these prefixes; omitting them costs recall (PLAN §3 item 1).
     query_prefix: str = "query: "
     passage_prefix: str = "passage: "
 
 
 @dataclass(frozen=True)
 class LLMConfig:
-    """抽取线与生成线允许用不同厂商：两组变量各自独立。"""
+    """Extraction and answer generation may use different vendors: the two groups are independent."""
 
     base_url: str = field(default_factory=lambda: _env("ACGN_LLM_BASE_URL", "") or "")
     api_key: str = field(default_factory=lambda: _env("ACGN_LLM_API_KEY", "") or "")
@@ -71,7 +74,7 @@ class LLMConfig:
     model_version: str = field(default_factory=lambda: _env("ACGN_LLM_MODEL_VERSION", "") or "")
     temperature: float = 0.0
 
-    # 抽取线（F，W2 批量；要便宜、JSON 稳、可重试）
+    # Extraction line (F, W2 batch: cheap, strict JSON, retryable)
     extract_base_url: str = field(
         default_factory=lambda: _env("ACGN_EXTRACT_BASE_URL", _env("ACGN_LLM_BASE_URL", "")) or ""
     )
@@ -82,7 +85,7 @@ class LLMConfig:
         default_factory=lambda: _env("ACGN_EXTRACT_MODEL", _env("ACGN_LLM_MODEL", "")) or ""
     )
 
-    # 生成线（B，W3 起在线；要指令遵循 + 引用编号不编 + 拒答）
+    # Answer line (B, W3 onwards: instruction following, no invented citations, abstention)
     answer_base_url: str = field(
         default_factory=lambda: _env("ACGN_ANSWER_BASE_URL", _env("ACGN_LLM_BASE_URL", "")) or ""
     )
@@ -98,7 +101,7 @@ class LLMConfig:
 class HttpConfig:
     user_agent: str = field(default_factory=lambda: _env("ACGN_HTTP_UA", DEFAULT_UA) or DEFAULT_UA)
     timeout_s: float = field(default_factory=lambda: float(_env("ACGN_HTTP_TIMEOUT", "10") or "10"))
-    # per-host 限速与全局并发（01 §5.2）：默认 1 req/2.5s + 抖动，全局并发 8–14
+    # Per-host pacing and global concurrency (01 §5.2): 1 req/2.5s with jitter, 8-14 workers.
     min_interval_s: float = 2.5
     max_concurrency: int = field(default_factory=lambda: _env_int("ACGN_HTTP_CONCURRENCY", 8))
     respect_robots: bool = True
@@ -107,7 +110,7 @@ class HttpConfig:
 @dataclass(frozen=True)
 class StoreConfig:
     backend: str = field(default_factory=lambda: _env("ACGN_STORE_BACKEND", "chroma") or "chroma")
-    # collection 命名：snap_<snapshot_id[:12]>_<config>；只保留当前与上一快照
+    # Collection naming: snap_<snapshot_id[:12]>_<config>; keep only current and previous snapshot.
     keep_snapshots: int = field(default_factory=lambda: _env_int("ACGN_KEEP_SNAPSHOTS", 2))
     over_fetch_factor: int = field(default_factory=lambda: _env_int("ACGN_OVERFETCH", 5))
 
@@ -123,7 +126,7 @@ class Settings:
 
 
 def load_settings() -> Settings:
-    """每次调用重新读环境，避免测试之间互相污染。"""
+    """Re-read the environment on every call so tests cannot leak state into each other."""
     return Settings()
 
 
