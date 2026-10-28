@@ -133,29 +133,48 @@ texts; only the encoder varies. Numbers are a *selection* sample (n=16), not the
 | multilingual-e5-small | 384 | 5090 | 0.69 | 0.559 | 0.50 | 0.344 |
 | multilingual-e5-base (current default) | 768 | 1661 | 0.81 | 0.771 | 0.75 | 0.667 |
 | multilingual-e5-large | 1024 | 421 | 0.81 | 0.771 | 0.62 | 0.625 |
-| **Qwen3-Embedding-0.6B** | 1024 | 53 (bf16) / 206 (fp32) | **1.00** | **0.880** | **1.00** | **0.844** |
+| **Qwen3-Embedding-0.6B** | 1024 | 53 (bf16) / 206 (fp32) | **1.00** | **0.880** | **1.00** | 0.844 |
+| **bge-m3 (dense)** | 1024 | 365 | **1.00** | 0.859 | **1.00** | **0.938** |
 
-All three e5 misses were cross-lingual queries on JP-source items; Qwen3 answered every zh and en query
-on JP sources directly, with no translation lane. This matches the public picture (Qwen3-Embedding small
-variants lead the current MMTEB multilingual boards; e5 is a 2023/24-generation baseline), but the deciding
-numbers here are ours.
+All three e5 misses were cross-lingual queries on JP-source items; both Qwen3 and bge-m3 answered every
+zh and en query on JP sources directly, with no translation lane. bge-m3 was added after community
+practice flagged it as the multilingual workhorse (r/LocalLLaMA threads; JP retrieval bench 0.8498 vs
+e5-base 0.8384) — at n=16 its tie with Qwen3 (higher zh MRR, lower overall MRR) is within noise; the
+G1a bake-off decides.
 
 **Policy (pre-registered):**
-- **GPU canonical lane: Qwen3-Embedding-0.6B** is the candidate to confirm at G1a; **CPU lane: e5-base**
-  stays the any-member fallback. Encoder identity keeps the two lanes separable; a G2 run binds to the
+- **GPU canonical lane: two candidates — Qwen3-Embedding-0.6B and bge-m3 (dense)** — decided by the G1a
+  bake-off on the real frozen corpus; **CPU lane: e5-base** stays the any-member fallback (fastest lane
+  with sufficient quality for dev). Encoder identity keeps lanes separable; a G2 run binds to the
   identity that built its index.
 - Usage differences to respect: Qwen3 takes an **instruct-style query prompt** (`prompt_name="query"` in
   sentence-transformers), documents carry no prefix; its context is 32k so the 512-budget truncation trap
   does not apply — but config A stays 512/64 for the course A/B comparison, and the chunker's budget must
   be derived from the model (`max_seq_length − prefix`), not hard-coded. Qwen3 supports MRL output dims
-  (32–1024) if storage wants a smaller vector.
+  (32–1024) if storage wants a smaller vector. **bge-m3 needs no prefixes**, has 8k context, and is the
+  only candidate whose **mean-pooling architecture supports late chunking** — which is why the config-B
+  fallback experiment (below) is written against bge-m3. We use its **dense channel only**; the sparse
+  channel stays untouched so the hand-built BM25 stretch keeps its point.
 - **Bake-off protocol before the G1b freeze**: rerun the same mini-eval on the real frozen corpus with
-  30+ hand-checked queries; switch the GPU lane to Qwen3 only if it keeps a clear margin (≥10 points
-  hit@5 or ≥0.05 MRR on the zh subset). Decision and identity recorded in DECISIONS.
-- Considered and rejected: **bge-m3** (its sparse channel would make the BM25 stretch moot; dense quality
-  below Qwen3 on current boards; heavier) · **Ruri v3** (JP-specialist, tops JMTEB but cannot serve zh/en
-  queries — we need one trilingual retriever) · **8B+ embedders** (Qwen3-8B, Octen-8B, harrier-oss-27b:
-  out of our compute class for 4×40k chunks).
+  30+ hand-checked queries, both candidates; pick by zh-subset MRR and overall MRR with the spread
+  reported; a candidate must beat e5-base by ≥10 points hit@5 or ≥0.05 MRR on the zh subset to displace
+  it. Decision and identity recorded in DECISIONS.
+- Considered and rejected: **Ruri v3** (JP-specialist, tops JMTEB but cannot serve zh/en queries — we
+  need one trilingual retriever) · **8B+ embedders** (Qwen3-8B, Octen-8B, harrier-oss-27b: out of our
+  compute class for 4×40k chunks).
+
+**Community-practice validation (2026-10-29 survey, problem-driven):**
+- e5 prefix/truncation pitfalls are the top documented failure mode (HF model card + discussions #5/#33:
+  sentence-transformers needs manual prefixes; wrappers silently omit them; 512 truncation is silent) —
+  our §3.3 prefix rule and content-budget rule cover both.
+- Chroma pain points reported in the wild (cosine-distance vs similarity confusion, filtered queries
+  under-returning, hnsw param validation bugs) map one-to-one onto RUNBOOK §3.1's three pitfalls and the
+  over-fetch rule; nothing new to guard beyond what §3.1 already has.
+- Late chunking **cannot** apply to last-token-pooling decoder embedders (Qwen3) — confirmed as a known
+  limitation in EmbedAnything #176 and RAGFlow #2301, not just our reading of the pooling math.
+- News-dedup clustering practice prefers complete/average linkage over single linkage (chaining risk is
+  textbook) and entity-aware keys for multilingual streams — independently supports the dedup design
+  (entity key primary, complete-linkage text auxiliary, RUNBOOK §3.2a).
 - **Embed-time context headers (adopted, zero cost):** what gets encoded is not the raw chunk but
   `title | publisher | published date | chunk body`. RSS bodies routinely lose their parent context
   (who announced, when); a chunk that says "will begin airing on 2026-10-05" is unretrievable without it.
