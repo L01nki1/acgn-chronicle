@@ -156,6 +156,40 @@ numbers here are ours.
   below Qwen3 on current boards; heavier) · **Ruri v3** (JP-specialist, tops JMTEB but cannot serve zh/en
   queries — we need one trilingual retriever) · **8B+ embedders** (Qwen3-8B, Octen-8B, harrier-oss-27b:
   out of our compute class for 4×40k chunks).
+- **Embed-time context headers (adopted, zero cost):** what gets encoded is not the raw chunk but
+  `title | publisher | published date | chunk body`. RSS bodies routinely lose their parent context
+  (who announced, when); a chunk that says "will begin airing on 2026-10-05" is unretrievable without it.
+  The metadata is already in NormalizedItem — prepend at encode time, keep storing it as metadata too.
+- **Reranker stretch (proposed, pairs with the Qwen3 lane):** Qwen3-Reranker-0.6B beats
+  bge-reranker-v2-m3 on the published multilingual benches, but community reports show the default
+  instruction can underperform — it needs a task-specific instruction tuned on our data. Retrieve
+  top-50 with the embedder, rerank to top-5; only viable on the GPU lane within the p95 budget. Owner:
+  E decides latency, F owns the instruction. Not in the minimum pass condition.
+- **Contingencies, not defaults:** *late chunking* (Jina) needs a long-context **mean-pooling** encoder —
+  applies to bge-m3 (8k), not to e5 (512) nor to Qwen3 (last-token pooling); if config B's aggregated
+  chunks underperform, late-chunking-over-bge-m3 is the documented fallback experiment, not a default.
+  *Anthropic-style contextual retrieval* (one LLM call per chunk) beats both on quality in published
+  comparisons and is ~40k LLM calls here — out of course budget. *LanceDB* has OSS full-text search +
+  hybrid while Chroma OSS does not (that is Chroma Cloud only) — if Chroma's filters or hnsw tuning
+  underdeliver at G1b, LanceDB is the documented contingency, but switching is a D4 revision and needs
+  gate evidence, not taste. *model2vec/static embeddings* are a dev-smoke option only, quality far below
+  any canonical lane.
+
+### 3.4 L0 facts-extraction SOP
+
+- **Batch 10 announcements per LLM call** with numbered output; measured pattern from the pilot cuts
+  cost 3–5× vs one-per-call, and JSON per numbered slot is easier to validate. ~9.5k L0 items ⇒ ~950
+  calls, not 9,500.
+- **Flat schema, validate, retry**: one flat Pydantic model (title / release_date / platform list /
+  event_type / relevance), no deep nesting or Union types (a known structured-output failure mode);
+  prefer the vendor's native JSON-schema `response_format` when available, else strict-parse + **2
+  retries** on validation failure; after retries degrade to a plain-text chunk (never drop the doc).
+- **Pre-filter before the LLM**: Capcom's feed mixes 決算/IR corporate releases with game content — a
+  keyword classifier (決算｜株主｜IR｜決算短信 …) tags relevance *before* extraction so (a) the category
+  balance at G1a counts what we intended and (b) ~30–40 % of the Capcom volume skips LLM calls
+  entirely. Tagged items stay in the corpus as `official/corporate` unless A/D decide otherwise.
+- `max_tokens ≥ 1024` per call (see the DSV4-flash quirk above), and the system prompt is identical
+  across a batch — keep it stable so any provider-side prompt caching can act on it.
 
 ## 4. Emergency degradation
 
