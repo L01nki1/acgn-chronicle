@@ -49,7 +49,7 @@ run's `meta.json`.
 | ② vector database | three collections rebuild independently; filters correct |
 | ③ retrieval | filter combination tests; p95 well under 500 ms locally |
 | ④ grounded generation | `cited_chunk_ids ⊆ retrieved`; unanswerable questions refuse; clipping tests green |
-| ⑤ evaluation | ≥30 QA items (course minimum is 20), three metrics, reruns on the same snapshot give the same numbers |
+| ⑤ evaluation | ≥30 QA items (course minimum is 20) passing `scripts/check_qa.py`; three metrics; **tier-1 metrics identical across two reruns and tier-2 within 1 item of 30, with the spread reported** (`docs/EVAL_PROTOCOL.md` §8); every reported number carries a `run_id` |
 | Delivery | 6-page body drafted, contribution page signed, slides ready, 15-minute demo rehearsed |
 
 ### G3 · conditional — daily pipeline
