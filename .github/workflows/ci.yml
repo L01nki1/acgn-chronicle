@@ -8,8 +8,14 @@ name: CI
 #     macos catches differences on the team's actual platform.
 
 on:
+  # Every branch, not a pattern: members work on their own branch and push before opening a PR,
+  # so a `branches: [main, "wp*/**"]` filter silently gives them no remote check until the PR
+  # exists (a branch named `wp1-ingest` or `fix/typo` matches neither). Tags are excluded by
+  # using a branch filter rather than a bare `push:`.
   push:
-    branches: [main, "wp*/**"]
+    branches: ["**"]
+  # The PR event is the merge gate: it runs again even if the branch push already passed, because
+  # this is the run a reviewer looks at and the one a ruleset can require.
   pull_request:
   workflow_dispatch:
 

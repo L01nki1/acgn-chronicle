@@ -23,7 +23,33 @@
 - Commit message: `[WP1] add Toei html list adapter`; contract changes get the `[contract]` prefix.
 - Contract changes (`ports.py`) must explain the reason in the PR description and re-export the schema (§4).
 
+### 2.1 Where the checks fire
+
+Your work moves through four moments. Two are local and can be skipped; two are remote and cannot.
+
+| Moment | What runs | Mechanism | Bypassable |
+|---|---|---|---|
+| `git commit` on your branch | lint + format on the **staged `.py` files only**; contract check if `ports.py` is staged | local hook `.githooks/pre-commit` | yes, `--no-verify` |
+| `git push` your branch | the four gates | local hook `.githooks/pre-push`, then CI on the pushed commit | locally yes — the CI run still happens |
+| open or update a PR | the four gates on ubuntu **and** macos | CI, `pull_request` event | no |
+| merge into `main` | the four gates again on `main` | CI, `push` event | no, once the ruleset below is on |
+
+Two CI runs for one commit (`push` and `pull_request`) is intentional: the push run tells you before you ask
+anyone to review, the PR run is the one a reviewer reads and the one a ruleset can require.
+
+**Local hooks exist only after `python scripts/install_hooks.py`** (§4.2) — `core.hooksPath` is a per-clone
+setting, so it cannot be committed. If you clone fresh and skip that command, you are unprotected locally but
+the PR checks still catch you.
+
+**The only layer nobody can bypass is server-side.** To block merging while a check is red, the repository
+owner sets it once: `Settings → Rules → New branch ruleset` → target `main` → **Require status checks to
+pass** → select `ubuntu-latest / py3.11` and `macos-latest / py3.11`. Until that exists, a red PR can still
+be merged by whoever presses the button.
+
 ## 3. PR checklist (the reviewer ticks each line)
+
+The same list ships as `.github/pull_request_template.md`, so it appears in the description of every PR you
+open — you do not have to remember it.
 
 1. CI is green on all four gates (lint / format / contract check / tests) — the author ran
    `python scripts/check.py` before pushing, not just `pytest` (§4.1)

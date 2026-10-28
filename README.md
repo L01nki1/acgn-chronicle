@@ -85,7 +85,9 @@ while lint stays green. `*.md` is excluded from formatting on purpose (`docs/` m
 pseudo-code with column-aligned comments); `.py` files are formatted strictly.
 
 **You do not have to remember any of this**: after `python scripts/install_hooks.py`, git runs the fast gates
-on `commit` and all four on `push` (see ONBOARDING §4.2).
+on `commit` and all four on `push`. CI runs the same four on **every branch push** (so you get feedback before
+opening a PR) and again on **every PR** (the merge gate); merging with a red check is blocked by the repository
+ruleset. The full picture — which moment runs what, and what can be bypassed — is ONBOARDING §2.1.
 
 Once the pipeline lands, also:
 
