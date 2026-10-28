@@ -191,8 +191,14 @@ Same-GPU (T4) ordering: e5-base > bge-m3 > Qwen3 in both precisions — on a 40k
 (≈20.5M tokens) even the slowest lane builds one config in **≤ 50 min (Qwen3 fp16)**, so the encoding
 budget is no longer a constraint on any GPU lane; the A380 lane builds e5-base in ~55 min and bge-m3 in
 ~1.9 h per config. Do **not** compare tok/s across different GPUs (A380 vs T4 rows answer "can this lane
-build in time", not "which model is faster"). fp16 changed no hit/MRR value on this sample, but fp16
-remains a distinct encoder-identity dimension: builds record it, caches key on it.
+build in time", not "which model is faster"). fp32↔fp16 agreement, measured on T4 (all three models): min vector cosine
+0.99976, query top-5 overlap 97.5–100 % (one shuffled slot in one e5-base query),
+corpus top-1 agreement 99.3–100 %, max similarity-score delta 5e-4 — fp16 compute
+is ranking-safe at three orders of magnitude below any threshold we use. Policy:
+**compute in fp16 on GPU lanes, store vectors as fp32** (40k×1024 fp32 ≈ 160 MB per
+config — precision costs nothing on disk), and fp16 stays a distinct
+encoder-identity dimension: builds record it, caches key on it, frozen builds fix
+one machine (fp16 kernels vary more across GPU architectures than fp32).
 
 - **Embed-time context headers (adopted, zero cost):** what gets encoded is not the raw chunk but
   `title | publisher | published date | chunk body`. RSS bodies routinely lose their parent context
