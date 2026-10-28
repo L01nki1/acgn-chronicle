@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "acgn-rag"
+version = "0.1.0"
+description = "ACGN 跨时间档案问答 RAG 系统（CS5481 Topic 5）"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Course project, not for redistribution" }
+dependencies = [
+  "pydantic>=2.7,<3",
+  "httpx>=0.27",
+  "feedparser>=6.0",
+  "selectolax>=0.3.21",      # HTML 列表页解析，比 bs4 快一个量级
+  "charset-normalizer>=3.3",
+  "tenacity>=8.3",
+  "python-dateutil>=2.9",
+  "typer>=0.12",
+  "pyyaml>=6.0",
+]
+
+# 重依赖分离：CI 只装 dev，不装 embed/llm，确保测试零网络、零模型下载
+[project.optional-dependencies]
+embed = [
+  "sentence-transformers>=3.0",
+  "torch>=2.3",
+  "numpy>=1.26",
+]
+store = [
+  "chromadb>=0.5,<0.7",      # 版本区间锁死：0.7 起 API 有破坏性变更
+]
+llm = [
+  "openai>=1.30",            # 仅用 OpenAI 兼容客户端；厂商由 .env 决定
+]
+dev = [
+  "pytest>=8.2",
+  "pytest-cov>=5.0",
+  "respx>=0.21",             # 拦截 httpx，保证测试不触网
+  "ruff>=0.5",
+]
+all = [
+  "acgn-rag[embed,store,llm]",
+]
+
+[project.scripts]
+acgn = "acgn_rag.cli:app"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["data", "notebooks", "tests/ingest/fixtures"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+# 代码注释与文档字符串大量使用中文（项目约定），故关闭"易混淆 Unicode 标点"检查
+ignore = ["E501", "RUF001", "RUF002", "RUF003"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q --strict-markers -m 'not network'"
+markers = [
+  "network: 需要真实外网（默认不在 CI 运行，本地手动 -m network 才跑）",
+  "slow: 耗时用例（编码、建索引）",
+]
+# 默认跳过 network 标记：CI 与本地常规跑都不触网
+filterwarnings = ["error::DeprecationWarning:acgn_rag.*"]

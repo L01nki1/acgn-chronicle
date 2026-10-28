@@ -1,0 +1,852 @@
+{
+  "models": {
+    "CategoryDigest": {
+      "properties": {
+        "category": {
+          "description": "anime / manga / game / novel",
+          "title": "Category",
+          "type": "string"
+        },
+        "cluster_count": {
+          "title": "Cluster Count",
+          "type": "integer"
+        },
+        "new_count": {
+          "title": "New Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "category",
+        "new_count",
+        "cluster_count"
+      ],
+      "title": "CategoryDigest",
+      "type": "object"
+    },
+    "Citation": {
+      "description": "结构化引用，不是拼接的字符串。",
+      "properties": {
+        "chunk_id": {
+          "description": "引用必须能定位到块",
+          "title": "Chunk Id",
+          "type": "string"
+        },
+        "published_at": {
+          "title": "Published At",
+          "type": "string"
+        },
+        "publisher": {
+          "description": "'Capcom' | 'ANN' | 'AniList' ...",
+          "title": "Publisher",
+          "type": "string"
+        },
+        "source_type": {
+          "description": "决定前端展示强度与合规裁剪",
+          "enum": [
+            "official",
+            "media",
+            "metadata"
+          ],
+          "title": "Source Type",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_type",
+        "publisher",
+        "title",
+        "url",
+        "published_at",
+        "chunk_id"
+      ],
+      "title": "Citation",
+      "type": "object"
+    },
+    "ClusterCard": {
+      "$defs": {
+        "Citation": {
+          "description": "结构化引用，不是拼接的字符串。",
+          "properties": {
+            "chunk_id": {
+              "description": "引用必须能定位到块",
+              "title": "Chunk Id",
+              "type": "string"
+            },
+            "published_at": {
+              "title": "Published At",
+              "type": "string"
+            },
+            "publisher": {
+              "description": "'Capcom' | 'ANN' | 'AniList' ...",
+              "title": "Publisher",
+              "type": "string"
+            },
+            "source_type": {
+              "description": "决定前端展示强度与合规裁剪",
+              "enum": [
+                "official",
+                "media",
+                "metadata"
+              ],
+              "title": "Source Type",
+              "type": "string"
+            },
+            "title": {
+              "title": "Title",
+              "type": "string"
+            },
+            "url": {
+              "title": "Url",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source_type",
+            "publisher",
+            "title",
+            "url",
+            "published_at",
+            "chunk_id"
+          ],
+          "title": "Citation",
+          "type": "object"
+        }
+      },
+      "description": "日报热点簇：一张卡片 = 一个去重簇",
+      "properties": {
+        "citations": {
+          "description": "复用 Citation；前端走合规裁剪",
+          "items": {
+            "$ref": "#/$defs/Citation"
+          },
+          "title": "Citations",
+          "type": "array"
+        },
+        "cluster_id": {
+          "title": "Cluster Id",
+          "type": "string"
+        },
+        "first_seen": {
+          "title": "First Seen",
+          "type": "string"
+        },
+        "media_ids": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Media Ids",
+          "type": "array"
+        },
+        "representative_title": {
+          "title": "Representative Title",
+          "type": "string"
+        },
+        "size": {
+          "description": "簇大小 = 热度代理",
+          "title": "Size",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cluster_id",
+        "size",
+        "media_ids",
+        "representative_title",
+        "first_seen",
+        "citations"
+      ],
+      "title": "ClusterCard",
+      "type": "object"
+    },
+    "CorpusSnapshot": {
+      "description": "一次冻结的语料状态。语料更新产生新快照，不修改旧快照。",
+      "properties": {
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "deduped_count": {
+          "description": "去重后条目数 —— 一切指标的口径",
+          "title": "Deduped Count",
+          "type": "integer"
+        },
+        "item_count": {
+          "title": "Item Count",
+          "type": "integer"
+        },
+        "snapshot_id": {
+          "description": "内容哈希 + 日期；同语料重建必须一致",
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "source_count": {
+          "title": "Source Count",
+          "type": "integer"
+        },
+        "window_end": {
+          "title": "Window End",
+          "type": "string"
+        },
+        "window_start": {
+          "description": "语料时间跨度，评估可复现的必要字段",
+          "title": "Window Start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "created_at",
+        "item_count",
+        "deduped_count",
+        "source_count",
+        "window_start",
+        "window_end"
+      ],
+      "title": "CorpusSnapshot",
+      "type": "object"
+    },
+    "DailyDigest": {
+      "$defs": {
+        "CategoryDigest": {
+          "properties": {
+            "category": {
+              "description": "anime / manga / game / novel",
+              "title": "Category",
+              "type": "string"
+            },
+            "cluster_count": {
+              "title": "Cluster Count",
+              "type": "integer"
+            },
+            "new_count": {
+              "title": "New Count",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "category",
+            "new_count",
+            "cluster_count"
+          ],
+          "title": "CategoryDigest",
+          "type": "object"
+        },
+        "Citation": {
+          "description": "结构化引用，不是拼接的字符串。",
+          "properties": {
+            "chunk_id": {
+              "description": "引用必须能定位到块",
+              "title": "Chunk Id",
+              "type": "string"
+            },
+            "published_at": {
+              "title": "Published At",
+              "type": "string"
+            },
+            "publisher": {
+              "description": "'Capcom' | 'ANN' | 'AniList' ...",
+              "title": "Publisher",
+              "type": "string"
+            },
+            "source_type": {
+              "description": "决定前端展示强度与合规裁剪",
+              "enum": [
+                "official",
+                "media",
+                "metadata"
+              ],
+              "title": "Source Type",
+              "type": "string"
+            },
+            "title": {
+              "title": "Title",
+              "type": "string"
+            },
+            "url": {
+              "title": "Url",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source_type",
+            "publisher",
+            "title",
+            "url",
+            "published_at",
+            "chunk_id"
+          ],
+          "title": "Citation",
+          "type": "object"
+        },
+        "ClusterCard": {
+          "description": "日报热点簇：一张卡片 = 一个去重簇",
+          "properties": {
+            "citations": {
+              "description": "复用 Citation；前端走合规裁剪",
+              "items": {
+                "$ref": "#/$defs/Citation"
+              },
+              "title": "Citations",
+              "type": "array"
+            },
+            "cluster_id": {
+              "title": "Cluster Id",
+              "type": "string"
+            },
+            "first_seen": {
+              "title": "First Seen",
+              "type": "string"
+            },
+            "media_ids": {
+              "items": {
+                "type": "integer"
+              },
+              "title": "Media Ids",
+              "type": "array"
+            },
+            "representative_title": {
+              "title": "Representative Title",
+              "type": "string"
+            },
+            "size": {
+              "description": "簇大小 = 热度代理",
+              "title": "Size",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "cluster_id",
+            "size",
+            "media_ids",
+            "representative_title",
+            "first_seen",
+            "citations"
+          ],
+          "title": "ClusterCard",
+          "type": "object"
+        },
+        "FactUpdate": {
+          "description": "L0 当日新增结构化事实",
+          "properties": {
+            "chunk_id": {
+              "title": "Chunk Id",
+              "type": "string"
+            },
+            "field": {
+              "description": "发售日 / 平台 / 事件类型 ...",
+              "title": "Field",
+              "type": "string"
+            },
+            "media": {
+              "title": "Media",
+              "type": "string"
+            },
+            "publisher": {
+              "title": "Publisher",
+              "type": "string"
+            },
+            "url": {
+              "title": "Url",
+              "type": "string"
+            },
+            "value": {
+              "title": "Value",
+              "type": "string"
+            }
+          },
+          "required": [
+            "media",
+            "field",
+            "value",
+            "chunk_id",
+            "url",
+            "publisher"
+          ],
+          "title": "FactUpdate",
+          "type": "object"
+        }
+      },
+      "description": "日报按日候选集（看板 / 阶段二文字版账号日报共用）。\n\n按日取数仍用 RetrievalFilters.since/until，禁止新增时间分桶索引（02 不变量 4）。",
+      "properties": {
+        "by_category": {
+          "items": {
+            "$ref": "#/$defs/CategoryDigest"
+          },
+          "title": "By Category",
+          "type": "array"
+        },
+        "date": {
+          "title": "Date",
+          "type": "string"
+        },
+        "episode_table": {
+          "description": "B站时间表直通",
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Episode Table",
+          "type": "array"
+        },
+        "fact_updates": {
+          "items": {
+            "$ref": "#/$defs/FactUpdate"
+          },
+          "title": "Fact Updates",
+          "type": "array"
+        },
+        "snapshot_id": {
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "source_coverage": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "per-source 当日条数（01 §5.5 采集监控复用）",
+          "title": "Source Coverage",
+          "type": "object"
+        },
+        "top_clusters": {
+          "items": {
+            "$ref": "#/$defs/ClusterCard"
+          },
+          "title": "Top Clusters",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "date",
+        "by_category",
+        "top_clusters",
+        "fact_updates",
+        "episode_table",
+        "source_coverage"
+      ],
+      "title": "DailyDigest",
+      "type": "object"
+    },
+    "DailyReportPort": {
+      "description": "日报生成入口（后置实现）",
+      "properties": {
+        "date": {
+          "title": "Date",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "title": "Snapshot Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "date"
+      ],
+      "title": "DailyReportPort",
+      "type": "object"
+    },
+    "FactUpdate": {
+      "description": "L0 当日新增结构化事实",
+      "properties": {
+        "chunk_id": {
+          "title": "Chunk Id",
+          "type": "string"
+        },
+        "field": {
+          "description": "发售日 / 平台 / 事件类型 ...",
+          "title": "Field",
+          "type": "string"
+        },
+        "media": {
+          "title": "Media",
+          "type": "string"
+        },
+        "publisher": {
+          "title": "Publisher",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "media",
+        "field",
+        "value",
+        "chunk_id",
+        "url",
+        "publisher"
+      ],
+      "title": "FactUpdate",
+      "type": "object"
+    },
+    "GroundedAnswer": {
+      "$defs": {
+        "Citation": {
+          "description": "结构化引用，不是拼接的字符串。",
+          "properties": {
+            "chunk_id": {
+              "description": "引用必须能定位到块",
+              "title": "Chunk Id",
+              "type": "string"
+            },
+            "published_at": {
+              "title": "Published At",
+              "type": "string"
+            },
+            "publisher": {
+              "description": "'Capcom' | 'ANN' | 'AniList' ...",
+              "title": "Publisher",
+              "type": "string"
+            },
+            "source_type": {
+              "description": "决定前端展示强度与合规裁剪",
+              "enum": [
+                "official",
+                "media",
+                "metadata"
+              ],
+              "title": "Source Type",
+              "type": "string"
+            },
+            "title": {
+              "title": "Title",
+              "type": "string"
+            },
+            "url": {
+              "title": "Url",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source_type",
+            "publisher",
+            "title",
+            "url",
+            "published_at",
+            "chunk_id"
+          ],
+          "title": "Citation",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "abstain_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Abstain Reason"
+        },
+        "abstained": {
+          "title": "Abstained",
+          "type": "boolean"
+        },
+        "answer": {
+          "title": "Answer",
+          "type": "string"
+        },
+        "citations": {
+          "items": {
+            "$ref": "#/$defs/Citation"
+          },
+          "title": "Citations",
+          "type": "array"
+        },
+        "cited_chunk_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Cited Chunk Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "answer",
+        "citations",
+        "cited_chunk_ids",
+        "abstained"
+      ],
+      "title": "GroundedAnswer",
+      "type": "object"
+    },
+    "RetrievalFilters": {
+      "properties": {
+        "media_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Media Ids"
+        },
+        "since": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "日报“只取今天的”也走这里，禁止新增时间分桶索引",
+          "title": "Since"
+        },
+        "source_types": {
+          "anyOf": [
+            {
+              "items": {
+                "enum": [
+                  "official",
+                  "media",
+                  "metadata"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Types"
+        },
+        "until": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Until"
+        }
+      },
+      "title": "RetrievalFilters",
+      "type": "object"
+    },
+    "RetrievalQuery": {
+      "$defs": {
+        "RetrievalFilters": {
+          "properties": {
+            "media_ids": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Media Ids"
+            },
+            "since": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "日报“只取今天的”也走这里，禁止新增时间分桶索引",
+              "title": "Since"
+            },
+            "source_types": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "official",
+                      "media",
+                      "metadata"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Source Types"
+            },
+            "until": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Until"
+            }
+          },
+          "title": "RetrievalFilters",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "filters": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RetrievalFilters"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "snapshot_id": {
+          "description": "绑定快照，保证可复现",
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "top_k": {
+          "default": 5,
+          "title": "Top K",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "text",
+        "snapshot_id"
+      ],
+      "title": "RetrievalQuery",
+      "type": "object"
+    },
+    "RetrievedChunk": {
+      "$defs": {
+        "Citation": {
+          "description": "结构化引用，不是拼接的字符串。",
+          "properties": {
+            "chunk_id": {
+              "description": "引用必须能定位到块",
+              "title": "Chunk Id",
+              "type": "string"
+            },
+            "published_at": {
+              "title": "Published At",
+              "type": "string"
+            },
+            "publisher": {
+              "description": "'Capcom' | 'ANN' | 'AniList' ...",
+              "title": "Publisher",
+              "type": "string"
+            },
+            "source_type": {
+              "description": "决定前端展示强度与合规裁剪",
+              "enum": [
+                "official",
+                "media",
+                "metadata"
+              ],
+              "title": "Source Type",
+              "type": "string"
+            },
+            "title": {
+              "title": "Title",
+              "type": "string"
+            },
+            "url": {
+              "title": "Url",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source_type",
+            "publisher",
+            "title",
+            "url",
+            "published_at",
+            "chunk_id"
+          ],
+          "title": "Citation",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "chunk_id": {
+          "title": "Chunk Id",
+          "type": "string"
+        },
+        "citation": {
+          "$ref": "#/$defs/Citation"
+        },
+        "doc_id": {
+          "title": "Doc Id",
+          "type": "string"
+        },
+        "score": {
+          "title": "Score",
+          "type": "number"
+        },
+        "snapshot_id": {
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "text": {
+          "description": "内部使用；对外由 ground/serialize 裁剪（≤200 字符片段）",
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chunk_id",
+        "doc_id",
+        "snapshot_id",
+        "text",
+        "score",
+        "citation"
+      ],
+      "title": "RetrievedChunk",
+      "type": "object"
+    }
+  },
+  "schema_version": "0.1.0",
+  "source": "src/acgn_rag/core/ports.py"
+}

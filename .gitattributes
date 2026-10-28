@@ -1,0 +1,18 @@
+# 统一 LF：CRLF 会污染 tests/ingest/fixtures 与快照内容哈希（snapshotId 必须跨平台一致）
+* text=auto eol=lf
+
+# 二进制资产不参与换行转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.pdf binary
+*.zip binary
+*.parquet binary
+*.safetensors binary
+*.bin binary
+*.onnx binary
+
+# 注意：tests/ingest/fixtures/ 里会有 EUC-JP / Shift_JIS 原始字节样本（用于测字符集兜底），
+# 因此该目录不设 working-tree-encoding，也不得被编辑器"自动修正编码"重写。
