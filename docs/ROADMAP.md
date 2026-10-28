@@ -41,16 +41,37 @@ run's `meta.json`.
 - e5-base encoding with a working cache; compliance tests green (`pytest tests/compliance -q`)
 - L0 fact extraction on a 30-item spot check ≥90% field accuracy, every row carries `chunkId` + `url`
 
-### G2 · 2026-11-21 — Topic 5 complete
+### G2 · 2026-11-21 — Topic 5 complete (official brief, hard gate)
 
-| Requirement | Pass condition |
-|---|---|
-| ① data prep + ≥2 chunking strategies | A vs A' (optionally A₀) differ, and the difference is explained without confounded variables |
-| ② vector database | three collections rebuild independently; filters correct |
-| ③ retrieval | filter combination tests; p95 well under 500 ms locally |
-| ④ grounded generation | `cited_chunk_ids ⊆ retrieved`; unanswerable questions refuse; clipping tests green |
-| ⑤ evaluation | ≥30 QA items (course minimum is 20) passing `scripts/check_qa.py`; three metrics; **tier-1 metrics identical across two reruns and tier-2 within 1 item of 30, with the spread reported** (`docs/EVAL_PROTOCOL.md` §8); every reported number carries a `run_id` |
-| Delivery | 6-page body drafted, contribution page signed, slides ready, 15-minute demo rehearsed |
+> Topic 5 is a grounded QA system over a custom knowledge base, not a chatbot demo. The gate below reflects the course brief exactly: data prep + retrieval + grounded answer + evaluation, with traceable citations and explicit abstention.
+
+| Requirement | Minimum pass condition | Evidence required |
+|---|---|---|
+| ① Data prep + ≥2 chunking strategies | A vs A' (optionally A₀) differ, and the difference is explained without confounded variables | chunk-count table + config comparison + snapshot binding |
+| ② Knowledge base storage | vector database stores chunk embeddings; collections rebuild independently; metadata filters work | one successful build for each collection + filter tests |
+| ③ Retrieval mechanism | question is embedded; relevant chunks are retrieved by semantic similarity; filter combinations work | retrieval logs / tests; p95 under 500 ms locally |
+| ④ Grounded generation | `cited_chunk_ids ⊆ retrieved`; answer is generated only from retrieved chunks; unsupported questions refuse instead of guessing; clipping tests green | answer payloads + citation audit + abstention test cases |
+| ⑤ Evaluation | ≥30 QA items (course minimum is 20); the run archive includes `snapshot_id`, `window`, `run_id` and metrics; three metrics reported; reruns on the same snapshot stay within the documented spread | `eval/runs/<run_id>/meta.json` + QA pack + repeat-run evidence |
+| Delivery | 6-page body drafted, contribution page signed, slides ready, 15-minute demo rehearsed | final report bundle + signature page |
+
+#### G2 hard checks (must be green before G2 closes)
+
+1. `snapshot_id` is bound to the corpus and every run uses a frozen snapshot.
+2. At least two chunking strategies are implemented and compared; the comparison is not confounded by a different corpus or window.
+3. Retrieval is vector-based and uses the same `snapshot_id` as the question.
+4. Answers are grounded in retrieved chunks; citations are reproducible and every cited chunk is actually in the retrieved set.
+5. Unanswerable questions produce `abstained=true` and a refusal reason instead of a guessed answer.
+6. Evaluation uses a QA set with at least 30 items, balanced across the required QA types, and reports the metric definitions and rerun spread.
+7. The final report contains the required task-5 narrative: method, experiments, discussion, references, and the separate contribution/signature page.
+
+#### G2 stretch items (nice-to-have, cut first if schedule slips)
+
+- BM25 + RRF hybrid retrieval
+- multi-source daily digest sample
+- board / visual demo page
+- more aggressive query-time filtering and latency tuning
+
+These are optional. The minimum success condition remains the grounded QA system, not the extra UI or board work.
 
 ### G3 · conditional — daily pipeline
 
@@ -99,14 +120,25 @@ Secondary responsibilities (revised 2026-10-28):
 
 ## 5. This week, per member (W1, ends 11/2)
 
-| Member | First action |
+| Member | Focus direction |
 |---|---|
-| A | `SourceAdapter` two-mode interface + Toei HTML-list adapter (one request ≈ 18 years) + ANN per-day archive + Capcom full backfill |
-| B | `ports.py` v1 + export schema + `contracts/KnowledgePort.md`; research grounded-prompt patterns |
-| C | Query page skeleton (citation jump left blank); agree the front-end clipping contract with B |
-| D | Repo + CI done; start QA type-A construction; set up the contribution log |
-| E | Design snapshot idempotency and storage schema, review A's interface; `run_eval.py` skeleton |
-| F | Get config A chunking + e5 encoding running, measure throughput to derive the indexing budget |
+| A | Build the ingest backbone: adapters, backfill, dedup pipeline, and a reproducible snapshot freeze. First concrete target is a working source-to-snapshot path for ANN + Toei + Capcom. |
+| B | Freeze the contract and the grounded answer path: `ports.py`, exported schema, citation contract, and the abstention / refusal mechanism. |
+| C | Stand up the retrieval-facing interface and the front-end citation contract: query page, citation display, and clipping-compatible rendering. |
+| D | Set up evaluation-first work: QA type A/B/C/D construction, runner skeleton, run records, and the contribution/signature plan for the final report. |
+| E | Own retrieval and evaluation backend: filters, retrieval correctness, run_id and metric rules, and the measurement of latency / rerun spread. |
+| F | Own the knowledge-base core: chunk strategies A / A', embed/cache, vector store, and L0 fact extraction quality checks. |
+
+### 5.1 Member milestone targets
+
+| Member | Milestone target |
+|---|---|
+| A | A working source-to-snapshot flow with real data and reproducible `snapshot_id` |
+| B | Contract + answer format + abstention logic in place |
+| C | Query experience and citation rendering are wired to the contract |
+| D | QA pack and unambiguous evaluation rules are ready |
+| E | Retrieval path and metric runner are working on a frozen snapshot |
+| F | At least two chunking strategies produce indexable outputs and pass quality checks |
 
 ## 6. Top risks
 
