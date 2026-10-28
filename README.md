@@ -33,6 +33,18 @@ tests/             # includes tests/compliance/ (no full text out, <=200 chars, 
 docs/              # RUNBOOK / DECISIONS / EVAL_PROTOCOL / COMPLIANCE / ONBOARDING
 ```
 
+## Read first (10 minutes, everyone)
+
+| Order | Document | Why |
+|---|---|---|
+| 1 | [`docs/PROJECT.md`](docs/PROJECT.md) | What we are building, how Topic 5 grades us, the six invariants, the vocabulary |
+| 2 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Three acceptance phases, the weekly timeline, who owns what, this week's first action |
+| 3 | [`docs/ONBOARDING.md`](docs/ONBOARDING.md) | Environment, branches, PR checklist, and the "CI does not use the network" rule |
+| 4 | your WP's doc: [`SOURCES.md`](docs/SOURCES.md) (A) · [`EVAL_PROTOCOL.md`](docs/EVAL_PROTOCOL.md) (D/E) · [`COMPLIANCE.md`](docs/COMPLIANCE.md) (B/C) · [`RUNBOOK.md`](docs/RUNBOOK.md) (everyone, as needed) | The specifics of your area |
+
+Task-level work is tracked as GitHub issues, one per unit, each labeled `WPn` and linked to its gate in
+`ROADMAP.md`. Decisions go to [`docs/DECISIONS.md`](docs/DECISIONS.md) — verbal agreements do not count.
+
 ## Quick start
 
 Python 3.11+ is required (CI pins 3.11; 3.13 torch wheels are unverified, so avoid it locally).

@@ -66,26 +66,19 @@ run in CI and carry no unit tests (selector logic is tested offline against fixt
 | Time zone | Corrupted snapshot windows | Store UTC internally, convert for display only |
 | Embedding device: macOS has MPS | Floating-point results differ slightly per device | Pin `ACGN_EMBED_DEVICE=cpu` for indexing and evaluation; any device change must be recorded in the run |
 
-## 6. Division of labor (revised 2026-10-28, supersedes the two affected rows of spec 03 §2)
+## 6. Division of labor
 
-| Member | Primary | Secondary (revised) | Cross-review |
-|---|---|---|---|
-| A | WP1 ingestion & snapshots | WP2 entity-extraction support | WP2 |
-| B | WP4 generation/citations, **contract author** | WP1 collector plumbing; contract arbitration | WP6 |
-| C | WP6 website & demo | WP4 compliance clipping (front-end last line); WP5 visualization | WP4 |
-| D | WP5 evaluation + PM | WP6 demo script / QA organization / contribution log | with F |
-| E | WP3 retrieval | WP5 runner; **metric definitions** (was F); WP1 snapshot review | WP1 |
-| F | WP2 knowledge base & fact extraction | **Isla contact** (was B); extraction prompts | WP3 |
+The authoritative ownership table (primary / secondary / cross-review) lives in [`ROADMAP.md`](ROADMAP.md) §4.
+This section keeps only the part that is a collaboration rule rather than a schedule.
 
-**Only two rows moved.** Rationale:
-1. **Isla contact: B → F.** F produces the knowledge base and `DailyDigest`, so F knows best what retrieval
-   output looks like; B stays the sole author of `ports.py`. That gives an "F outward, B inward" pairing and
-   satisfies the bus-factor rule (03 §6).
-2. **Metric definitions: F → E.** E already implements the runner; keeping metric rules and runner together
-   removes a synchronization cost, and the bandwidth F frees up covers the Isla work.
+**The 2026-10-28 revision moved two responsibilities**, which matters for who you ask:
+1. **Isla contact: B → F.** F produces the knowledge base and `DailyDigest`, so F knows what retrieval output
+   looks like; B remains the sole author of `ports.py`. That gives an "F outward, B inward" pairing and satisfies
+   the bus-factor rule.
+2. **Metric definitions: F → E.** E implements the runner, so metric rules and runner stay with one person.
 
-**F's stage-1 boundary (important)**: 04 §1.1 says this stage does *not* integrate Isla — it only freezes the
-contract. So before 11/24 F does exactly three things and never touches Isla repository code (02, first line):
+**F's stage-1 boundary (important)**: this stage does *not* integrate Isla — it only freezes the contract. So
+before 11/24 F does exactly three things and never touches Isla repository code:
 
 - Read `contracts/KnowledgePort.md` + schema and raise consumer-side questions (end of W1, after B's G1a output)
 - Write a one-page integration note plus one curl example (lives in `contracts/`, tracked)
