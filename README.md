@@ -55,22 +55,22 @@ Python 3.11+ is required (CI pins 3.11; 3.13 torch wheels are unverified, so avo
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"            # dev only: no model download, no torch
-python scripts/install_hooks.py    # once per clone: gate every commit and push
+python scripts/install_hooks.py    # optional: run the gates locally on commit/push
 cp .env.example .env               # fill in keys only when you need the LLM
 ```
 
 > `[embed]` (sentence-transformers + torch) and `[store]` (chromadb) are heavy extras; install on demand:
 > `pip install -e ".[dev,embed,store]"`. CI never installs them.
 
-## Before every push: the four CI gates
+## The four gates — they run automatically
 
-CI runs four separate steps **in this order and stops at the first red one**, so a green `pytest` says nothing
-about formatting or about the contract schema. Run the same four locally:
+You commit and push; the checks run for you. CI runs the four gates on **every branch push** (feedback before
+you open a PR) and again on **every PR** (the merge gate), on ubuntu, macOS and Windows, with Python 3.11
+(baseline) and 3.13. Merging with a red check is blocked by the repository ruleset. Optional local hooks only
+make feedback faster — nothing breaks if you skip them. Which moment runs what: ONBOARDING §2.1.
 
-```bash
-python scripts/check.py            # all four gates, same order as CI, stops at the first failure
-python scripts/check.py --fix      # apply ruff fixes first, then gate
-```
+The order below is the order they run in, and **they stop at the first red one** — a green `pytest` says
+nothing about formatting or about the contract schema. This table is what to read when something is red:
 
 | # | Gate | Command | What it catches | If it fails |
 |---|---|---|---|---|
@@ -84,10 +84,13 @@ committed artifact, not a build output), and **step 2** — a docs or comment ed
 while lint stays green. `*.md` is excluded from formatting on purpose (`docs/` may hold illustrative
 pseudo-code with column-aligned comments); `.py` files are formatted strictly.
 
-**You do not have to remember any of this**: after `python scripts/install_hooks.py`, git runs the fast gates
-on `commit` and all four on `push`. CI runs the same four on **every branch push** (so you get feedback before
-opening a PR) and again on **every PR** (the merge gate); merging with a red check is blocked by the repository
-ruleset. The full picture — which moment runs what, and what can be bypassed — is ONBOARDING §2.1.
+Running them locally before pushing is never required. If you want the same four in one command (or after a
+red CI run, to reproduce it):
+
+```bash
+python scripts/check.py            # all four gates, same order as CI, stops at the first failure
+python scripts/check.py --fix      # apply ruff fixes first, then gate
+```
 
 Once the pipeline lands, also:
 
