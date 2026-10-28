@@ -122,6 +122,41 @@ include cluster counts, not just chunk counts.
 - **Extraction-vendor quirk:** if extraction runs on the CSLab DSV4-flash deployment, set `max_tokens ≥ 1024`
   — it is a reasoning model and returns empty content below that, because reasoning tokens consume the budget.
 
+### 3.3a Embedding-model bake-off — measured (issue #15 review, 2026-10-29)
+
+Pilot bake-off on real trilingual ACGN text (135 passages: Capcom JP press + ANN EN news + Gcores ZH
+media; 16 queries over 8 gold entities, half cross-lingual). Same machine and lane (torch CPU), same
+texts; only the encoder varies. Numbers are a *selection* sample (n=16), not the G2 evaluation:
+
+| model | dim | CPU tok/s | hit@5 | MRR@5 | zh-query hit | zh-query MRR |
+|---|---|---|---|---|---|---|
+| multilingual-e5-small | 384 | 5090 | 0.69 | 0.559 | 0.50 | 0.344 |
+| multilingual-e5-base (current default) | 768 | 1661 | 0.81 | 0.771 | 0.75 | 0.667 |
+| multilingual-e5-large | 1024 | 421 | 0.81 | 0.771 | 0.62 | 0.625 |
+| **Qwen3-Embedding-0.6B** | 1024 | 53 (bf16) / 206 (fp32) | **1.00** | **0.880** | **1.00** | **0.844** |
+
+All three e5 misses were cross-lingual queries on JP-source items; Qwen3 answered every zh and en query
+on JP sources directly, with no translation lane. This matches the public picture (Qwen3-Embedding small
+variants lead the current MMTEB multilingual boards; e5 is a 2023/24-generation baseline), but the deciding
+numbers here are ours.
+
+**Policy (pre-registered):**
+- **GPU canonical lane: Qwen3-Embedding-0.6B** is the candidate to confirm at G1a; **CPU lane: e5-base**
+  stays the any-member fallback. Encoder identity keeps the two lanes separable; a G2 run binds to the
+  identity that built its index.
+- Usage differences to respect: Qwen3 takes an **instruct-style query prompt** (`prompt_name="query"` in
+  sentence-transformers), documents carry no prefix; its context is 32k so the 512-budget truncation trap
+  does not apply — but config A stays 512/64 for the course A/B comparison, and the chunker's budget must
+  be derived from the model (`max_seq_length − prefix`), not hard-coded. Qwen3 supports MRL output dims
+  (32–1024) if storage wants a smaller vector.
+- **Bake-off protocol before the G1b freeze**: rerun the same mini-eval on the real frozen corpus with
+  30+ hand-checked queries; switch the GPU lane to Qwen3 only if it keeps a clear margin (≥10 points
+  hit@5 or ≥0.05 MRR on the zh subset). Decision and identity recorded in DECISIONS.
+- Considered and rejected: **bge-m3** (its sparse channel would make the BM25 stretch moot; dense quality
+  below Qwen3 on current boards; heavier) · **Ruri v3** (JP-specialist, tops JMTEB but cannot serve zh/en
+  queries — we need one trilingual retriever) · **8B+ embedders** (Qwen3-8B, Octen-8B, harrier-oss-27b:
+  out of our compute class for 4×40k chunks).
+
 ## 4. Emergency degradation
 
 
