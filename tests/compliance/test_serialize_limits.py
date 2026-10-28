@@ -6,8 +6,8 @@ fix the implementation - never raise the threshold.
 
 from __future__ import annotations
 
-from acgn_rag.core.ground.serialize import MAX_QUOTE_CHARS, clip_quote, serialize_chunk
-from acgn_rag.core.ports import Citation, RetrievedChunk
+from acgn_rag.core.ground.serialize import MAX_QUOTE_CHARS, clip_quote, to_excerpt
+from acgn_rag.core.ports import ChunkExcerpt, Citation, RetrievedChunk
 
 
 def _chunk(text: str) -> RetrievedChunk:
@@ -62,14 +62,34 @@ def test_whitespace_normalised() -> None:
     assert clip_quote("a\n\n  b\t c") == "a b c"
 
 
-def test_serialized_chunk_carries_source_and_flag() -> None:
+def test_excerpt_is_a_clipped_prefix_never_the_whole_body() -> None:
     body = "sentence about a release date. " * 200  # far longer than the excerpt budget
-    payload = serialize_chunk(_chunk(body))
-    quote = payload["quote"]
-    assert len(quote) <= MAX_QUOTE_CHARS
+    excerpt = to_excerpt(_chunk(body))
+    assert isinstance(excerpt, ChunkExcerpt)
     assert len(body) > MAX_QUOTE_CHARS * 10
+    assert len(excerpt.quote) <= MAX_QUOTE_CHARS
     # the excerpt is a truncated prefix, never the whole body
-    assert len(quote) < len(body)
-    assert body.startswith(quote[:-1])
-    assert payload["source"]["url"].startswith("https://")
-    assert payload["attribution_required"] is True
+    assert len(excerpt.quote) < len(body)
+    assert body.startswith(excerpt.quote[:-1])
+
+
+def test_excerpt_carries_a_usable_citation() -> None:
+    excerpt = to_excerpt(_chunk("body " * 500))
+    assert excerpt.citation.url.startswith("https://")
+    assert excerpt.citation.chunk_id == excerpt.chunk_id
+    assert excerpt.citation.publisher
+
+
+def test_wire_payload_has_no_field_for_the_body() -> None:
+    """Structural, not behavioural: the wire type must have nowhere to put the article.
+
+    A `text` field that is "always clipped" can regress; a type without a `text` field cannot.
+    """
+    payload = to_excerpt(_chunk("body " * 500)).model_dump()
+    assert set(payload) == {"chunk_id", "score", "quote", "citation"}
+    long_values = [
+        key
+        for key, value in payload.items()
+        if isinstance(value, str) and len(value) > MAX_QUOTE_CHARS
+    ]
+    assert long_values == []

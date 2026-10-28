@@ -2,19 +2,21 @@
 
 Owner: B (front-end layer reviewed by C) | Spec: 06 §3 C3/C4, invariant 1 of spec 02
 
-Clients may only receive four things: a summary, the source URL, a <=200 character excerpt,
-and a mandatory attribution. Full text is never served - this module is the only place in the
-project allowed to shorten an article body; do not slice text anywhere else.
+Clients may only receive four things: a summary, the source URL, a <=200 character excerpt, and a
+mandatory attribution. Full text is never served - this module is the only place in the project
+allowed to shorten an article body; do not slice text anywhere else.
 
-Measurement unit: **Unicode characters** (not bytes, not UTF-8 code units), so Japanese,
-Chinese and English excerpts share one budget. Rationale in docs/COMPLIANCE.md.
+Measurement unit: **Unicode characters** (not bytes, not UTF-8 code units), so Japanese, Chinese
+and English excerpts share one budget. Rationale in docs/COMPLIANCE.md.
+
+The conversion here is also the type boundary: `RetrievedChunk` (internal, carries the body) goes
+in, `ChunkExcerpt` (wire, carries only `quote`) comes out. Returning a plain dict instead would put
+the wire shape outside the schema, where no test could check it.
 """
 
 from __future__ import annotations
 
-from typing import Any
-
-from acgn_rag.core.ports import RetrievedChunk
+from acgn_rag.core.ports import ChunkExcerpt, Citation, RetrievedChunk
 
 MAX_QUOTE_CHARS = 200
 ELLIPSIS = "\u2026"
@@ -34,23 +36,19 @@ def clip_quote(text: str, limit: int = MAX_QUOTE_CHARS) -> str:
     return normalized[: limit - 1] + ELLIPSIS
 
 
-def serialize_chunk(chunk: RetrievedChunk, limit: int = MAX_QUOTE_CHARS) -> dict[str, Any]:
-    """Turn an internal chunk into a client-safe payload (the response unit of /retrieve)."""
-    citation = chunk.citation
-    return {
-        "chunk_id": chunk.chunk_id,
-        "score": chunk.score,
-        "quote": clip_quote(chunk.text, limit),
-        "source": {
-            "type": citation.source_type,
-            "publisher": citation.publisher,
-            "title": citation.title,
-            "url": citation.url,
-            "published_at": citation.published_at,
-        },
-        # Mandatory attribution: the client must not render a citation without a url
-        "attribution_required": True,
-    }
+def to_excerpt(chunk: RetrievedChunk, limit: int = MAX_QUOTE_CHARS) -> ChunkExcerpt:
+    """Turn an internal chunk into the wire unit of `/retrieve`.
+
+    The body is dropped here rather than redacted later: after this call the only text in the
+    object is `quote`, so no downstream handler can accidentally serialize the article.
+    """
+    citation: Citation = chunk.citation
+    return ChunkExcerpt(
+        chunk_id=chunk.chunk_id,
+        score=chunk.score,
+        quote=clip_quote(chunk.text, limit),
+        citation=citation,
+    )
 
 
-__all__ = ["ELLIPSIS", "MAX_QUOTE_CHARS", "clip_quote", "serialize_chunk"]
+__all__ = ["ELLIPSIS", "MAX_QUOTE_CHARS", "clip_quote", "to_excerpt"]
