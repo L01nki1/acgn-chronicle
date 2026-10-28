@@ -24,6 +24,87 @@
       "title": "CategoryDigest",
       "type": "object"
     },
+    "ChunkExcerpt": {
+      "$defs": {
+        "Citation": {
+          "description": "A structured citation, not a concatenated string.",
+          "properties": {
+            "chunk_id": {
+              "description": "a citation must be able to locate its chunk",
+              "title": "Chunk Id",
+              "type": "string"
+            },
+            "published_at": {
+              "title": "Published At",
+              "type": "string"
+            },
+            "publisher": {
+              "description": "'Capcom' | 'ANN' | 'AniList' ...",
+              "title": "Publisher",
+              "type": "string"
+            },
+            "source_type": {
+              "description": "drives display strength and compliance clipping",
+              "enum": [
+                "official",
+                "media",
+                "metadata"
+              ],
+              "title": "Source Type",
+              "type": "string"
+            },
+            "title": {
+              "title": "Title",
+              "type": "string"
+            },
+            "url": {
+              "description": "canonical original URL, never an archive link; required, so a client cannot render a citation without attribution",
+              "title": "Url",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source_type",
+            "publisher",
+            "title",
+            "url",
+            "published_at",
+            "chunk_id"
+          ],
+          "title": "Citation",
+          "type": "object"
+        }
+      },
+      "description": "The only chunk shape a client ever sees: an excerpt plus a citation, never the body.\n\nResponse unit of `POST /retrieve`. `quote` is the complete text content of the response -\nthere is no second field carrying more of the article.",
+      "properties": {
+        "chunk_id": {
+          "title": "Chunk Id",
+          "type": "string"
+        },
+        "citation": {
+          "$ref": "#/$defs/Citation",
+          "description": "url is required, so attribution is structural rather than a convention"
+        },
+        "quote": {
+          "description": "at most 200 Unicode characters, clipped by ground/serialize; the client must not re-expand it from the source page",
+          "title": "Quote",
+          "type": "string"
+        },
+        "score": {
+          "description": "cosine similarity in [-1, 1], higher is better (1 - Chroma cosine distance). Ordinal within one response only: never compare across queries, chunk configurations or snapshots, and never average it as a quality metric",
+          "title": "Score",
+          "type": "number"
+        }
+      },
+      "required": [
+        "chunk_id",
+        "score",
+        "quote",
+        "citation"
+      ],
+      "title": "ChunkExcerpt",
+      "type": "object"
+    },
     "Citation": {
       "description": "A structured citation, not a concatenated string.",
       "properties": {
@@ -56,6 +137,7 @@
           "type": "string"
         },
         "url": {
+          "description": "canonical original URL, never an archive link; required, so a client cannot render a citation without attribution",
           "title": "Url",
           "type": "string"
         }
@@ -105,6 +187,7 @@
               "type": "string"
             },
             "url": {
+              "description": "canonical original URL, never an archive link; required, so a client cannot render a citation without attribution",
               "title": "Url",
               "type": "string"
             }
@@ -168,7 +251,7 @@
       "type": "object"
     },
     "CorpusSnapshot": {
-      "description": "A frozen corpus state. A new crawl produces a new snapshot; old ones are immutable.",
+      "description": "A frozen corpus state. A new crawl produces a new snapshot; existing ones are immutable.",
       "properties": {
         "created_at": {
           "title": "Created At",
@@ -272,6 +355,7 @@
               "type": "string"
             },
             "url": {
+              "description": "canonical original URL, never an archive link; required, so a client cannot render a citation without attribution",
               "title": "Url",
               "type": "string"
             }
@@ -375,7 +459,7 @@
           "type": "object"
         }
       },
-      "description": "Per-day candidate set shared by the board and the stage-2 text digest.\n\nPer-day retrieval still goes through RetrievalFilters.since/until; a time-bucketed index is\nforbidden because it would contaminate the chunking comparison (invariant 4, spec 02).",
+      "description": "Per-day candidate set shared by the board and the stage-2 text digest.\n\nPer-day retrieval still goes through RetrievalFilters.since/until; a time-bucketed index is\nforbidden because it would contaminate the chunking comparison (invariant 4, spec 02).\n\n`episode_table` was dropped in 0.2.0: `Sequence[dict]` has no shape, so it could neither be\nvalidated nor typed by a consumer, and its only user (the digest) has not been crawled yet.\nWhen the digest is green-lit it returns as `Sequence[EpisodeRow] | None = None`.",
       "properties": {
         "by_category": {
           "items": {
@@ -387,15 +471,6 @@
         "date": {
           "title": "Date",
           "type": "string"
-        },
-        "episode_table": {
-          "description": "Bilibili schedule passthrough",
-          "items": {
-            "additionalProperties": true,
-            "type": "object"
-          },
-          "title": "Episode Table",
-          "type": "array"
         },
         "fact_updates": {
           "items": {
@@ -430,7 +505,6 @@
         "by_category",
         "top_clusters",
         "fact_updates",
-        "episode_table",
         "source_coverage"
       ],
       "title": "DailyDigest",
@@ -529,6 +603,7 @@
               "type": "string"
             },
             "url": {
+              "description": "canonical original URL, never an archive link; required, so a client cannot render a citation without attribution",
               "title": "Url",
               "type": "string"
             }
@@ -574,6 +649,7 @@
           "type": "array"
         },
         "cited_chunk_ids": {
+          "description": "must be a subset of the chunks actually retrieved for this query",
           "items": {
             "type": "string"
           },
@@ -738,7 +814,7 @@
           "default": null
         },
         "snapshot_id": {
-          "description": "binds the query to a snapshot, which makes results reproducible",
+          "description": "binds the query to a snapshot, which makes results reproducible; an unknown id answers 404, a retired id answers 410",
           "title": "Snapshot Id",
           "type": "string"
         },
@@ -759,94 +835,31 @@
       "title": "RetrievalQuery",
       "type": "object"
     },
-    "RetrievedChunk": {
-      "$defs": {
-        "Citation": {
-          "description": "A structured citation, not a concatenated string.",
-          "properties": {
-            "chunk_id": {
-              "description": "a citation must be able to locate its chunk",
-              "title": "Chunk Id",
-              "type": "string"
-            },
-            "published_at": {
-              "title": "Published At",
-              "type": "string"
-            },
-            "publisher": {
-              "description": "'Capcom' | 'ANN' | 'AniList' ...",
-              "title": "Publisher",
-              "type": "string"
-            },
-            "source_type": {
-              "description": "drives display strength and compliance clipping",
-              "enum": [
-                "official",
-                "media",
-                "metadata"
-              ],
-              "title": "Source Type",
-              "type": "string"
-            },
-            "title": {
-              "title": "Title",
-              "type": "string"
-            },
-            "url": {
-              "title": "Url",
-              "type": "string"
-            }
-          },
-          "required": [
-            "source_type",
-            "publisher",
-            "title",
-            "url",
-            "published_at",
-            "chunk_id"
-          ],
-          "title": "Citation",
-          "type": "object"
-        }
-      },
+    "SnapshotInventory": {
+      "description": "What this host can serve right now (response of `GET /snapshots`).\n\nA client must not invent a snapshot id, and must not assume that the id it used yesterday is\nstill retained. Availability is governed by retention, not by currency.",
       "properties": {
-        "chunk_id": {
-          "title": "Chunk Id",
+        "current": {
+          "description": "the snapshot the read path serves; flips atomically after a build succeeds",
+          "title": "Current",
           "type": "string"
         },
-        "citation": {
-          "$ref": "#/$defs/Citation"
-        },
-        "doc_id": {
-          "title": "Doc Id",
-          "type": "string"
-        },
-        "score": {
-          "title": "Score",
-          "type": "number"
-        },
-        "snapshot_id": {
-          "title": "Snapshot Id",
-          "type": "string"
-        },
-        "text": {
-          "description": "internal use; clipped to a <=200 character excerpt by ground/serialize for clients",
-          "title": "Text",
-          "type": "string"
+        "retained": {
+          "description": "ids still queryable, most recent first; a retired id answers 410",
+          "items": {
+            "type": "string"
+          },
+          "title": "Retained",
+          "type": "array"
         }
       },
       "required": [
-        "chunk_id",
-        "doc_id",
-        "snapshot_id",
-        "text",
-        "score",
-        "citation"
+        "current",
+        "retained"
       ],
-      "title": "RetrievedChunk",
+      "title": "SnapshotInventory",
       "type": "object"
     }
   },
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "source": "src/acgn_rag/core/ports.py"
 }

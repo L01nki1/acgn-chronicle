@@ -73,7 +73,22 @@ pytest -q                                     # 4 tests
    little. Request `top_k × ACGN_OVERFETCH`, truncate afterwards, and assert
    `returned >= min(top_k, available_after_filter)`.
 
+**The collection must be created with `hnsw:space="cosine"`.** Chroma defaults to `l2`, and the default
+would make `score` a distance while the contract promises a similarity (`KnowledgePort.md` §3.6). With
+`cosine`, Chroma returns `1 - cosine_similarity` as the distance, so the score is `1 - distance`.
+
+### 3.2 Snapshot pointer and retention
+
+- A build writes to a directory that is **not** served, and renames it only on success. The pointer
+  `data/snapshots/CURRENT` is replaced with `os.replace`, which is atomic, so a reader either sees the old
+  snapshot or the new one and never a half-built one.
+- `GET /snapshot` with no id reads the pointer. That is the single definition of "current".
+- Retention is `ACGN_KEEP_SNAPSHOTS=2` (current + previous). A retained old snapshot keeps answering
+  normally — that is what makes an evaluation re-runnable. Beyond retention it answers `410`, not `409`.
+- **Never delete the previous snapshot while an evaluation is running**: the run is pinned to it.
+
 ## 4. Emergency degradation
+
 
 - **Corpus below 8,000 items**: decide before W3; downgrade the A/B comparison to "qualitative + small-sample
   quantitative" and say so in the report (04 R6).

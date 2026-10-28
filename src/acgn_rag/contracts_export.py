@@ -2,8 +2,9 @@
 
 Owner: B | Spec: 05 §1 / §5, invariant 5 of spec 02
 
-`ports.py` is the source of truth; this module renders its Pydantic types into a deterministic
-JSON Schema. CI calls `check()`: a change to `ports.py` without re-exporting is a failed build.
+`ports.py` is the source of truth; this module renders the types named in `ports.WIRE_MODELS` into a
+deterministic JSON Schema. CI calls `check()`: a change to `ports.py` without re-exporting is a failed
+build, and an internal type leaking into the schema is a bug in `WIRE_MODELS`.
 """
 
 from __future__ import annotations
@@ -28,12 +29,26 @@ def _repo_root() -> Path:
 SCHEMA_PATH = _repo_root() / "contracts" / "knowledge_port.schema.json"
 
 
+def _wire_models() -> dict[str, type[BaseModel]]:
+    """Resolve `ports.WIRE_MODELS` to the classes it names, failing loudly on a typo.
+
+    Only wire types are exported. An internal type in the schema is worse than useless: a
+    consumer will find it, code against it, and then discover at runtime that it never appears
+    in a response (this is exactly what happened with `RetrievedChunk.text`).
+    """
+    out: dict[str, type[BaseModel]] = {}
+    for name in ports.WIRE_MODELS:
+        obj = getattr(ports, name, None)
+        if not (isinstance(obj, type) and issubclass(obj, BaseModel)):
+            raise AttributeError(
+                f"ports.WIRE_MODELS names {name!r}, which is not a BaseModel in ports.py"
+            )
+        out[name] = obj
+    return out
+
+
 def build_schema() -> dict:
-    models = {
-        name: obj.model_json_schema()
-        for name, obj in vars(ports).items()
-        if isinstance(obj, type) and issubclass(obj, BaseModel) and obj is not BaseModel
-    }
+    models = {name: obj.model_json_schema() for name, obj in _wire_models().items()}
     return {
         "schema_version": ports.SCHEMA_VERSION,
         "source": "src/acgn_rag/core/ports.py",
