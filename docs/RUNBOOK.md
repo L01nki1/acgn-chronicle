@@ -4,8 +4,19 @@
 
 ## 1. Commands
 
+**Before every push** run the four CI gates in CI's order — `python scripts/check.py` does exactly that and
+stops at the first failure (details in `ONBOARDING.md` §4.1):
+
+```bash
+ruff check .                                  # 1 lint
+ruff format --check .                         # 2 format   (fix: ruff format .)
+python scripts/export_schema.py --check       # 3 contract (fix: export + commit the JSON)
+pytest -q                                     # 4 tests
+```
+
 | Goal | Command | Status |
 |---|---|---|
+| All four CI gates, in CI order | `python scripts/check.py` (`--fix` to auto-fix) | ready |
 | Install deps (no heavy extras) | `pip install -e ".[dev]"` | ready |
 | Install embedding + store | `pip install -e ".[dev,embed,store]"` | ready |
 | Contract consistency | `python scripts/export_schema.py --check` | ready |

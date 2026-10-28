@@ -9,7 +9,7 @@ Model training / fine-tuning is **never** done here (C6, spec 06).
 
 - Submission: 2026-11-24 23:59 (Canvas) — 6 pages of main content + a separate contribution page + appended slides + a 15-minute demo
 - Planning and collaboration live in the library space `GroupProjctMartial` (documents 00–07); this repo holds **engineering artifacts only**
-- Work breakdown and acceptance gates: `PLAN.md` (internal, not committed)
+- Work breakdown and acceptance gates: [`docs/ROADMAP.md`](docs/ROADMAP.md)
 
 ## Layout
 
@@ -61,13 +61,27 @@ cp .env.example .env               # fill in keys only when you need the LLM
 > `[embed]` (sentence-transformers + torch) and `[store]` (chromadb) are heavy extras; install on demand:
 > `pip install -e ".[dev,embed,store]"`. CI never installs them.
 
-## Three commands (skeleton ready, implementations land per WP)
+## Before every push: the four CI gates
+
+CI runs four separate steps **in this order and stops at the first red one**, so a green `pytest` says nothing
+about formatting or about the contract schema. Run the same four locally:
 
 ```bash
-python scripts/export_schema.py --check     # contract consistency (a CI gate)
-pytest -q                                   # all tests, zero network by default
-ruff check . && ruff format --check .       # style
+python scripts/check.py            # all four gates, same order as CI, stops at the first failure
+python scripts/check.py --fix      # apply ruff fixes first, then gate
 ```
+
+| # | Gate | Command | What it catches | If it fails |
+|---|---|---|---|---|
+| 1 | Lint | `ruff check .` | unused imports, shadowed names, import order | fix by hand |
+| 2 | Format | `ruff format --check .` | any file that was edited but never formatted | `ruff format .` |
+| 3 | Contract | `python scripts/export_schema.py --check` | `ports.py` edited without re-exporting the schema | `python scripts/export_schema.py`, commit the JSON **in the same commit** |
+| 4 | Tests | `pytest -q` | real failures, zero network | read the test; never relabel it `network` to hide it |
+
+Two things this catches that people miss: **editing `ports.py` and forgetting step 3** (the JSON is a
+committed artifact, not a build output), and **step 2** — a docs or comment edit can still fail formatting
+while lint stays green. `*.md` is excluded from formatting on purpose (`docs/` may hold illustrative
+pseudo-code with column-aligned comments); `.py` files are formatted strictly.
 
 Once the pipeline lands, also:
 

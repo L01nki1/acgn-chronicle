@@ -25,7 +25,8 @@
 
 ## 3. PR checklist (the reviewer ticks each line)
 
-1. CI is green (lint / format / contract check / tests)
+1. CI is green on all four gates (lint / format / contract check / tests) — the author ran
+   `python scripts/check.py` before pushing, not just `pytest` (§4.1)
 2. Nothing leaked into the commit: `data/`, `.env`, model files (`git status` first)
 3. New directories match the ownership map in spec 02 §2; cross-WP edits @ the owner in the description
 4. Any change touching an invariant (spec 02 §3) comes with a test
@@ -56,14 +57,21 @@ run in CI and carry no unit tests (selector logic is tested offline against fixt
 
 ### 4.1 Run the same four steps CI runs, before you push
 
-CI gates in this order and stops at the first red step:
+One command runs all four in CI's order and stops at the first red step:
 
 ```bash
-ruff check .                    # lint
-ruff format --check .           # formatting (run `ruff format .` to fix)
-python scripts/export_schema.py --check   # ports.py vs contracts/*.json
-pytest -q                       # tests, zero network
+python scripts/check.py          # gate only
+python scripts/check.py --fix    # apply ruff fixes first, then gate
 ```
+
+The four gates, in order (CI stops at the first failure, so a later gate never explains an earlier red):
+
+| # | Gate | Command | Catches | Fix |
+|---|---|---|---|---|
+| 1 | Lint | `ruff check .` | unused imports, shadowed names, import order | by hand |
+| 2 | Format | `ruff format --check .` | edited-but-never-formatted file | `ruff format .` |
+| 3 | Contract | `python scripts/export_schema.py --check` | `ports.py` edited without re-export | export, commit the JSON in the same commit |
+| 4 | Tests | `pytest -q` | real failures | read the test |
 
 `pytest` alone is not enough: a commit that only touches docs or comments can still fail lint or the
 contract gate. If you edited `src/acgn_rag/core/ports.py`, regenerate the schema with
