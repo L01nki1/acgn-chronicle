@@ -33,7 +33,7 @@ The grading weight sits on the backend pipeline and the faithfulness mechanisms,
 
 | # | Requirement (brief) | Our implementation | Where | Status |
 |---|---|---|---|---|
-| 1 | Collect documents; load / chunk / embed; **compare ≥2 chunking strategies** | 50+ endpoints surveyed, 12 sources in W1 → ≥8,000 items over **≥3 years** (widened until reached); configs A(512/64), A'(256/0), A₀(512/0), B(event aggregation); e5-base | `core/ingest`, `core/chunk`, `core/embed` | W1–W2 |
+| 1 | Collect documents; load / chunk / embed; **compare ≥2 chunking strategies** | 50+ endpoints surveyed, 12 sources in W1 → ≥8,000 items over **≥3 years** (widened until reached); configs A(512/64), A'(256/0), A₀(512/0), B(event aggregation); embedding per the two-lane model policy (RUNBOOK §3.5) | `core/ingest`, `core/chunk`, `core/embed` | W1–W2 |
 | 2 | Store chunks + embeddings in **a vector database** | Chroma (embedded persistent), two-zone storage | `core/store` | W1–W2 |
 | 3 | Query → embedding → **semantic retrieval** | Vector top-k + filters (`source_types` / `since`–`until` / `media_ids`); stretch BM25 + RRF | `core/retrieve` | W3 |
 | 4 | **Grounded generation**, cite source per claim, **refuse when unknown** | Citation with `chunk_id` + URL, `abstained` + reason, compliance clipping | `core/ground` | W2–W3 |
@@ -57,7 +57,7 @@ Snapshot freeze (snapshot_id = content hash + date; window_start/end)
 │ Fact zone (publishable)│ Raw zone (internal only)│  ← L0 fact extraction (chunkId + URL)
 └──────────────────────┴────────────────────────┘
    ▼
-Chunk A / A' / A₀ / B  →  e5-base encode + cache  →  vector index (Chroma)
+Chunk A / A' / A₀ / B  →  encode (lane + encoder identity recorded) + cache  →  vector index (Chroma)
    ▼
 Retrieve: vector + filters  |  stretch BM25 + RRF
    ▼

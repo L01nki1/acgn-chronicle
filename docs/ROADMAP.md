@@ -38,7 +38,7 @@ run's `meta.json`.
 ### G1b · 2026-11-09 — indexes and facts
 
 - A / A' / B index builds reproducible; chunk counts explainable and stable across rebuilds
-- e5-base encoding with a working cache; compliance tests green (`pytest tests/compliance -q`)
+- encoding on the recorded lane with an identity-keyed cache (model policy: RUNBOOK §3.5); compliance tests green (`pytest tests/compliance -q`)
 - L0 fact extraction on a 30-item spot check ≥90% field accuracy, every row carries `chunkId` + `url`
 
 ### G2 · 2026-11-21 — Topic 5 complete (official brief, hard gate)
@@ -150,7 +150,7 @@ Secondary responsibilities (revised 2026-10-28):
 | R4 | Scope creep (site, board) | Report stays five sections; board is conditional; D holds the cut list | D |
 | R5 | Missing signature page = desk reject | Checked daily from 11/20 | D |
 | R6 | Silent corpus shrinkage | selector errors raise; `items > 0` assertion; coverage monitoring | A |
-| R7 | Encoding over budget | e5-base first, cache mandatory, measure before scaling | F |
+| R7 | Encoding over budget | content budget derived from the model (RUNBOOK §3.4), cache mandatory, measured lane numbers before scaling | F |
 | R8 | QA set degenerates into lookups | type A ≤ 1/3; C/D must include cross-source synthesis | D |
 
 ## 7. How we track work
