@@ -113,6 +113,12 @@ include cluster counts, not just chunk counts.
   Report throughput in **tokens/s**, never bare items/s — items/s silently varies ~3× with chunk length.
 - GPU lanes are permitted (DECISIONS 2026-10-29). An OpenVINO lane measured ≈ 8.8× CPU on e5-small on the
   same machine; e5-base GPU numbers will be added once the canonical lane is chosen (F, G1a).
+- **512-token budget must include the prefix (truncation trap).** e5 models have `max_seq_length = 512`;
+  a 512-content-token config-A chunk plus the `passage: ` prefix silently truncates the chunk tail at
+  encode time — every config-A chunk loses its last few tokens, uniformly, so nothing crashes and the A/B
+  comparison quietly measures truncated text. The chunker's content budget must be
+  `max_seq_length − len(tokenizer(passage_prefix).input_ids)` (≈ 508), or the encoder must be configured
+  with the prefix inside the counted budget. Same cap applies to config-B aggregation chunks.
 - **Extraction-vendor quirk:** if extraction runs on the CSLab DSV4-flash deployment, set `max_tokens ≥ 1024`
   — it is a reasoning model and returns empty content below that, because reasoning tokens consume the budget.
 
