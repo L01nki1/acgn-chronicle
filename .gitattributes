@@ -2,6 +2,10 @@
 # (snapshotId must be identical across platforms).
 * text=auto eol=lf
 
+# Git hooks must stay LF: a CRLF `#!/bin/sh` script dies with "bad interpreter" on macOS and in
+# Git Bash, and the error shows up as "cannot commit" rather than as a line-ending problem.
+/.githooks/* text eol=lf
+
 # Binary assets bypass newline conversion
 *.png binary
 *.jpg binary

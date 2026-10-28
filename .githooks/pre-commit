@@ -1,0 +1,75 @@
+#!/bin/sh
+# Fast gate on commit: lint + format the Python files in THIS commit, plus the contract check
+# when ports.py is staged. The full four gates run on push (.githooks/pre-push) and in CI.
+#
+# Install once per clone: python scripts/install_hooks.py
+# Bypass (rare - CI still checks): git commit --no-verify
+#
+# Design notes:
+#   - Staged files only. Checking the whole tree on every commit gets slow and tempts people
+#     into --no-verify, which would also skip the real problems.
+#   - Missing tooling warns and allows the commit; an actual violation blocks it. An environment
+#     problem must not teach the team to bypass hooks.
+#   - POSIX sh, because macOS (bash 3.2) and Git Bash on Windows both run this.
+
+set -eu
+
+if [ -t 1 ] && [ -n "${TERM:-}" ]; then
+    RED=$(printf '\033[31m'); YELLOW=$(printf '\033[33m'); RESET=$(printf '\033[0m')
+else
+    RED=''; YELLOW=''; RESET=''
+fi
+
+info() { printf '%s\n' "[pre-commit] $*"; }
+warn() { printf '%s%s%s\n' "$YELLOW" "[pre-commit] $*" "$RESET"; }
+fail() { printf '%s%s%s\n' "$RED" "[pre-commit] $*" "$RESET"; }
+
+# --- find a Python that can run ruff -----------------------------------------
+# Hooks do not inherit an activated virtualenv, so prefer the project's own interpreter.
+PY=''
+for candidate in .venv/Scripts/python.exe .venv/bin/python python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1; then PY="$candidate"; break; fi
+done
+
+if [ -z "$PY" ]; then
+    warn "no Python interpreter found - skipping local gates (CI still gates this)."
+    exit 0
+fi
+
+if ! "$PY" -m ruff --version >/dev/null 2>&1; then
+    warn "ruff is not installed for $PY - skipping local gates (CI still gates this)."
+    warn "install it with: pip install -e \".[dev]\""
+    exit 0
+fi
+
+# --- gate 1+2: lint and format, staged Python files only ---------------------
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR -- '*.py')
+
+if [ -n "$STAGED" ]; then
+    COUNT=$(printf '%s\n' "$STAGED" | wc -l | tr -d ' ')
+    info "checking $COUNT staged Python file(s)"
+
+    # Word splitting is intended: this is a list of paths, and Python filenames have no spaces.
+    if ! "$PY" -m ruff check $STAGED; then
+        fail "lint failed - fix the lines above, or run: ruff check --fix"
+        exit 1
+    fi
+
+    if ! "$PY" -m ruff format --check $STAGED; then
+        fail "formatting failed - run: ruff format <files>, then git add again"
+        exit 1
+    fi
+else
+    info "no Python changes staged"
+fi
+
+# --- gate 3: contract drift, only when the source of truth was touched -------
+if printf '%s\n' "$STAGED" | grep -qx 'src/acgn_rag/core/ports.py'; then
+    info "ports.py changed - verifying the exported schema"
+    if ! "$PY" scripts/export_schema.py --check; then
+        fail "contract drift - run: python scripts/export_schema.py, then git add contracts/"
+        exit 1
+    fi
+fi
+
+exit 0

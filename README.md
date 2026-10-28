@@ -55,6 +55,7 @@ Python 3.11+ is required (CI pins 3.11; 3.13 torch wheels are unverified, so avo
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"            # dev only: no model download, no torch
+python scripts/install_hooks.py    # once per clone: gate every commit and push
 cp .env.example .env               # fill in keys only when you need the LLM
 ```
 
@@ -82,6 +83,9 @@ Two things this catches that people miss: **editing `ports.py` and forgetting st
 committed artifact, not a build output), and **step 2** — a docs or comment edit can still fail formatting
 while lint stays green. `*.md` is excluded from formatting on purpose (`docs/` may hold illustrative
 pseudo-code with column-aligned comments); `.py` files are formatted strictly.
+
+**You do not have to remember any of this**: after `python scripts/install_hooks.py`, git runs the fast gates
+on `commit` and all four on `push` (see ONBOARDING §4.2).
 
 Once the pipeline lands, also:
 

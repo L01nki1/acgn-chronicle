@@ -82,6 +82,35 @@ contract gate. If you edited `src/acgn_rag/core/ports.py`, regenerate the schema
 reason nobody can see. Docs may therefore contain illustrative pseudo-code and column-aligned comments.
 Inside `.py` files the formatter is strict — do not fight it, run `ruff format .`.
 
+### 4.2 The gates run automatically (one command, once per clone)
+
+```bash
+python scripts/install_hooks.py            # install (sets core.hooksPath = .githooks)
+python scripts/install_hooks.py --check    # is it active in this clone?
+```
+
+What runs when:
+
+| Hook | Runs | Time | Purpose |
+|---|---|---|---|
+| `pre-commit` | `ruff check` + `ruff format --check` on **staged `.py` files only**; the contract check when `ports.py` is staged | well under a second | catch the two failures that are cheap to fix now and annoying to explain later |
+| `pre-push` | all four gates via `python scripts/check.py` | a few seconds | nothing leaves the machine unless CI would be green |
+
+Deliberate design choices, so nobody "fixes" them the wrong way:
+
+- **Staged files only on commit.** Checking the whole tree on every commit gets slow, and slow hooks teach
+  people to type `--no-verify`, which skips the real problems too.
+- **Tests are not in `pre-commit`.** They belong to the push gate; a 3-second commit is a commit you make.
+- **Missing tooling warns and lets the commit through; a real violation blocks it.** A member who has not run
+  `pip install -e ".[dev]"` yet gets a clear message, not a dead end — an environment problem must not push
+  people toward `--no-verify`.
+- **Hooks live in `.githooks/`, tracked by git.** They are not copied into `.git/hooks`, because `.git/` is
+  never updated by `git pull`, so a copied hook silently rots. `core.hooksPath` is a per-clone setting, which
+  is why every new clone needs the one command above.
+
+`git commit --no-verify` and `git push --no-verify` exist, but they only move the failure to a **public CI
+run** that the whole group sees. If a hook is wrong, fix the hook in `.githooks/` and send a PR.
+
 ## 5. Cross-platform differences that change results
 
 | Difference | Consequence | Handling |

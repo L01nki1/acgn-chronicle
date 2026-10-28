@@ -16,6 +16,8 @@ pytest -q                                     # 4 tests
 
 | Goal | Command | Status |
 |---|---|---|
+| Install the commit/push gates (once per clone) | `python scripts/install_hooks.py` | ready |
+| Are the gates active in this clone? | `python scripts/install_hooks.py --check` | ready |
 | All four CI gates, in CI order | `python scripts/check.py` (`--fix` to auto-fix) | ready |
 | Install deps (no heavy extras) | `pip install -e ".[dev]"` | ready |
 | Install embedding + store | `pip install -e ".[dev,embed,store]"` | ready |
@@ -56,6 +58,8 @@ pytest -q                                     # 4 tests
 | Green on macOS, red in CI | Filename casing | All module names lowercase |
 | Green on Windows, red in CI | CRLF or path joins | `.gitattributes` enforces LF; use `pathlib` |
 | `ruff check` green but `ruff format --check` red | An edit was never formatted; lint and format are separate gates | Run `ruff format .` and commit the result |
+| Committing shows no `[pre-commit]` line at all | `core.hooksPath` is not set in this clone (it is a local setting) | `python scripts/install_hooks.py` |
+| `hooks/pre-commit: bad interpreter` | The hook file picked up CRLF | `.gitattributes` forces LF for `.githooks/*`; re-checkout the file (`git checkout -- .githooks`) |
 
 ### 3.1 Chroma specifics — three pitfalls to verify before building the index
 
