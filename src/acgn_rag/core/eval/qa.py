@@ -9,7 +9,9 @@ therefore enforced here:
   - type A must stay at or below one third of the total, or the set stops measuring time-sensitive
     questions and starts measuring repetition;
   - the abstention calibration set must be disjoint from the QA set, or the reported abstention number is
-    fitted on the same items it is reported for and comes out optimistic by construction.
+    fitted on the same items it is reported for and comes out optimistic by construction;
+  - the language quota needs a per-item `lang` field: one run mixes en and zh items, so no run-level value
+    can say which items were Chinese, and "≥8 of 30 in Chinese" is only checkable item by item (issue #14 P1).
 """
 
 from __future__ import annotations
@@ -21,6 +23,8 @@ from pathlib import Path
 from typing import Any
 
 QA_TYPES = ("A", "B", "C", "D")
+# the language a question is asked in; per-language metrics key on it (issue #14 P1)
+LANGS = ("en", "zh")
 # (minimum, maximum) per type; None means no upper bound
 TYPE_QUOTAS: dict[str, tuple[int, int | None]] = {
     "A": (10, 12),
@@ -30,11 +34,13 @@ TYPE_QUOTAS: dict[str, tuple[int, int | None]] = {
 }
 MIN_TOTAL = 30
 MIN_UNANSWERABLE = 5
+MIN_ZH = 8
 OVERLAP_COUNT = 10
 CALIBRATION_SIZE = {"answerable": 20, "unanswerable": 10}
 REQUIRED_FIELDS = (
     "qa_id",
     "type",
+    "lang",
     "answerable",
     "question",
     "gold_answer",
@@ -83,6 +89,11 @@ def _check_item(item: dict[str, Any], index: int) -> list[str]:
         problems.append(f"{where}: type must be one of {QA_TYPES}")
     elif QA_ID_PATTERN.match(qa_id) and qa_id[0] != item["type"]:
         problems.append(f"{where}: qa_id prefix disagrees with type {item['type']}")
+    if item["lang"] not in LANGS:
+        problems.append(
+            f"{where}: lang must be one of {LANGS} — the language the question is asked in, "
+            "not the source's"
+        )
     if not isinstance(item["answerable"], bool):
         problems.append(f"{where}: answerable must be true or false (never inferred from type)")
     if item["answerable"] is False and item["type"] != "D":
@@ -143,6 +154,13 @@ def validate(
     if unanswerable < MIN_UNANSWERABLE:
         problems.append(f"only {unanswerable} unanswerable item(s), need >= {MIN_UNANSWERABLE}")
 
+    zh = sum(1 for item in items if item.get("lang") == "zh")
+    if zh < MIN_ZH:
+        problems.append(
+            f"only {zh} item(s) with lang='zh', need >= {MIN_ZH} — an all-English proxy would not "
+            "measure a trilingual corpus (issue #14 P1)"
+        )
+
     overlap = sum(1 for item in items if item.get("overlap") is True)
     if overlap != OVERLAP_COUNT:
         problems.append(
@@ -185,9 +203,11 @@ def _check_calibration(items: list[dict[str, Any]], calibration: list[dict[str, 
 def summary(items: list[dict[str, Any]]) -> dict[str, Any]:
     """Counts for the report and for a quick sanity check before freezing."""
     counts = Counter(item.get("type") for item in items)
+    lang_counts = Counter(item.get("lang") for item in items)
     return {
         "total": len(items),
         "by_type": {qa_type: counts.get(qa_type, 0) for qa_type in QA_TYPES},
+        "by_lang": {lang: lang_counts.get(lang, 0) for lang in LANGS},
         "unanswerable": sum(1 for item in items if item.get("answerable") is False),
         "answerable": sum(1 for item in items if item.get("answerable") is True),
         "overlap": sum(1 for item in items if item.get("overlap") is True),
@@ -197,8 +217,10 @@ def summary(items: list[dict[str, Any]]) -> dict[str, Any]:
 
 __all__ = [
     "CALIBRATION_SIZE",
+    "LANGS",
     "MIN_TOTAL",
     "MIN_UNANSWERABLE",
+    "MIN_ZH",
     "OVERLAP_COUNT",
     "QA_TYPES",
     "REQUIRED_FIELDS",

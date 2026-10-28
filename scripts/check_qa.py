@@ -22,8 +22,10 @@ from acgn_rag.core.eval.qa import load_jsonl, summary, validate
 def _report(label: str, items: list[dict]) -> None:
     counts = summary(items)
     per_type = "  ".join(f"{k}={v}" for k, v in counts["by_type"].items())
+    per_lang = "  ".join(f"{k}={v}" for k, v in counts["by_lang"].items())
     print(
         f"{label}: {counts['total']} items  ({per_type})  "
+        f"lang ({per_lang})  "
         f"answerable={counts['answerable']}  unanswerable={counts['unanswerable']}  "
         f"overlap={counts['overlap']}  urls={counts['urls']}"
     )

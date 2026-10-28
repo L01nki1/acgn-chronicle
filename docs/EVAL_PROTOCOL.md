@@ -35,6 +35,7 @@ The freeze date exists because a set edited after seeing the results is not a me
 {
   "qa_id": "A-007",
   "type": "A",
+  "lang": "en",
   "answerable": true,
   "question": "When does season 2 of <title> start airing?",
   "gold_answer": "2026-10-05",
@@ -55,6 +56,7 @@ The freeze date exists because a set edited after seeing the results is not a me
 |---|---|
 | `qa_id` | `<type>-<nnn>`, unique, never reused |
 | `type` | `A` time-sensitive · `B` detail · `C` cross-source synthesis · `D` out-of-scope / unanswerable |
+| `lang` | `en` or `zh` — the language the **question** is asked in, not the source's. Per-language metrics key on it; ≥8 of 30 must be `zh` (§3) |
 | `answerable` | `false` for items the corpus cannot answer. **Explicit, never inferred from `type`** |
 | `gold_answer` | the shortest string that is either right or wrong; no hedging |
 | `gold_evidence.urls` | **the authoritative field.** 1–3 canonical source urls |
@@ -77,7 +79,7 @@ a new snapshot, a new chunking config and a rebuild. Per-run chunk ids are resol
 | Per type | A 10–12 · B 8–10 · C 6–8 · D ≥8 |
 | Type A share | ≤ one third of the total |
 | Unanswerable | ≥5 items with `answerable: false` (all inside type D) |
-| Language | **≥8 of 30 in Chinese**, several of them targeting JP-language official sources (issue #14 P1; the corpus is trilingual — JP official, EN media, ZH media — and an all-English proxy would not measure that) |
+| Language | **≥8 of 30 with `lang: "zh"`**, several of them targeting JP-language official sources (issue #14 P1; the corpus is trilingual — JP official, EN media, ZH media — and an all-English proxy would not measure that). Enforced per item by `check_qa.py`, not by eye |
 | Evidence | every answerable item has ≥1 `urls` entry |
 | Independent labels | exactly the 10 `overlap: true` items, labelled twice |
 
@@ -90,11 +92,15 @@ in the F pilot on a frozen bilingual corpus, zh questions hit gold doc@5 at **37
 93.8 % with LLM query translation**, and translation itself cost one terminology miss (棋
 rendered as "chess" instead of "Go"). Two consequences, registered before the freeze:
 
-- Runs carry a **`query_lang` field** (`en` / `zh`), and metrics are reported per language beside
-  the totals — a single blended number would hide exactly the interesting failure.
+- Language is a **per-item field** (`lang`, §2), not a run-level one: one run mixes en and zh items, so a
+  single run value cannot say *which* items were Chinese. `metrics.json` reports per-language blocks
+  beside the totals — a single blended number would hide exactly the interesting failure.
 - The translate-then-retrieve variant (LLM translates the zh question, then retrieval runs as
   usual) is **pre-registered as the cross-lingual lane**. It is tried before the QA freeze so its
   status — adopted lane or reported-only ablation — is itself a frozen decision, not a post-hoc pick.
+  On the GPU-candidate lanes it may prove unnecessary: in the pilot bake-off both candidates answered
+  every zh query on JP sources directly (zh hit@5 = 1.00, `notebooks/embedding-bakeoff/`); n=16 is too
+  small to retire a pre-registered lane, so the G1a bake-off reports it per lane instead.
 
 ## 4. Retrieval quality — `retrieval_hit_rate`
 
@@ -155,10 +161,10 @@ number alone invites the obvious objection. The calibration set's own rates may 
 
 | File | Content |
 |---|---|
-| `meta.json` | snapshot, window, config, retrieval settings, embed model/device, llm provider/model/version/temperature/seed, git sha, metrics |
+| `meta.json` | snapshot, window, config, retrieval settings, **embed identity (model / backend / device / precision / library versions / batch)**, llm provider/model/version/temperature/seed, git sha, metrics |
 | `answers.jsonl` | the exact generated outputs that were graded — frozen, so grading can be replayed without the model |
 | `labels.jsonl` | the human labels, per item, with annotator |
-| `metrics.json` | the numbers the report quotes |
+| `metrics.json` | the numbers the report quotes — retrieval totals carry **per-language blocks (`all` / `en` / `zh`) beside them** (§3.1) |
 | `resolved_evidence.json` | gold urls resolved to chunk ids **for this snapshot and config** |
 | `disputes.md` | adjudications and dropped items |
 
@@ -170,10 +176,10 @@ number alone invites the obvious objection. The calibration set's own rates may 
   "window_end": "2026-10-28",
   "chunk_config": "A",
   "retrieval": {"mode": "vector", "top_k": 5, "over_fetch": 5},
-  "embed": {"model": "intfloat/multilingual-e5-base", "backend": "torch", "device": "cpu", "precision": "fp32", "batch": 32},
+  "embed": {"model": "intfloat/multilingual-e5-base", "backend": "torch", "device": "cpu", "precision": "fp32", "library_versions": {"torch": "2.15.0", "sentence_transformers": "6.1.0"}, "batch": 32},
   "llm": {"provider": "...", "model": "...", "version": "...", "temperature": 0.0, "seed": 0},
   "git_sha": "...",
-  "metrics": {"retrieval_hit_rate": 0.0, "evidence_recall": 0.0, "answer_correctness": {}, "abstention_accuracy": {}}
+  "metrics": {"retrieval_hit_rate": {"all": 0.0, "en": 0.0, "zh": 0.0}, "evidence_recall": {"all": 0.0, "en": 0.0, "zh": 0.0}, "answer_correctness": {}, "abstention_accuracy": {}}
 }
 ```
 
