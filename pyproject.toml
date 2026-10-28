@@ -38,7 +38,7 @@ dev = [
   "pytest>=8.2",
   "pytest-cov>=5.0",
   "respx>=0.21",             # intercepts httpx so tests never reach the network
-  "ruff>=0.5",
+  "ruff>=0.17,<0.18",        # pinned band: a new ruff can change formatting rules and redden CI for everyone
 ]
 all = [
   "acgn-rag[embed,store,llm]",
@@ -50,7 +50,10 @@ acgn = "acgn_rag.cli:app"
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-extend-exclude = ["data", "notebooks", "tests/ingest/fixtures"]
+# Markdown is excluded on purpose: ruff formats fenced ```python blocks but does not lint them,
+# so any illustrative snippet in docs/ could turn the build red for a reason members cannot see
+# (and column-aligned comments in docs are intentional). Code formatting stays strict.
+extend-exclude = ["data", "notebooks", "tests/ingest/fixtures", "*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

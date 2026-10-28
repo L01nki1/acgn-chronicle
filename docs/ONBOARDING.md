@@ -54,6 +54,26 @@ unrelated to the code — and a CI that cries wolf gets ignored.
 **Crawler exception**: `scripts/backfill.py` / `discover_daily.py` need the network by nature, but they never
 run in CI and carry no unit tests (selector logic is tested offline against fixtures, see 01 §5.3).
 
+### 4.1 Run the same four steps CI runs, before you push
+
+CI gates in this order and stops at the first red step:
+
+```bash
+ruff check .                    # lint
+ruff format --check .           # formatting (run `ruff format .` to fix)
+python scripts/export_schema.py --check   # ports.py vs contracts/*.json
+pytest -q                       # tests, zero network
+```
+
+`pytest` alone is not enough: a commit that only touches docs or comments can still fail lint or the
+contract gate. If you edited `src/acgn_rag/core/ports.py`, regenerate the schema with
+`python scripts/export_schema.py` and commit the JSON in the same commit.
+
+**Markdown is not formatted by ruff** (`*.md` is in `extend-exclude`). Ruff would format fenced
+`python` blocks but does not lint them, which turns a harmless snippet in `docs/` into a red build for a
+reason nobody can see. Docs may therefore contain illustrative pseudo-code and column-aligned comments.
+Inside `.py` files the formatter is strict — do not fight it, run `ruff format .`.
+
 ## 5. Cross-platform differences that change results
 
 | Difference | Consequence | Handling |

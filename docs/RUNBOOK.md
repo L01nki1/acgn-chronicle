@@ -44,6 +44,18 @@
 | CI raises `NetworkBlocked` | A test made a real HTTP call | Mock with `respx`; mark genuinely online cases `@pytest.mark.network` |
 | Green on macOS, red in CI | Filename casing | All module names lowercase |
 | Green on Windows, red in CI | CRLF or path joins | `.gitattributes` enforces LF; use `pathlib` |
+| `ruff check` green but `ruff format --check` red | An edit was never formatted; lint and format are separate gates | Run `ruff format .` and commit the result |
+
+### 3.1 Chroma specifics — three pitfalls to verify before building the index
+
+1. **Metadata holds scalars only** (`str / int / float / bool`), never arrays. `media_ids` is
+   `Sequence[int]`, so writing it directly fails. Keep a SQLite reverse table `doc_id ↔ media_id`,
+   translate the condition into `doc_id in (...)`, and pass `{"doc_id": {"$in": [...]}}` to Chroma.
+2. **Store time as an integer epoch** (`published_ts`), not an ISO string. Range filters then compare
+   numbers, which avoids format and time-zone ambiguity.
+3. **A filter can return fewer than `top_k`.** Chroma trims a candidate set, so narrow conditions return
+   little. Request `top_k × ACGN_OVERFETCH`, truncate afterwards, and assert
+   `returned >= min(top_k, available_after_filter)`.
 
 ## 4. Emergency degradation
 
