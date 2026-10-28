@@ -87,6 +87,24 @@ would make `score` a distance while the contract promises a similarity (`Knowled
   normally — that is what makes an evaluation re-runnable. Beyond retention it answers `410`, not `409`.
 - **Never delete the previous snapshot while an evaluation is running**: the run is pinned to it.
 
+### 3.3 Encoding lanes and encoder identity
+
+- **Encoder identity** = model + backend (`torch` / `openvino` / `onnx`) + device + precision + library
+  versions + batch size. Every index build records it in its metadata, every eval run record copies it
+  (`EVAL_PROTOCOL` §7). Vectors built under different identities are never mixed in one index and never
+  compared as if they were the same.
+- The embed cache is keyed by `content hash + model + prefix + encoder identity`, so switching lanes never
+  serves vectors from another lane, and a rebuild after a chunk change re-encodes only what changed.
+- **Measured CPU baseline (2026-10-29, F's machine: i5-13400TEF, 16 threads, torch 2.15 CPU, batch 32):**
+  e5-base encodes at ≈ **1.9–2.0k tokens/s**, stable across passage lengths (13.8 items/s at ~145 tokens,
+  4.4 items/s at ~431 tokens; peak RSS ≈ 1.4 GB). At the config-A budget (512 tokens/chunk) that is
+  ≈ 3.9 items/s ⇒ a 40k-chunk corpus ≈ 2.9 h **per config**; plan the four configs sequentially.
+  Report throughput in **tokens/s**, never bare items/s — items/s silently varies ~3× with chunk length.
+- GPU lanes are permitted (DECISIONS 2026-10-29). An OpenVINO lane measured ≈ 8.8× CPU on e5-small on the
+  same machine; e5-base GPU numbers will be added once the canonical lane is chosen (F, G1a).
+- **Extraction-vendor quirk:** if extraction runs on the CSLab DSV4-flash deployment, set `max_tokens ≥ 1024`
+  — it is a reasoning model and returns empty content below that, because reasoning tokens consume the budget.
+
 ## 4. Emergency degradation
 
 

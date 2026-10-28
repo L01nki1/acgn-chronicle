@@ -155,7 +155,7 @@ number alone invites the obvious objection. The calibration set's own rates may 
   "window_end": "2026-10-28",
   "chunk_config": "A",
   "retrieval": {"mode": "vector", "top_k": 5, "over_fetch": 5},
-  "embed": {"model": "intfloat/multilingual-e5-base", "device": "cpu"},
+  "embed": {"model": "intfloat/multilingual-e5-base", "backend": "torch", "device": "cpu", "precision": "fp32", "batch": 32},
   "llm": {"provider": "...", "model": "...", "version": "...", "temperature": 0.0, "seed": 0},
   "git_sha": "...",
   "metrics": {"retrieval_hit_rate": 0.0, "evidence_recall": 0.0, "answer_correctness": {}, "abstention_accuracy": {}}
