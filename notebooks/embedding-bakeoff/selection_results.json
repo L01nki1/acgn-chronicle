@@ -1,0 +1,901 @@
+{
+  "n_corpus": 135,
+  "n_queries": 16,
+  "golds": [
+    {
+      "entity": "アセンダンス",
+      "src_lang": "ja",
+      "q_en": "Capcom announces a new Monster Hunter game releasing in 2027",
+      "q_zh": "卡普空宣布怪物猎人新作会在2027年发售的消息"
+    },
+    {
+      "entity": "レクイエム",
+      "src_lang": "ja",
+      "q_en": "Resident Evil Requiem release date on Nintendo Switch 2",
+      "q_zh": "生化危机安魂曲在NS2上的发售日期是什么时候"
+    },
+    {
+      "entity": "CAPCOM CUP",
+      "src_lang": "ja",
+      "q_en": "Capcom Cup fighting game esports finals to be held in Japan",
+      "q_zh": "卡普空杯格斗大赛首次在日本举办的决定"
+    },
+    {
+      "entity": "gamescom",
+      "src_lang": "ja",
+      "q_en": "Onimusha game winning two awards at gamescom",
+      "q_zh": "鬼武者新作在欧洲游戏展上获得两个奖项"
+    },
+    {
+      "entity": "Georgie",
+      "src_lang": "en",
+      "q_en": "which publisher licensed the Georgie manga in English",
+      "q_zh": "乔治这部漫画的英文版授权给了哪家出版社"
+    },
+    {
+      "entity": "AniBiz",
+      "src_lang": "en",
+      "q_en": "anime licensing marketplace receives six million dollar investment",
+      "q_zh": "动画授权交易平台获得六百万美元投资"
+    },
+    {
+      "entity": "赛博朋克2077",
+      "src_lang": "zh",
+      "q_en": "Cyberpunk 2077 version 2.5 update",
+      "q_zh": "赛博朋克2077的2.5版本更新上线"
+    },
+    {
+      "entity": "潜渊症",
+      "src_lang": "zh",
+      "q_en": "Barotrauma Home and Harbor expansion release date",
+      "q_zh": "潜渊症的新扩展包定档在什么时候"
+    }
+  ],
+  "results": {
+    "e5-small": {
+      "model": "intfloat/multilingual-e5-small",
+      "dim": 384,
+      "load_s": 1.7,
+      "corpus_encode_s": 3.5,
+      "corpus_tokens": 17726,
+      "tokens_per_s_cpu": 5090,
+      "items_per_s_cpu": 38.8,
+      "hit@5": 0.6875,
+      "mrr@5": 0.559375,
+      "by_query_lang": {
+        "en": {
+          "n": 8,
+          "hit@5": 0.875,
+          "mrr@5": 0.775
+        },
+        "zh": {
+          "n": 8,
+          "hit@5": 0.5,
+          "mrr@5": 0.34375
+        }
+      },
+      "per_query": [
+        {
+          "qid": "アセンダンス-en",
+          "entity": "アセンダンス",
+          "q_lang": "en",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 0.2,
+          "top1_id": "capcom-1"
+        },
+        {
+          "qid": "アセンダンス-zh",
+          "entity": "アセンダンス",
+          "q_lang": "zh",
+          "src_lang": "ja",
+          "hit@5": false,
+          "mrr": 0.0,
+          "top1_id": "gcores-0"
+        },
+        {
+          "qid": "レクイエム-en",
+          "entity": "レクイエム",
+          "q_lang": "en",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-4"
+        },
+        {
+          "qid": "レクイエム-zh",
+          "entity": "レクイエム",
+          "q_lang": "zh",
+          "src_lang": "ja",
+          "hit@5": false,
+          "mrr": 0.0,
+          "top1_id": "gcores-2"
+        },
+        {
+          "qid": "CAPCOM CUP-en",
+          "entity": "CAPCOM CUP",
+          "q_lang": "en",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-9"
+        },
+        {
+          "qid": "CAPCOM CUP-zh",
+          "entity": "CAPCOM CUP",
+          "q_lang": "zh",
+          "src_lang": "ja",
+          "hit@5": false,
+          "mrr": 0.0,
+          "top1_id": "gcores-11"
+        },
+        {
+          "qid": "gamescom-en",
+          "entity": "gamescom",
+          "q_lang": "en",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-1"
+        },
+        {
+          "qid": "gamescom-zh",
+          "entity": "gamescom",
+          "q_lang": "zh",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 0.5,
+          "top1_id": "gcores-9"
+        },
+        {
+          "qid": "Georgie-en",
+          "entity": "Georgie",
+          "q_lang": "en",
+          "src_lang": "en",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "ann-5"
+        },
+        {
+          "qid": "Georgie-zh",
+          "entity": "Georgie",
+          "q_lang": "zh",
+          "src_lang": "en",
+          "hit@5": true,
+          "mrr": 0.25,
+          "top1_id": "gcores-13"
+        },
+        {
+          "qid": "AniBiz-en",
+          "entity": "AniBiz",
+          "q_lang": "en",
+          "src_lang": "en",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "ann-7"
+        },
+        {
+          "qid": "AniBiz-zh",
+          "entity": "AniBiz",
+          "q_lang": "zh",
+          "src_lang": "en",
+          "hit@5": false,
+          "mrr": 0.0,
+          "top1_id": "gcores-11"
+        },
+        {
+          "qid": "赛博朋克2077-en",
+          "entity": "赛博朋克2077",
+          "q_lang": "en",
+          "src_lang": "zh",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "gcores-2"
+        },
+        {
+          "qid": "赛博朋克2077-zh",
+          "entity": "赛博朋克2077",
+          "q_lang": "zh",
+          "src_lang": "zh",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "gcores-2"
+        },
+        {
+          "qid": "潜渊症-en",
+          "entity": "潜渊症",
+          "q_lang": "en",
+          "src_lang": "zh",
+          "hit@5": false,
+          "mrr": 0.0,
+          "top1_id": "ann-42"
+        },
+        {
+          "qid": "潜渊症-zh",
+          "entity": "潜渊症",
+          "q_lang": "zh",
+          "src_lang": "zh",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "gcores-7"
+        }
+      ]
+    },
+    "e5-base": {
+      "model": "intfloat/multilingual-e5-base",
+      "dim": 768,
+      "load_s": 2.0,
+      "corpus_encode_s": 10.7,
+      "corpus_tokens": 17726,
+      "tokens_per_s_cpu": 1661,
+      "items_per_s_cpu": 12.7,
+      "hit@5": 0.8125,
+      "mrr@5": 0.7708333333333334,
+      "by_query_lang": {
+        "en": {
+          "n": 8,
+          "hit@5": 0.875,
+          "mrr@5": 0.875
+        },
+        "zh": {
+          "n": 8,
+          "hit@5": 0.75,
+          "mrr@5": 0.6666666666666667
+        }
+      },
+      "per_query": [
+        {
+          "qid": "アセンダンス-en",
+          "entity": "アセンダンス",
+          "q_lang": "en",
+          "src_lang": "ja",
+          "hit@5": false,
+          "mrr": 0.0,
+          "top1_id": "capcom-12"
+        },
+        {
+          "qid": "アセンダンス-zh",
+          "entity": "アセンダンス",
+          "q_lang": "zh",
+          "src_lang": "ja",
+          "hit@5": false,
+          "mrr": 0.0,
+          "top1_id": "gcores-0"
+        },
+        {
+          "qid": "レクイエム-en",
+          "entity": "レクイエム",
+          "q_lang": "en",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-4"
+        },
+        {
+          "qid": "レクイエム-zh",
+          "entity": "レクイエム",
+          "q_lang": "zh",
+          "src_lang": "ja",
+          "hit@5": false,
+          "mrr": 0.0,
+          "top1_id": "gcores-0"
+        },
+        {
+          "qid": "CAPCOM CUP-en",
+          "entity": "CAPCOM CUP",
+          "q_lang": "en",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-9"
+        },
+        {
+          "qid": "CAPCOM CUP-zh",
+          "entity": "CAPCOM CUP",
+          "q_lang": "zh",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-9"
+        },
+        {
+          "qid": "gamescom-en",
+          "entity": "gamescom",
+          "q_lang": "en",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-1"
+        },
+        {
+          "qid": "gamescom-zh",
+          "entity": "gamescom",
+          "q_lang": "zh",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-1"
+        },
+        {
+          "qid": "Georgie-en",
+          "entity": "Georgie",
+          "q_lang": "en",
+          "src_lang": "en",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "ann-5"
+        },
+        {
+          "qid": "Georgie-zh",
+          "entity": "Georgie",
+          "q_lang": "zh",
+          "src_lang": "en",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "ann-5"
+        },
+        {
+          "qid": "AniBiz-en",
+          "entity": "AniBiz",
+          "q_lang": "en",
+          "src_lang": "en",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "ann-7"
+        },
+        {
+          "qid": "AniBiz-zh",
+          "entity": "AniBiz",
+          "q_lang": "zh",
+          "src_lang": "en",
+          "hit@5": true,
+          "mrr": 0.3333333333333333,
+          "top1_id": "gcores-3"
+        },
+        {
+          "qid": "赛博朋克2077-en",
+          "entity": "赛博朋克2077",
+          "q_lang": "en",
+          "src_lang": "zh",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "gcores-2"
+        },
+        {
+          "qid": "赛博朋克2077-zh",
+          "entity": "赛博朋克2077",
+          "q_lang": "zh",
+          "src_lang": "zh",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "gcores-2"
+        },
+        {
+          "qid": "潜渊症-en",
+          "entity": "潜渊症",
+          "q_lang": "en",
+          "src_lang": "zh",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "gcores-7"
+        },
+        {
+          "qid": "潜渊症-zh",
+          "entity": "潜渊症",
+          "q_lang": "zh",
+          "src_lang": "zh",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "gcores-7"
+        }
+      ]
+    },
+    "e5-large": {
+      "model": "intfloat/multilingual-e5-large",
+      "dim": 1024,
+      "load_s": 2.3,
+      "corpus_encode_s": 42.1,
+      "corpus_tokens": 17726,
+      "tokens_per_s_cpu": 421,
+      "items_per_s_cpu": 3.2,
+      "hit@5": 0.8125,
+      "mrr@5": 0.7708333333333334,
+      "by_query_lang": {
+        "en": {
+          "n": 8,
+          "hit@5": 1.0,
+          "mrr@5": 0.9166666666666666
+        },
+        "zh": {
+          "n": 8,
+          "hit@5": 0.625,
+          "mrr@5": 0.625
+        }
+      },
+      "per_query": [
+        {
+          "qid": "アセンダンス-en",
+          "entity": "アセンダンス",
+          "q_lang": "en",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-2"
+        },
+        {
+          "qid": "アセンダンス-zh",
+          "entity": "アセンダンス",
+          "q_lang": "zh",
+          "src_lang": "ja",
+          "hit@5": false,
+          "mrr": 0.0,
+          "top1_id": "gcores-2"
+        },
+        {
+          "qid": "レクイエム-en",
+          "entity": "レクイエム",
+          "q_lang": "en",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-4"
+        },
+        {
+          "qid": "レクイエム-zh",
+          "entity": "レクイエム",
+          "q_lang": "zh",
+          "src_lang": "ja",
+          "hit@5": false,
+          "mrr": 0.0,
+          "top1_id": "gcores-0"
+        },
+        {
+          "qid": "CAPCOM CUP-en",
+          "entity": "CAPCOM CUP",
+          "q_lang": "en",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-9"
+        },
+        {
+          "qid": "CAPCOM CUP-zh",
+          "entity": "CAPCOM CUP",
+          "q_lang": "zh",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-9"
+        },
+        {
+          "qid": "gamescom-en",
+          "entity": "gamescom",
+          "q_lang": "en",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-1"
+        },
+        {
+          "qid": "gamescom-zh",
+          "entity": "gamescom",
+          "q_lang": "zh",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-1"
+        },
+        {
+          "qid": "Georgie-en",
+          "entity": "Georgie",
+          "q_lang": "en",
+          "src_lang": "en",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "ann-5"
+        },
+        {
+          "qid": "Georgie-zh",
+          "entity": "Georgie",
+          "q_lang": "zh",
+          "src_lang": "en",
+          "hit@5": false,
+          "mrr": 0.0,
+          "top1_id": "gcores-12"
+        },
+        {
+          "qid": "AniBiz-en",
+          "entity": "AniBiz",
+          "q_lang": "en",
+          "src_lang": "en",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "ann-7"
+        },
+        {
+          "qid": "AniBiz-zh",
+          "entity": "AniBiz",
+          "q_lang": "zh",
+          "src_lang": "en",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "ann-7"
+        },
+        {
+          "qid": "赛博朋克2077-en",
+          "entity": "赛博朋克2077",
+          "q_lang": "en",
+          "src_lang": "zh",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "gcores-2"
+        },
+        {
+          "qid": "赛博朋克2077-zh",
+          "entity": "赛博朋克2077",
+          "q_lang": "zh",
+          "src_lang": "zh",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "gcores-2"
+        },
+        {
+          "qid": "潜渊症-en",
+          "entity": "潜渊症",
+          "q_lang": "en",
+          "src_lang": "zh",
+          "hit@5": true,
+          "mrr": 0.3333333333333333,
+          "top1_id": "capcom-35"
+        },
+        {
+          "qid": "潜渊症-zh",
+          "entity": "潜渊症",
+          "q_lang": "zh",
+          "src_lang": "zh",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "gcores-7"
+        }
+      ]
+    },
+    "qwen3-0.6b": {
+      "model": "Qwen/Qwen3-Embedding-0.6B",
+      "dim": 1024,
+      "load_s": 1.2,
+      "corpus_encode_s": 354.6,
+      "corpus_tokens": 18719,
+      "tokens_per_s_cpu": 53,
+      "items_per_s_cpu": 0.4,
+      "hit@5": 1.0,
+      "mrr@5": 0.8802083333333333,
+      "by_query_lang": {
+        "en": {
+          "n": 8,
+          "hit@5": 1.0,
+          "mrr@5": 0.9166666666666666
+        },
+        "zh": {
+          "n": 8,
+          "hit@5": 1.0,
+          "mrr@5": 0.84375
+        }
+      },
+      "per_query": [
+        {
+          "qid": "アセンダンス-en",
+          "entity": "アセンダンス",
+          "q_lang": "en",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 0.3333333333333333,
+          "top1_id": "capcom-57"
+        },
+        {
+          "qid": "アセンダンス-zh",
+          "entity": "アセンダンス",
+          "q_lang": "zh",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 0.25,
+          "top1_id": "capcom-57"
+        },
+        {
+          "qid": "レクイエム-en",
+          "entity": "レクイエム",
+          "q_lang": "en",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-4"
+        },
+        {
+          "qid": "レクイエム-zh",
+          "entity": "レクイエム",
+          "q_lang": "zh",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 0.5,
+          "top1_id": "gcores-0"
+        },
+        {
+          "qid": "CAPCOM CUP-en",
+          "entity": "CAPCOM CUP",
+          "q_lang": "en",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-9"
+        },
+        {
+          "qid": "CAPCOM CUP-zh",
+          "entity": "CAPCOM CUP",
+          "q_lang": "zh",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-9"
+        },
+        {
+          "qid": "gamescom-en",
+          "entity": "gamescom",
+          "q_lang": "en",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-1"
+        },
+        {
+          "qid": "gamescom-zh",
+          "entity": "gamescom",
+          "q_lang": "zh",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-1"
+        },
+        {
+          "qid": "Georgie-en",
+          "entity": "Georgie",
+          "q_lang": "en",
+          "src_lang": "en",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "ann-5"
+        },
+        {
+          "qid": "Georgie-zh",
+          "entity": "Georgie",
+          "q_lang": "zh",
+          "src_lang": "en",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "ann-5"
+        },
+        {
+          "qid": "AniBiz-en",
+          "entity": "AniBiz",
+          "q_lang": "en",
+          "src_lang": "en",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "ann-7"
+        },
+        {
+          "qid": "AniBiz-zh",
+          "entity": "AniBiz",
+          "q_lang": "zh",
+          "src_lang": "en",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "ann-7"
+        },
+        {
+          "qid": "赛博朋克2077-en",
+          "entity": "赛博朋克2077",
+          "q_lang": "en",
+          "src_lang": "zh",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "gcores-2"
+        },
+        {
+          "qid": "赛博朋克2077-zh",
+          "entity": "赛博朋克2077",
+          "q_lang": "zh",
+          "src_lang": "zh",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "gcores-2"
+        },
+        {
+          "qid": "潜渊症-en",
+          "entity": "潜渊症",
+          "q_lang": "en",
+          "src_lang": "zh",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "gcores-7"
+        },
+        {
+          "qid": "潜渊症-zh",
+          "entity": "潜渊症",
+          "q_lang": "zh",
+          "src_lang": "zh",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "gcores-7"
+        }
+      ]
+    },
+    "bge-m3": {
+      "model": "BAAI/bge-m3",
+      "dim": 1024,
+      "load_s": 1.7,
+      "corpus_encode_s": 47.8,
+      "corpus_tokens": 17456,
+      "tokens_per_s_cpu": 365,
+      "items_per_s_cpu": 2.8,
+      "hit@5": 1.0,
+      "mrr@5": 0.859375,
+      "by_query_lang": {
+        "en": {
+          "n": 8,
+          "hit@5": 1.0,
+          "mrr@5": 0.78125
+        },
+        "zh": {
+          "n": 8,
+          "hit@5": 1.0,
+          "mrr@5": 0.9375
+        }
+      },
+      "per_query": [
+        {
+          "qid": "アセンダンス-en",
+          "entity": "アセンダンス",
+          "q_lang": "en",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 0.5,
+          "top1_id": "capcom-12"
+        },
+        {
+          "qid": "アセンダンス-zh",
+          "entity": "アセンダンス",
+          "q_lang": "zh",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-2"
+        },
+        {
+          "qid": "レクイエム-en",
+          "entity": "レクイエム",
+          "q_lang": "en",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-4"
+        },
+        {
+          "qid": "レクイエム-zh",
+          "entity": "レクイエム",
+          "q_lang": "zh",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 0.5,
+          "top1_id": "gcores-0"
+        },
+        {
+          "qid": "CAPCOM CUP-en",
+          "entity": "CAPCOM CUP",
+          "q_lang": "en",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-9"
+        },
+        {
+          "qid": "CAPCOM CUP-zh",
+          "entity": "CAPCOM CUP",
+          "q_lang": "zh",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-9"
+        },
+        {
+          "qid": "gamescom-en",
+          "entity": "gamescom",
+          "q_lang": "en",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 0.5,
+          "top1_id": "capcom-6"
+        },
+        {
+          "qid": "gamescom-zh",
+          "entity": "gamescom",
+          "q_lang": "zh",
+          "src_lang": "ja",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "capcom-1"
+        },
+        {
+          "qid": "Georgie-en",
+          "entity": "Georgie",
+          "q_lang": "en",
+          "src_lang": "en",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "ann-5"
+        },
+        {
+          "qid": "Georgie-zh",
+          "entity": "Georgie",
+          "q_lang": "zh",
+          "src_lang": "en",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "ann-5"
+        },
+        {
+          "qid": "AniBiz-en",
+          "entity": "AniBiz",
+          "q_lang": "en",
+          "src_lang": "en",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "ann-7"
+        },
+        {
+          "qid": "AniBiz-zh",
+          "entity": "AniBiz",
+          "q_lang": "zh",
+          "src_lang": "en",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "ann-7"
+        },
+        {
+          "qid": "赛博朋克2077-en",
+          "entity": "赛博朋克2077",
+          "q_lang": "en",
+          "src_lang": "zh",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "gcores-2"
+        },
+        {
+          "qid": "赛博朋克2077-zh",
+          "entity": "赛博朋克2077",
+          "q_lang": "zh",
+          "src_lang": "zh",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "gcores-2"
+        },
+        {
+          "qid": "潜渊症-en",
+          "entity": "潜渊症",
+          "q_lang": "en",
+          "src_lang": "zh",
+          "hit@5": true,
+          "mrr": 0.25,
+          "top1_id": "gcores-0"
+        },
+        {
+          "qid": "潜渊症-zh",
+          "entity": "潜渊症",
+          "q_lang": "zh",
+          "src_lang": "zh",
+          "hit@5": true,
+          "mrr": 1.0,
+          "top1_id": "gcores-7"
+        }
+      ]
+    }
+  }
+}

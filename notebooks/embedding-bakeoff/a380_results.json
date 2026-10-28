@@ -1,0 +1,28 @@
+{
+  "e5-base": {
+    "corpus_tokens": 17726,
+    "cpu_encode_s": 10.8,
+    "gpu_encode_s": 2.8,
+    "cpu_tok_s": 1644,
+    "a380_tok_s": 6244,
+    "speedup": 3.8,
+    "min_cosine_cpu_gpu": 0.9999998807907104,
+    "hit@5_cpu": 0.8125,
+    "mrr@5_cpu": 0.771,
+    "hit@5_gpu": 0.8125,
+    "mrr@5_gpu": 0.771
+  },
+  "bge-m3": {
+    "corpus_tokens": 17456,
+    "cpu_encode_s": 40.5,
+    "gpu_encode_s": 5.9,
+    "cpu_tok_s": 431,
+    "a380_tok_s": 2967,
+    "speedup": 6.88,
+    "min_cosine_cpu_gpu": 0.9999998211860657,
+    "hit@5_cpu": 1.0,
+    "mrr@5_cpu": 0.856,
+    "hit@5_gpu": 1.0,
+    "mrr@5_gpu": 0.856
+  }
+}
