@@ -36,7 +36,7 @@ Three facts learned the hard way:
 | **Capcom** | `https://www.capcom.co.jp/rss/news.xml` | RSS | full archive, 7,293 items since 2014-03; titles are templated ⇒ must LLM-extract fields | game side, bulk volume |
 | **MAPPA / BONES / P.A.WORKS** | `https://mappa.co.jp/feed/` etc. + `?paged=N` | WP / RSS | 5 pages ≈ 1.5–2.5 years; MAPPA's REST works, prefer it | studio-side first-party |
 | **PR TIMES** | `https://prtimes.jp/index.rdf` | RSS | no usable category channel (all 404) ⇒ keyword filter on アニメ / マンガ / ゲーム / 声優 / 配信 | press releases; noisy without the filter |
-| **ANN** | RSS `all/rss.xml` + `https://www.animenewsnetwork.com/news/YYYY-MM-DD` | RSS + per-day | ~31 items/day; per-day URL is addressable ⇒ **90 days with no gaps is the W1 hard target** | main L2 corpus |
+| **ANN** | RSS `all/rss.xml` + `https://www.animenewsnetwork.com/news/YYYY-MM-DD` | RSS + per-day | ~31 items/day; the per-day URL is addressable ⇒ **the per-day archive is the only way to cover 3 years with no gaps** (≈1,100 requests, ~45 min at our pacing) | main L2 corpus |
 | **Gcores 机核** | `https://www.gcores.com/rss` | RSS | ~6.7/day, median 565 chars | Chinese media |
 | **Chuapp 触乐** | `http://www.chuapp.com/feed` | RSS | ~2.1/day, median 3,846 chars — the long-document workhorse | Chinese media |
 | **GameRes 游研社** | `https://www.yystv.cn/rss/feed` | RSS | ~2.4/day, full text | Chinese media |
@@ -80,16 +80,27 @@ W2 priority follows the coverage gap: light novel and manga first (they are the 
 
 | Criterion | Threshold |
 |---|---|
-| Corpus size | ≥8,000 items; span ≥90 days; ≥6,000 after dedup |
+| Corpus size | ≥8,000 items; ≥6,000 after dedup |
+| Corpus span | **starts at 3 years**; if 3 years yields <8,000, widen year by year until 8,000 is reached or the available history is exhausted |
+| Source depth | recorded in `eval/source_depth_probe.csv` before the window is frozen |
 | Category balance | ≥300 each: anime / manga / game / light novel |
-| Source mix | `official` share 60–75% |
+| Source mix | **no quota** — report the achieved `official` / `media` / `metadata` mix |
 | Idempotency | second consecutive run carries only increments |
 | Reproducibility | the same corpus rebuilds the same `snapshot_id` |
 | Failure visibility | broken selectors raise; each crawl asserts `items > 0` |
 
-Expected scale: ~65–70 new items/day (39 media + 25–30 first-party); 90-day backfill ≈ 3,500 media + 9,500
-first-party ≈ 13–14k total. If 11/2 lands short of 8,000, the decision is made **before W3**: downgrade the A/B
-comparison to qualitative + small-sample and state it in the report.
+**Sizing is measured, not extrapolated.** An earlier version of this table estimated 65–70 new items/day and
+then claimed a 90-day backfill of 13–14k; those two numbers do not agree (65–70/day × 90 ≈ 6k). The error was
+methodological: a published `items/day` describes *new* items from a rolling feed, while a backfill is bounded by
+**how far back each source can be paged**, and a rolling RSS feed cannot be paged at all.
+
+So the window is set from a measurement: the source-depth probe (`scripts/probe_sources.py`) reports, per source
+and per depth (90 d / 1 y / 2 y / 3 y / all), how many items exist and how far back the earliest reachable item
+is — without embedding or indexing anything. Only sources with real depth can contribute history; the rest
+contribute the tail of their feed.
+
+If 11/2 lands short of 8,000 even at full depth, the decision is made **before W3**: downgrade the A/B comparison
+to qualitative + small-sample and state it in the report.
 
 ## 7. Adapter contract
 

@@ -19,7 +19,7 @@
   },
   "key_entities": ["2026-10-05"],
   "source_type": "official",
-  "window": ["2026-07-30", "2026-10-28"],
+  "window": ["2023-10-28", "2026-10-28"],
   "annotator": "D",
   "verified_by": "F"
 }
@@ -27,6 +27,8 @@
 
 - `key_entities`: the judgement basis for rule-based hit rate; each must appear in `gold_answer`.
 - `window`: the validity window for this item; corpus outside it does not count.
+
+The dates above are illustrative. The evaluated window is **sized by measurement** (3 years, widened until 8,000 items) and then **frozen**: it is recorded in `meta.json` and in `docs/DECISIONS.md`, and a later run with a different window is a different experiment. Do not copy these numbers into a run.
 - Quotas: A 10–12 / B 8–10 / C 6–8 / D >=8 (>=5 abstention), total >=30, **type A <= one third of the total**.
 
 ## 2. Three-level judgement (`answer_correctness`)
@@ -59,7 +61,7 @@ Discipline:
 {
   "run_id": "20261115-A-20261028abcdef",
   "snapshot_id": "20261028abcdef",
-  "window_start": "2026-07-30",
+  "window_start": "2023-10-28",
   "window_end": "2026-10-28",
   "chunk_config": "A",
   "retrieval": {"mode": "vector", "top_k": 5, "over_fetch": 5},
@@ -71,6 +73,9 @@ Discipline:
 ```
 
 **A run without `snapshot_id` or `window` is invalid** (invariant 2, spec 02).
+
+Runs read the **evaluation corpus only**. The daily digest keeps its own rolling 14-day view for
+deduplication and trend detection; it never feeds a run, and a run never reads it (`docs/DECISIONS.md`).
 
 ## 5. Reproducibility
 

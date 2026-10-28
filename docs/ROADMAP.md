@@ -22,14 +22,18 @@ P2 is green and evaluation visualization is done. If the schedule slips, P3 is c
 
 | Check | Threshold |
 |---|---|
-| Corpus size | ≥8,000 items; span ≥90 days; ≥6,000 after dedup |
+| Corpus size | ≥8,000 items; ≥6,000 after dedup |
+| Corpus span | **starts at 3 years**; widen year by year until 8,000 is reached or the available history is exhausted |
+| Source depth probe | per-source × per-depth counts recorded before the window is frozen (`docs/SOURCES.md` §6) |
 | Category balance | ≥300 items each for anime / manga / game / light novel |
-| Source mix | `official` share 60–75% |
+| Source mix | **no quota** — report the achieved `official` / `media` / `metadata` mix |
 | Idempotency | two consecutive runs, second contains only increments; same corpus rebuilds the same `snapshot_id` |
 | Failure visibility | selector breakage raises; every crawl asserts `items > 0` |
 | Contract | `ports.py` v1 + exported schema + `contracts/KnowledgePort.md`; CI contract check green |
 
-Run: `python scripts/backfill.py --since … --until …`, then compare `snapshot_id` on a rebuild.
+Run: `python scripts/probe_sources.py` to size the window, then `python scripts/backfill.py --since … --until …`,
+then compare `snapshot_id` on a rebuild. The chosen window is frozen into `docs/DECISIONS.md` and into every
+run's `meta.json`.
 
 ### G1b · 2026-11-09 — indexes and facts
 
@@ -53,6 +57,11 @@ Run: `python scripts/backfill.py --since … --until …`, then compare `snapsho
 `DailyDigest` fields frozen (W3 end) → `GET /daily?snapshot_id=&date=` → 3–5 day human-checked sample →
 board page (≤1.5 person-days) → later stage: scheduler and alerting.
 Pass condition: same `(snapshot, date)` reproduces the same digest; every citation clipped and jumpable.
+
+The digest reads **a rolling 14-day window**, never the evaluation snapshot: 14 days is what deduplication needs
+to recognise the same announcement on its third re-publication, and what "this story is developing" needs to mean
+anything. It keeps no archive beyond that window — history belongs to the evaluation corpus, which is separate
+and frozen (`docs/DECISIONS.md`, two-corpora entry).
 
 ## 3. Weekly timeline
 

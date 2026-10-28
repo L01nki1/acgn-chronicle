@@ -126,7 +126,7 @@ Content-Type: application/json
   "text": "When does the second season start airing?",
   "top_k": 5,
   "snapshot_id": "20261028abcdef",
-  "filters": {"source_types": ["official"], "since": "2026-07-30"}
+  "filters": {"source_types": ["official"], "since": "2023-10-28"}
 }
 ```
 
