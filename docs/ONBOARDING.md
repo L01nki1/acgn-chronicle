@@ -17,7 +17,9 @@
 
 ## 2. Branches and commits (06 §1)
 
-- `main` only moves through PRs.
+- `main` only moves through PRs. This is enforced, not just agreed: a direct `git push origin main` is
+  rejected by the repository ruleset with `GH013 ... Changes must be made through a pull request`, and the
+  two required status checks must be green before the merge button enables.
 - One long-lived branch per WP: `wp1-ingest` / `wp2-kb` / `wp3-retrieve` / `wp4-ground` / `wp5-eval` / `wp6-web`.
   Personal work uses short-lived branches on top: `wp1-ingest/a-toei-adapter`.
 - Commit message: `[WP1] add Toei html list adapter`; contract changes get the `[contract]` prefix.
@@ -25,34 +27,38 @@
 
 ### 2.1 Where the checks fire
 
-Your work moves through four moments. Two are local and can be skipped; two are remote and cannot.
+**You only ever do two things: commit and push.** Do not run the checks by hand — the table below is what
+runs for you.
 
 | Moment | What runs | Mechanism | Bypassable |
 |---|---|---|---|
 | `git commit` on your branch | lint + format on the **staged `.py` files only**; contract check if `ports.py` is staged | local hook `.githooks/pre-commit` | yes, `--no-verify` |
 | `git push` your branch | the four gates | local hook `.githooks/pre-push`, then CI on the pushed commit | locally yes — the CI run still happens |
-| open or update a PR | the four gates on ubuntu **and** macos | CI, `pull_request` event | no |
+| open or update a PR | the four gates on ubuntu, macOS **and** Windows | CI, `pull_request` event | no |
 | merge into `main` | the four gates again on `main` | CI, `push` event | no, once the ruleset below is on |
 
 Two CI runs for one commit (`push` and `pull_request`) is intentional: the push run tells you before you ask
 anyone to review, the PR run is the one a reviewer reads and the one a ruleset can require.
 
-**Local hooks exist only after `python scripts/install_hooks.py`** (§4.2) — `core.hooksPath` is a per-clone
-setting, so it cannot be committed. If you clone fresh and skip that command, you are unprotected locally but
-the PR checks still catch you.
+**Correctness is guaranteed by CI, not by the hooks.** The local hooks are optional: they only move the
+feedback earlier, so you find out in one second instead of waiting for a CI run. They exist per clone
+(`python scripts/install_hooks.py`) because `core.hooksPath` is local configuration that git cannot commit —
+if you skip that command nothing breaks, the PR checks still catch everything. See §4.2 for what each hook
+deliberately does *not* do.
 
 **The only layer nobody can bypass is server-side.** To block merging while a check is red, the repository
 owner sets it once: `Settings → Rules → New branch ruleset` → target `main` → **Require status checks to
-pass** → select `ubuntu-latest / py3.11` and `macos-latest / py3.11`. Until that exists, a red PR can still
-be merged by whoever presses the button.
+pass** → select `ubuntu-latest / py3.11` and `macos-latest / py3.11` (add `windows-latest / py3.11` once it
+has run at least once). Until that exists, a red PR can still be merged by whoever presses the button.
 
 ## 3. PR checklist (the reviewer ticks each line)
 
 The same list ships as `.github/pull_request_template.md`, so it appears in the description of every PR you
 open — you do not have to remember it.
 
-1. CI is green on all four gates (lint / format / contract check / tests) — the author ran
-   `python scripts/check.py` before pushing, not just `pytest` (§4.1)
+1. CI is green on all four gates (lint / format / contract check / tests) on every platform you can see.
+   The author does not have to have run anything locally — "green in CI" is the requirement, not
+   "green on my laptop"
 2. Nothing leaked into the commit: `data/`, `.env`, model files (`git status` first)
 3. New directories match the ownership map in spec 02 §2; cross-WP edits @ the owner in the description
 4. Any change touching an invariant (spec 02 §3) comes with a test
@@ -81,9 +87,10 @@ unrelated to the code — and a CI that cries wolf gets ignored.
 **Crawler exception**: `scripts/backfill.py` / `discover_daily.py` need the network by nature, but they never
 run in CI and carry no unit tests (selector logic is tested offline against fixtures, see 01 §5.3).
 
-### 4.1 Run the same four steps CI runs, before you push
+### 4.1 The four gates, and how to reproduce a red CI run locally
 
-One command runs all four in CI's order and stops at the first red step:
+You are not expected to run these before pushing — CI does it. This section exists so that when CI
+*is* red, you can reproduce it in one command instead of guessing:
 
 ```bash
 python scripts/check.py          # gate only
@@ -108,7 +115,10 @@ contract gate. If you edited `src/acgn_rag/core/ports.py`, regenerate the schema
 reason nobody can see. Docs may therefore contain illustrative pseudo-code and column-aligned comments.
 Inside `.py` files the formatter is strict — do not fight it, run `ruff format .`.
 
-### 4.2 The gates run automatically (one command, once per clone)
+### 4.2 Optional: run the gates locally on commit and push
+
+Installing these is **not required** — CI already gates every push and every PR. It only buys you faster
+feedback (one second locally instead of a CI round trip). Skip it if you prefer.
 
 ```bash
 python scripts/install_hooks.py            # install (sets core.hooksPath = .githooks)
@@ -138,6 +148,10 @@ Deliberate design choices, so nobody "fixes" them the wrong way:
 run** that the whole group sees. If a hook is wrong, fix the hook in `.githooks/` and send a PR.
 
 ## 5. Cross-platform differences that change results
+
+CI runs the same four gates on **ubuntu, macOS and Windows**, so a difference that only appears on one
+platform is caught before a PR is merged. What CI cannot tell you is *why* it broke on one platform only —
+that is what this table is for.
 
 | Difference | Consequence | Handling |
 |---|---|---|

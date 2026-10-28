@@ -4,8 +4,9 @@
 
 ## 1. Commands
 
-**Before every push** run the four CI gates in CI's order — `python scripts/check.py` does exactly that and
-stops at the first failure (details in `ONBOARDING.md` §4.1):
+When CI is red, reproduce it locally before touching the code. `python scripts/check.py` runs the four gates
+in CI's order and stops at the first failure (details in `ONBOARDING.md` §4.1). Running them before every push
+is optional — CI covers that.
 
 ```bash
 ruff check .                                  # 1 lint
