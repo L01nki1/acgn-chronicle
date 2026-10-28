@@ -2,6 +2,8 @@
 
 CS5481 Data Engineering · Topic 5 — **an ACGN cross-time archive QA system built on RAG, with verifiable citations**.
 
+Three names, one project: repository `acgn-chronicle` · Python package `acgn_rag` · distribution `acgn-rag`.
+
 Scope in one line: the only production artifact is `src/acgn_rag/core/`; the website, the daily digest and Isla are merely KnowledgePort consumers.
 Model training / fine-tuning is **never** done here (C6, spec 06).
 

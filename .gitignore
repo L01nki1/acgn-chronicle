@@ -59,6 +59,5 @@ node_modules/
 Thumbs.db
 desktop.ini
 
-# ---- Internal working notes (team convention: not committed; delete this line to include) ----
-/PLAN.md
+# ---- Internal workspace data (agent memory; never committed) ----
 /.workbuddy/

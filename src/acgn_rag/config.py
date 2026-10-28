@@ -16,7 +16,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-DEFAULT_UA = "AcgnRagBot/0.1 (CS5481 course project; +https://github.com/L01nki1/acgn-daily)"
+DEFAULT_UA = "AcgnRagBot/0.1 (CS5481 course project; +https://github.com/L01nki1/acgn-chronicle)"
 
 
 def _env(key: str, default: str | None = None) -> str | None:

@@ -19,6 +19,8 @@
 | Date | Decision | Reason | Affects |
 |---|---|---|---|
 | 2026-10-28 | Repository name is `acgn-daily` | Matches the product direction; the remote was renamed and the local remote updated | everyone |
+| 2026-10-28 | Repository renamed again to **`acgn-chronicle`** | Owner's naming call; local remote and the crawler user agent now point at the new location. The Python package (`acgn_rag`) and distribution name (`acgn-rag`) are unchanged | everyone |
+| 2026-10-28 | Planning notes (`PLAN.md`) removed from the workspace | Its content now lives in `docs/PROJECT.md` + `docs/ROADMAP.md`; keeping both invites two versions of the truth | everyone |
 | 2026-10-28 | Package path is `src/acgn_rag/core/` | `src/acgn_rag/` has three sibling packages (`core/`, `daily/`, `web/`), so the simplified `src/core/` does not apply; the boundary diagram in 05 §1 needs correcting | B, C, F |
 | 2026-10-28 | Vector store baseline = Chroma | The only option that is literally a vector database while offering built-in metadata filters, a persistent directory and zero services; workarounds for the three pitfalls are in PLAN §D4 | F, E |
 | 2026-10-28 | Extraction and answer generation may use different vendors | The two lines have opposite needs: extraction wants cheap, strict JSON; generation wants instruction following and no invented citations. A Protocol plus `.env` keeps the vendor swappable without code changes | B, F |
