@@ -87,6 +87,17 @@ would make `score` a distance while the contract promises a similarity (`Knowled
   normally — that is what makes an evaluation re-runnable. Beyond retention it answers `410`, not `409`.
 - **Never delete the previous snapshot while an evaluation is running**: the run is pinned to it.
 
+### 3.2a Dedup auxiliary-channel calibration (issue #14 P2)
+
+Measured on real ACGN headlines with e5 (F pilot, 2026-10-27): unrelated headline pairs average
+**~0.70** cosine, same-story paraphrases **~0.90** — the usable window is narrow. Single-linkage
+merging collapsed 149 items into **1 cluster** at threshold 0.62 (chain collapse); complete-linkage
+at **0.86** gave 82 clusters with a correct cross-paraphrase merge. If the "text similarity within a
+language" auxiliary is embedding-based: use **complete-linkage, start at 0.86**, treat the threshold as
+a calibration item, and add a **cluster human spot-check to the G1b acceptance for config B** — B's
+quality is bounded by cluster quality, so the G1b line "chunk counts stable and explainable" must
+include cluster counts, not just chunk counts.
+
 ### 3.3 Encoding lanes and encoder identity
 
 - **Encoder identity** = model + backend (`torch` / `openvino` / `onnx`) + device + precision + library

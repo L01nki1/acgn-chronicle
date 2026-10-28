@@ -77,10 +77,24 @@ a new snapshot, a new chunking config and a rebuild. Per-run chunk ids are resol
 | Per type | A 10–12 · B 8–10 · C 6–8 · D ≥8 |
 | Type A share | ≤ one third of the total |
 | Unanswerable | ≥5 items with `answerable: false` (all inside type D) |
+| Language | **≥8 of 30 in Chinese**, several of them targeting JP-language official sources (issue #14 P1; the corpus is trilingual — JP official, EN media, ZH media — and an all-English proxy would not measure that) |
 | Evidence | every answerable item has ≥1 `urls` entry |
 | Independent labels | exactly the 10 `overlap: true` items, labelled twice |
 
 `python scripts/check_qa.py` enforces these rules; a set that fails it is not frozen.
+
+### 3.1 Cross-lingual queries (pre-registered, issue #14 P1)
+
+Chinese questions on JP-source evidence are part of the measured reality, not a stress case:
+in the F pilot on a frozen bilingual corpus, zh questions hit gold doc@5 at **37.5 % direct vs
+93.8 % with LLM query translation**, and translation itself cost one terminology miss (棋
+rendered as "chess" instead of "Go"). Two consequences, registered before the freeze:
+
+- Runs carry a **`query_lang` field** (`en` / `zh`), and metrics are reported per language beside
+  the totals — a single blended number would hide exactly the interesting failure.
+- The translate-then-retrieve variant (LLM translates the zh question, then retrieval runs as
+  usual) is **pre-registered as the cross-lingual lane**. It is tried before the QA freeze so its
+  status — adopted lane or reported-only ablation — is itself a frozen decision, not a post-hoc pick.
 
 ## 4. Retrieval quality — `retrieval_hit_rate`
 
@@ -89,6 +103,7 @@ Two numbers, always reported together, never one alone.
 | Metric | Definition |
 |---|---|
 | `hit@k` (primary) | 1 if **any** returned chunk has `citation.url` in `gold_evidence.urls`, else 0. `retrieval_hit_rate@k` is the mean over answerable items |
+| `mrr@k` (stretch gate) | mean reciprocal rank of the first gold-url hit over answerable items. **Pre-registered (issue #14 P3): the BM25+RRF stretch is judged on this, not on hit@k.** In the F pilot hybrid's gain lived in ranking (MRR@5 0.841 → 0.953/0.964) while hit@5 was saturated at 1.0 — judging a ranking improvement on a hit metric can only ever read as "no effect". If our hit@k has headroom, the stretch may lift both; that is a finding, not an assumption. |
 | `evidence_recall@k` (secondary) | mean of `len(distinct gold urls retrieved) / len(gold urls)` — did we cover the *sources*, not just one of them |
 
 - **Any gold source, not all of them.** A system that surfaces one authoritative source has done its job;
