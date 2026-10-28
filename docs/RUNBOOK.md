@@ -87,7 +87,7 @@ would make `score` a distance while the contract promises a similarity (`Knowled
   normally — that is what makes an evaluation re-runnable. Beyond retention it answers `410`, not `409`.
 - **Never delete the previous snapshot while an evaluation is running**: the run is pinned to it.
 
-### 3.2a Dedup auxiliary-channel calibration (issue #14 P2)
+### 3.3 Dedup auxiliary-channel calibration (issue #14 P2)
 
 Measured on real ACGN headlines with e5 (F pilot, 2026-10-27): unrelated headline pairs average
 **~0.70** cosine, same-story paraphrases **~0.90** — the usable window is narrow. Single-linkage
@@ -98,112 +98,71 @@ a calibration item, and add a **cluster human spot-check to the G1b acceptance f
 quality is bounded by cluster quality, so the G1b line "chunk counts stable and explainable" must
 include cluster counts, not just chunk counts.
 
-### 3.3 Encoding lanes and encoder identity
+The start value's margins are asymmetric — 0.04 below the measured paraphrase mean, 0.16 above the
+unrelated mean — which biases toward *splitting*, the failure that costs config B its clusters on a
+corpus full of syndicated re-publication. **G1b calibration item: sweep 0.82 / 0.84 / 0.86 / 0.88**
+on the frozen corpus, report cluster counts and 20 hand-checked pairs per value, and state in one
+line what the threshold optimizes before it freezes.
+
+### 3.4 Encoding lanes and encoder identity
 
 - **Encoder identity** = model + backend (`torch` / `openvino` / `onnx`) + device + precision + library
   versions + batch size. Every index build records it in its metadata, every eval run record copies it
-  (`EVAL_PROTOCOL` §7). Vectors built under different identities are never mixed in one index and never
-  compared as if they were the same.
-- The embed cache is keyed by `content hash + model + prefix + encoder identity`, so switching lanes never
-  serves vectors from another lane, and a rebuild after a chunk change re-encodes only what changed.
-- **Measured CPU baseline (2026-10-29, F's machine: i5-13400TEF, 16 threads, torch 2.15 CPU, batch 32):**
-  e5-base encodes at ≈ **1.9–2.0k tokens/s**, stable across passage lengths (13.8 items/s at ~145 tokens,
-  4.4 items/s at ~431 tokens; peak RSS ≈ 1.4 GB). At the config-A budget (512 tokens/chunk) that is
-  ≈ 3.9 items/s ⇒ a 40k-chunk corpus ≈ 2.9 h **per config**; plan the four configs sequentially.
-  Report throughput in **tokens/s**, never bare items/s — items/s silently varies ~3× with chunk length.
-- GPU lanes are permitted (DECISIONS 2026-10-29). An OpenVINO lane measured ≈ 8.8× CPU on e5-small on the
-  same machine; e5-base GPU numbers will be added once the canonical lane is chosen (F, G1a).
-- **512-token budget must include the prefix (truncation trap).** e5 models have `max_seq_length = 512`;
-  a 512-content-token config-A chunk plus the `passage: ` prefix silently truncates the chunk tail at
-  encode time — every config-A chunk loses its last few tokens, uniformly, so nothing crashes and the A/B
-  comparison quietly measures truncated text. The chunker's content budget must be
-  `max_seq_length − len(tokenizer(passage_prefix).input_ids)` (≈ 508), or the encoder must be configured
-  with the prefix inside the counted budget. Same cap applies to config-B aggregation chunks.
+  (`EVAL_PROTOCOL` §7) — a build whose metadata lacks the full identity is invalid. Vectors built under
+  different identities are never mixed in one index and never compared as if they were the same.
+- **Cache key** = `hash(header_version + header + body) + model + prefix + encoder identity`. The
+  encode-time header template (`title | publisher | date | body`, §3.5) is versioned and hashed
+  *together with* the body: bump `header_version` when the template changes or stale vectors are
+  silently reused, and hash both because two syndicated copies with identical bodies must not serve
+  each other's header.
+- **Content budget (truncation trap).** e5 models have `max_seq_length = 512`, and the chunker's
+  content budget must be
+  `min(config_tokens, max_seq_length − len(tokenizer(prefix).input_ids))`. The tokenizer call includes
+  the model's special tokens, so they are counted exactly once; the declared config binds and the model
+  only caps — an 8k-context lane must not turn config A into an 8k chunker, or the A/A′ comparison's
+  independent variable becomes encoder-dependent. Measured for e5-base + `passage: `:
+  `len(tokenizer("passage: ").input_ids) == 4` (2 prefix tokens + `<s>`/`</s>`), so the budget is
+  **508** content tokens — 508 encodes to exactly 512 ids on jp/zh/en text, while 512 content tokens
+  encode to 516 and silently lose their tail (nothing crashes; the A/A′ comparison quietly measures
+  truncated text). Chunk-PR acceptance asserts it: encode `prefix + one budget-sized chunk` per lane
+  and require `len(input_ids) == max_seq_length` with no truncation warning.
+- **Throughput is reported in tokens/s, never bare items/s** — items/s varies ~3× with chunk length
+  and reads as noise. Measured CPU baseline (i5-13400TEF, 16 threads, torch 2.15 CPU): e5-base ≈
+  **1,661 tokens/s** on the pilot corpus (re-measured 1,644 inside the A380 run) ⇒ a 40k-chunk ×
+  512-token corpus ≈ **3.4 h per config** — plan on it. Config-A-shaped 145/431-token batches
+  (batch 32) measured 1.9–2.0k tokens/s; the ~15 % gap tracks batch size and passage-length mix and
+  is not isolated, so the lower figure plans the schedule. Peak RSS ≈ 1.4 GB. Lane tables and
+  per-run provenance: `notebooks/embedding-bakeoff/`.
+- GPU lanes are permitted (DECISIONS 2026-10-29); `.env.example` keeps `cpu` as the default lane.
 - **Extraction-vendor quirk:** if extraction runs on the CSLab DSV4-flash deployment, set `max_tokens ≥ 1024`
   — it is a reasoning model and returns empty content below that, because reasoning tokens consume the budget.
 
-### 3.3a Embedding-model bake-off — measured (issue #15 review, 2026-10-29)
+### 3.5 Embedding-model policy (pre-registered)
 
-Pilot bake-off on real trilingual ACGN text (135 passages: Capcom JP press + ANN EN news + Gcores ZH
-media; 16 queries over 8 gold entities, half cross-lingual). Same machine and lane (torch CPU), same
-texts; only the encoder varies. Numbers are a *selection* sample (n=16), not the G2 evaluation:
+The measured evidence — bake-off tables, GPU-lane numbers, fp16 agreement, community-survey
+validation — lives in `notebooks/embedding-bakeoff/` (reproducible from there per `PROJECT.md` §9);
+this section is only the decision.
 
-| model | dim | CPU tok/s | hit@5 | MRR@5 | zh-query hit | zh-query MRR |
-|---|---|---|---|---|---|---|
-| multilingual-e5-small | 384 | 5090 | 0.69 | 0.559 | 0.50 | 0.344 |
-| multilingual-e5-base (current default) | 768 | 1661 | 0.81 | 0.771 | 0.75 | 0.667 |
-| multilingual-e5-large | 1024 | 421 | 0.81 | 0.771 | 0.62 | 0.625 |
-| **Qwen3-Embedding-0.6B** | 1024 | 53 (bf16) / 206 (fp32) | **1.00** | **0.880** | **1.00** | 0.844 |
-| **bge-m3 (dense)** | 1024 | 365 | **1.00** | 0.859 | **1.00** | **0.938** |
-
-All three e5 misses were cross-lingual queries on JP-source items; both Qwen3 and bge-m3 answered every
-zh and en query on JP sources directly, with no translation lane. bge-m3 was added after community
-practice flagged it as the multilingual workhorse (r/LocalLLaMA threads; JP retrieval bench 0.8498 vs
-e5-base 0.8384) — at n=16 its tie with Qwen3 (higher zh MRR, lower overall MRR) is within noise; the
-G1a bake-off decides.
-
-**Policy (pre-registered):**
 - **GPU canonical lane: two candidates — Qwen3-Embedding-0.6B and bge-m3 (dense)** — decided by the G1a
-  bake-off on the real frozen corpus; **CPU lane: e5-base** stays the any-member fallback (fastest lane
-  with sufficient quality for dev). Encoder identity keeps lanes separable; a G2 run binds to the
-  identity that built its index.
+  bake-off on the real frozen corpus; **CPU lane: e5-base** stays the any-member fallback. Encoder
+  identity keeps lanes separable; a G2 run binds to the identity that built its index.
 - Usage differences to respect: Qwen3 takes an **instruct-style query prompt** (`prompt_name="query"` in
-  sentence-transformers), documents carry no prefix; its context is 32k so the 512-budget truncation trap
-  does not apply — but config A stays 512/64 for the course A/B comparison, and the chunker's budget must
-  be derived from the model (`max_seq_length − prefix`), not hard-coded. Qwen3 supports MRL output dims
-  (32–1024) if storage wants a smaller vector. **bge-m3 needs no prefixes**, has 8k context, and is the
-  only candidate whose **mean-pooling architecture supports late chunking** — which is why the config-B
-  fallback experiment (below) is written against bge-m3. We use its **dense channel only**; the sparse
-  channel stays untouched so the hand-built BM25 stretch keeps its point.
-- **Bake-off protocol before the G1b freeze**: rerun the same mini-eval on the real frozen corpus with
+  sentence-transformers), documents carry no prefix. **bge-m3 needs no prefixes** and is the only
+  candidate whose **mean-pooling architecture supports late chunking** — the config-B fallback
+  experiment is written against bge-m3. We use bge-m3's **dense channel only**; the sparse channel
+  stays untouched so the hand-built BM25 stretch keeps its point.
+- **Bake-off protocol before the G1b freeze**: rerun the mini-eval on the real frozen corpus with
   30+ hand-checked queries, both candidates; pick by zh-subset MRR and overall MRR with the spread
-  reported; a candidate must beat e5-base by ≥10 points hit@5 or ≥0.05 MRR on the zh subset to displace
-  it. Decision and identity recorded in DECISIONS.
+  reported; a candidate must beat e5-base by ≥10 points hit@5 or ≥0.05 MRR on the zh subset to
+  displace it. Decision and identity recorded in DECISIONS.
 - Considered and rejected: **Ruri v3** (JP-specialist, tops JMTEB but cannot serve zh/en queries — we
   need one trilingual retriever) · **8B+ embedders** (Qwen3-8B, Octen-8B, harrier-oss-27b: out of our
   compute class for 4×40k chunks).
-
-**Community-practice validation (2026-10-29 survey, problem-driven):**
-- e5 prefix/truncation pitfalls are the top documented failure mode (HF model card + discussions #5/#33:
-  sentence-transformers needs manual prefixes; wrappers silently omit them; 512 truncation is silent) —
-  our §3.3 prefix rule and content-budget rule cover both.
-- Chroma pain points reported in the wild (cosine-distance vs similarity confusion, filtered queries
-  under-returning, hnsw param validation bugs) map one-to-one onto RUNBOOK §3.1's three pitfalls and the
-  over-fetch rule; nothing new to guard beyond what §3.1 already has.
-- Late chunking **cannot** apply to last-token-pooling decoder embedders (Qwen3) — confirmed as a known
-  limitation in EmbedAnything #176 and RAGFlow #2301, not just our reading of the pooling math.
-- News-dedup clustering practice prefers complete/average linkage over single linkage (chaining risk is
-  textbook) and entity-aware keys for multilingual streams — independently supports the dedup design
-  (entity key primary, complete-linkage text auxiliary, RUNBOOK §3.2a).
-**GPU-lane numbers (2026-10-29; quality identical to CPU everywhere — all hit/MRR values match the CPU
-bake-off exactly, fp16 included, so the model choice stays a CPU-quality question and throughput is a
-per-lane question):**
-
-| lane | model | tok/s | notes |
-|---|---|---|---|
-| A380 / OpenVINO fp32 | e5-base | 6,244 | 3.8× its CPU lane; vectors agree with CPU at cosine ≥ 0.9999998, identical rankings |
-| A380 / OpenVINO fp32 | bge-m3 (dense) | 2,967 | 6.9× its CPU lane; same parity checks |
-| Colab T4 / torch 2.11+cu130, fp32 → fp16 | e5-base | 14,660 → 51,235 | same-GPU cross-model table below |
-| Colab T4, fp32 → fp16 | bge-m3 (dense) | 3,389 → 16,380 | |
-| Colab T4, fp32 → fp16 | Qwen3-Embedding-0.6B | 2,039 → 6,883 | |
-
-Same-GPU (T4) ordering: e5-base > bge-m3 > Qwen3 in both precisions — on a 40k-chunk × 512-token corpus
-(≈20.5M tokens) even the slowest lane builds one config in **≤ 50 min (Qwen3 fp16)**, so the encoding
-budget is no longer a constraint on any GPU lane; the A380 lane builds e5-base in ~55 min and bge-m3 in
-~1.9 h per config. Do **not** compare tok/s across different GPUs (A380 vs T4 rows answer "can this lane
-build in time", not "which model is faster"). fp32↔fp16 agreement, measured on T4 (all three models): min vector cosine
-0.99976, query top-5 overlap 97.5–100 % (one shuffled slot in one e5-base query),
-corpus top-1 agreement 99.3–100 %, max similarity-score delta 5e-4 — fp16 compute
-is ranking-safe at three orders of magnitude below any threshold we use. Policy:
-**compute in fp16 on GPU lanes, store vectors as fp32** (40k×1024 fp32 ≈ 160 MB per
-config — precision costs nothing on disk), and fp16 stays a distinct
-encoder-identity dimension: builds record it, caches key on it, frozen builds fix
-one machine (fp16 kernels vary more across GPU architectures than fp32).
-
 - **Embed-time context headers (adopted, zero cost):** what gets encoded is not the raw chunk but
   `title | publisher | published date | chunk body`. RSS bodies routinely lose their parent context
   (who announced, when); a chunk that says "will begin airing on 2026-10-05" is unretrievable without it.
   The metadata is already in NormalizedItem — prepend at encode time, keep storing it as metadata too.
+  The template is versioned and hashed into the cache key (§3.4).
 - **Reranker stretch (proposed, pairs with the Qwen3 lane):** Qwen3-Reranker-0.6B beats
   bge-reranker-v2-m3 on the published multilingual benches, but community reports show the default
   instruction can underperform — it needs a task-specific instruction tuned on our data. Retrieve
@@ -212,14 +171,13 @@ one machine (fp16 kernels vary more across GPU architectures than fp32).
 - **Contingencies, not defaults:** *late chunking* (Jina) needs a long-context **mean-pooling** encoder —
   applies to bge-m3 (8k), not to e5 (512) nor to Qwen3 (last-token pooling); if config B's aggregated
   chunks underperform, late-chunking-over-bge-m3 is the documented fallback experiment, not a default.
-  *Anthropic-style contextual retrieval* (one LLM call per chunk) beats both on quality in published
-  comparisons and is ~40k LLM calls here — out of course budget. *LanceDB* has OSS full-text search +
-  hybrid while Chroma OSS does not (that is Chroma Cloud only) — if Chroma's filters or hnsw tuning
-  underdeliver at G1b, LanceDB is the documented contingency, but switching is a D4 revision and needs
-  gate evidence, not taste. *model2vec/static embeddings* are a dev-smoke option only, quality far below
-  any canonical lane.
+  *Anthropic-style contextual retrieval* (one LLM call per chunk) is ~40k LLM calls here — out of
+  course budget. *LanceDB* has OSS full-text search + hybrid while Chroma OSS does not (that is Chroma
+  Cloud only) — if Chroma's filters or hnsw tuning underdeliver at G1b, LanceDB is the documented
+  contingency, but switching is a D4 revision and needs gate evidence, not taste. *model2vec/static
+  embeddings* are a dev-smoke option only, quality far below any canonical lane.
 
-### 3.4 L0 facts-extraction SOP
+### 3.6 L0 facts-extraction SOP
 
 - **Batch 10 announcements per LLM call** with numbered output; measured pattern from the pilot cuts
   cost 3–5× vs one-per-call, and JSON per numbered slot is easier to validate. ~9.5k L0 items ⇒ ~950
@@ -231,7 +189,11 @@ one machine (fp16 kernels vary more across GPU architectures than fp32).
 - **Pre-filter before the LLM**: Capcom's feed mixes 決算/IR corporate releases with game content — a
   keyword classifier (決算｜株主｜IR｜決算短信 …) tags relevance *before* extraction so (a) the category
   balance at G1a counts what we intended and (b) ~30–40 % of the Capcom volume skips LLM calls
-  entirely. Tagged items stay in the corpus as `official/corporate` unless A/D decide otherwise.
+  entirely. Tagged items keep `source_type=official` plus an **ingest-side** category tag (e.g.
+  `ingest_category=corporate`): `official/corporate` is **not** a `SourceType` (`ports.py`, schema
+  0.2.0, fixes the three labels) and `FactUpdate` has fixed fields — whether the fact zone needs the
+  category is the `[interface] F -> B` question raised with PR #15; until B answers, the category
+  stays ingest-side metadata and the G1a source-mix counts use the three schema labels.
 - `max_tokens ≥ 1024` per call (see the DSV4-flash quirk above), and the system prompt is identical
   across a batch — keep it stable so any provider-side prompt caching can act on it.
 
