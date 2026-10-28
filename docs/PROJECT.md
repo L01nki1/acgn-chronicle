@@ -25,14 +25,15 @@ The grading weight sits on the backend pipeline and the faithfulness mechanisms,
 ## 3. Why RAG is necessary here (the argument we will reuse in §1 of the report)
 
 - A single day of ACGN news fits in a context window (~10⁵ tokens), so **the daily view is not the argument**.
-- What we actually index: a 90-day backfill plus daily increments ≈ 13–14k articles ≈ 2.5 × 10⁷ tokens ≈ **100× a 200K context window**.
+- What we actually index: a **≥3-year backfill** (sized by the source-depth probe) ≈ 8–15k articles ≈ 1.2–2 × 10⁷
+  tokens ≈ **60–100× a 200K context window**.
 - Therefore the product is a *traceable archive QA*, not "what happened today" — and that decision shapes the QA set: it cannot be all "what is new today".
 
 ## 4. How Topic 5 grades us
 
 | # | Requirement (brief) | Our implementation | Where | Status |
 |---|---|---|---|---|
-| 1 | Collect documents; load / chunk / embed; **compare ≥2 chunking strategies** | 50+ sources → ≥8,000 items over ≥90 days; configs A(512/64), A'(256/0), A₀(512/0), B(event aggregation); e5-base | `core/ingest`, `core/chunk`, `core/embed` | W1–W2 |
+| 1 | Collect documents; load / chunk / embed; **compare ≥2 chunking strategies** | 50+ endpoints surveyed, 12 sources in W1 → ≥8,000 items over **≥3 years** (widened until reached); configs A(512/64), A'(256/0), A₀(512/0), B(event aggregation); e5-base | `core/ingest`, `core/chunk`, `core/embed` | W1–W2 |
 | 2 | Store chunks + embeddings in **a vector database** | Chroma (embedded persistent), two-zone storage | `core/store` | W1–W2 |
 | 3 | Query → embedding → **semantic retrieval** | Vector top-k + filters (`source_types` / `since`–`until` / `media_ids`); stretch BM25 + RRF | `core/retrieve` | W3 |
 | 4 | **Grounded generation**, cite source per claim, **refuse when unknown** | Citation with `chunk_id` + URL, `abstained` + reason, compliance clipping | `core/ground` | W2–W3 |
