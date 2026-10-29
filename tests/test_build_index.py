@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 
-np = pytest.importorskip("numpy")  # [embed] lane import; CI installs [dev] only and skips this
+np = pytest.importorskip("numpy")  # Included in [dev]; the pipeline uses a fake encoder.
 pytest.importorskip("chromadb")  # [store] extra; same gate as tests/test_store_chroma.py
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
