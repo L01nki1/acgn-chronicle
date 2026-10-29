@@ -87,6 +87,7 @@
         },
         "quote": {
           "description": "at most 200 Unicode characters, clipped by ground/serialize; the client must not re-expand it from the source page",
+          "maxLength": 200,
           "title": "Quote",
           "type": "string"
         },
@@ -631,17 +632,21 @@
             }
           ],
           "default": null,
+          "description": "non-empty explanation of missing support when abstained; null otherwise",
           "title": "Abstain Reason"
         },
         "abstained": {
+          "description": "true when the selected snapshot and filters do not support an answer",
           "title": "Abstained",
           "type": "boolean"
         },
         "answer": {
+          "description": "supported answer text, or an explicit refusal explanation when abstained",
           "title": "Answer",
           "type": "string"
         },
         "citations": {
+          "description": "deduplicated in first-use order; empty when abstained",
           "items": {
             "$ref": "#/$defs/Citation"
           },
@@ -649,7 +654,7 @@
           "type": "array"
         },
         "cited_chunk_ids": {
-          "description": "must be a subset of the chunks actually retrieved for this query",
+          "description": "must be a subset of the chunks actually retrieved for this query; empty when abstained",
           "items": {
             "type": "string"
           },
@@ -667,6 +672,7 @@
       "type": "object"
     },
     "RetrievalFilters": {
+      "description": "AND between filter families, ANY within a list; absent/null/empty lists do not filter.",
       "properties": {
         "media_ids": {
           "anyOf": [
@@ -681,6 +687,7 @@
             }
           ],
           "default": null,
+          "description": "match ANY listed canonical media id; absent, null or [] means no media filter. Apply membership within the requested snapshot; a non-empty selection with no matching documents matches nothing, never drops the filter. Combine filter families using AND",
           "title": "Media Ids"
         },
         "since": {
@@ -693,7 +700,7 @@
             }
           ],
           "default": null,
-          "description": "daily views (\"today only\") also use this; never add a time-bucketed index",
+          "description": "inclusive UTC publication date (YYYY-MM-DD); absent/null leaves the lower bound open. Daily views use these bounds, never a time-bucketed index",
           "title": "Since"
         },
         "source_types": {
@@ -714,6 +721,7 @@
             }
           ],
           "default": null,
+          "description": "match ANY listed source type; absent, null or [] means no source-type filter",
           "title": "Source Types"
         },
         "until": {
@@ -726,6 +734,7 @@
             }
           ],
           "default": null,
+          "description": "inclusive UTC publication date (YYYY-MM-DD); absent/null leaves the upper bound open. since after until is a 422; equal dates select that whole UTC day",
           "title": "Until"
         }
       },
@@ -735,6 +744,7 @@
     "RetrievalQuery": {
       "$defs": {
         "RetrievalFilters": {
+          "description": "AND between filter families, ANY within a list; absent/null/empty lists do not filter.",
           "properties": {
             "media_ids": {
               "anyOf": [
@@ -749,6 +759,7 @@
                 }
               ],
               "default": null,
+              "description": "match ANY listed canonical media id; absent, null or [] means no media filter. Apply membership within the requested snapshot; a non-empty selection with no matching documents matches nothing, never drops the filter. Combine filter families using AND",
               "title": "Media Ids"
             },
             "since": {
@@ -761,7 +772,7 @@
                 }
               ],
               "default": null,
-              "description": "daily views (\"today only\") also use this; never add a time-bucketed index",
+              "description": "inclusive UTC publication date (YYYY-MM-DD); absent/null leaves the lower bound open. Daily views use these bounds, never a time-bucketed index",
               "title": "Since"
             },
             "source_types": {
@@ -782,6 +793,7 @@
                 }
               ],
               "default": null,
+              "description": "match ANY listed source type; absent, null or [] means no source-type filter",
               "title": "Source Types"
             },
             "until": {
@@ -794,6 +806,7 @@
                 }
               ],
               "default": null,
+              "description": "inclusive UTC publication date (YYYY-MM-DD); absent/null leaves the upper bound open. since after until is a 422; equal dates select that whole UTC day",
               "title": "Until"
             }
           },
@@ -860,6 +873,6 @@
       "type": "object"
     }
   },
-  "schema_version": "0.2.0",
+  "schema_version": "0.2.1",
   "source": "src/acgn_rag/core/ports.py"
 }

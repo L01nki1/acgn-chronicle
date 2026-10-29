@@ -16,9 +16,8 @@ the wire shape outside the schema, where no test could check it.
 
 from __future__ import annotations
 
-from acgn_rag.core.ports import ChunkExcerpt, Citation, RetrievedChunk
+from acgn_rag.core.ports import MAX_QUOTE_CHARS, ChunkExcerpt, Citation, RetrievedChunk
 
-MAX_QUOTE_CHARS = 200
 ELLIPSIS = "\u2026"
 
 
@@ -41,12 +40,13 @@ def to_excerpt(chunk: RetrievedChunk, limit: int = MAX_QUOTE_CHARS) -> ChunkExce
 
     The body is dropped here rather than redacted later: after this call the only text in the
     object is `quote`, so no downstream handler can accidentally serialize the article.
+    A caller may request a shorter quote, but cannot raise the outbound budget above 200.
     """
     citation: Citation = chunk.citation
     return ChunkExcerpt(
         chunk_id=chunk.chunk_id,
         score=chunk.score,
-        quote=clip_quote(chunk.text, limit),
+        quote=clip_quote(chunk.text, min(limit, MAX_QUOTE_CHARS)),
         citation=citation,
     )
 

@@ -32,14 +32,18 @@
 summary + source URL + <=200 character excerpt + mandatory attribution
 ```
 
-- Constant: `MAX_QUOTE_CHARS = 200` in `core/ground/serialize.py` (single source).
+- Public constant: `core/ground/serialize.MAX_QUOTE_CHARS = 200`. Its value is defined once in
+  `core/ports.py` and re-exported by the serializer, so the `ChunkExcerpt.quote` schema constraint and
+  the clipping boundary share one budget. `to_excerpt(..., limit=500)` still emits at most 200 characters.
 - **Unit: Unicode characters** (`len(str)`). Counting bytes would leave Japanese with roughly 60 characters
   per excerpt while English gets 200 — a per-language display gap that "quote a passage" does not intend.
 - Clipping: `text[:199] + "…"`, so the ellipsis is charged against the budget and the total stays <=200.
 - Whitespace collapsing is allowed; **re-wording, reordering or dropping sentences is not** — that is rewriting.
 - Two lines of defense: backend `serialize.py` plus a second clip before rendering in `web/static/` (owned by C).
 
-**Test**: `tests/compliance/test_serialize_limits.py` (11 cases, in place).
+**Test**: `tests/compliance/test_serialize_limits.py` covers clipping, caller attempts to increase the
+budget, and direct wire-model validation with ASCII, CJK and non-BMP Unicode characters. The exported
+schema carries `quote.maxLength=200`.
 
 ## C4 — `media` commentary must not be paraphrased
 
@@ -50,11 +54,13 @@ Judgement rule used by both the prompt and the writers:
 | Extract verifiable facts from `media` ("the report states X ships on 14 March") | Reproduce its opinions, reviews or speculation ("called the best of the season") |
 | Quote <=200 characters verbatim with attribution | Rewrite or summarize its editorial stance |
 
-**Prompt clause** (owned by B, stored as a constant in `core/ground/`):
+**Prompt clause** (owned by B, `MEDIA_SOURCE_RULE` in `core/ground/policy.py`):
 > If a source's `source_type` is `media`, extract only verifiable facts and figures; never paraphrase its
 > commentary, reviews or speculation. If the source is `official`, official statements and facts may be restated.
 
-**Test**: `tests/compliance/test_media_no_paraphrase.py` — snapshot the prompt so the clause cannot disappear silently.
+**Test**: `tests/compliance/test_media_no_paraphrase.py` snapshots the W1 policy text. The W2 prompt
+builder must include that constant verbatim and test its inclusion; the snapshot alone does not assess
+the semantic faithfulness of an LLM response.
 
 ## C5 — Every item is labeled
 

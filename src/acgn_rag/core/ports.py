@@ -25,7 +25,10 @@ from pydantic import BaseModel, Field
 
 SourceType = Literal["official", "media", "metadata"]
 
-SCHEMA_VERSION = "0.2.0"
+SCHEMA_VERSION = "0.2.1"
+
+# Shared by the wire constraint and the serializer; serialize.MAX_QUOTE_CHARS re-exports it.
+MAX_QUOTE_CHARS = 200
 
 # One definition, reused by both the internal and the wire chunk type: a score whose meaning is
 # left implicit is worse than no score, because a client will average it with another config's.
@@ -75,13 +78,28 @@ class SnapshotInventory(BaseModel):
 
 
 class RetrievalFilters(BaseModel):
-    source_types: Sequence[SourceType] | None = None
+    """AND between filter families, ANY within a list; absent/null/empty lists do not filter."""
+
+    source_types: Sequence[SourceType] | None = Field(
+        None,
+        description="match ANY listed source type; absent, null or [] means no source-type filter",
+    )
     since: str | None = Field(
         None,
-        description='daily views ("today only") also use this; never add a time-bucketed index',
+        description="inclusive UTC publication date (YYYY-MM-DD); absent/null leaves the lower "
+        "bound open. Daily views use these bounds, never a time-bucketed index",
     )
-    until: str | None = None
-    media_ids: Sequence[int] | None = None
+    until: str | None = Field(
+        None,
+        description="inclusive UTC publication date (YYYY-MM-DD); absent/null leaves the upper "
+        "bound open. since after until is a 422; equal dates select that whole UTC day",
+    )
+    media_ids: Sequence[int] | None = Field(
+        None,
+        description="match ANY listed canonical media id; absent, null or [] means no media filter. "
+        "Apply membership within the requested snapshot; a non-empty selection with no matching "
+        "documents matches nothing, never drops the filter. Combine filter families using AND",
+    )
 
 
 class RetrievalQuery(BaseModel):
@@ -144,6 +162,7 @@ class ChunkExcerpt(BaseModel):
     score: float = Field(..., description=SCORE_SEMANTICS)
     quote: str = Field(
         ...,
+        max_length=MAX_QUOTE_CHARS,
         description="at most 200 Unicode characters, clipped by ground/serialize; the client "
         "must not re-expand it from the source page",
     )
@@ -154,14 +173,24 @@ class ChunkExcerpt(BaseModel):
 
 
 class GroundedAnswer(BaseModel):
-    answer: str
-    citations: Sequence[Citation]
+    answer: str = Field(
+        ..., description="supported answer text, or an explicit refusal explanation when abstained"
+    )
+    citations: Sequence[Citation] = Field(
+        ..., description="deduplicated in first-use order; empty when abstained"
+    )
     cited_chunk_ids: Sequence[str] = Field(
         ...,
-        description="must be a subset of the chunks actually retrieved for this query",
+        description="must be a subset of the chunks actually retrieved for this query; empty when "
+        "abstained",
     )
-    abstained: bool
-    abstain_reason: str | None = None
+    abstained: bool = Field(
+        ..., description="true when the selected snapshot and filters do not support an answer"
+    )
+    abstain_reason: str | None = Field(
+        None,
+        description="non-empty explanation of missing support when abstained; null otherwise",
+    )
 
 
 # ---- Secondary task ports (interface first; full logic lands later) ----
@@ -243,6 +272,7 @@ WIRE_MODELS: tuple[str, ...] = (
 )
 
 __all__ = [
+    "MAX_QUOTE_CHARS",
     "SCHEMA_VERSION",
     "SCORE_SEMANTICS",
     "WIRE_MODELS",

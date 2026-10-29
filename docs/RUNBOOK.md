@@ -226,10 +226,12 @@ this section is only the decision.
   keyword classifier (決算｜株主｜IR｜決算短信 …) tags relevance *before* extraction so (a) the category
   balance at G1a counts what we intended and (b) ~30–40 % of the Capcom volume skips LLM calls
   entirely. Tagged items keep `source_type=official` plus an **ingest-side** category tag (e.g.
-  `ingest_category=corporate`): `official/corporate` is **not** a `SourceType` (`ports.py`, schema
-  0.2.0, fixes the three labels) and `FactUpdate` has fixed fields — whether the fact zone needs the
-  category is the `[interface] F -> B` question raised with PR #15; until B answers, the category
-  stays ingest-side metadata and the G1a source-mix counts use the three schema labels.
+  `ingest_category=corporate`): `official/corporate` is **not** a `SourceType` (`ports.py`
+  fixes the three labels) and `FactUpdate` has fixed fields. B/F resolved
+  [interface #17](https://github.com/L01nki1/acgn-chronicle/issues/17) with option 1: the category stays
+  ingest-side through G1a/G1b, no wire field is added, and source-mix counts use the three schema labels.
+  Any later query-time consumer needs an explicit Optional-with-default contract addition (§7 of
+  `contracts/KnowledgePort.md`), rather than turning `official/corporate` into a fourth source type.
 - `max_tokens ≥ 1024` per call (see the DSV4-flash quirk above), and the system prompt is identical
   across a batch — keep it stable so any provider-side prompt caching can act on it.
 - **Read the run summary before trusting a run**: `extract_facts.py` prints per-run counters —

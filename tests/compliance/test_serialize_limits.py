@@ -6,6 +6,9 @@ fix the implementation - never raise the threshold.
 
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 from acgn_rag.core.ground.serialize import MAX_QUOTE_CHARS, clip_quote, to_excerpt
 from acgn_rag.core.ports import ChunkExcerpt, Citation, RetrievedChunk
 
@@ -33,7 +36,7 @@ def test_limit_constant() -> None:
 
 
 def test_cjk_long_text_is_clipped_within_limit() -> None:
-    text = "New anime adaptation announced. " * 60  # ~1900 characters
+    text = "新作アニメの放送開始日が発表されました。" * 60
     quote = clip_quote(text)
     assert len(quote) <= MAX_QUOTE_CHARS
     assert quote.endswith("\u2026")
@@ -78,6 +81,35 @@ def test_excerpt_carries_a_usable_citation() -> None:
     assert excerpt.citation.url.startswith("https://")
     assert excerpt.citation.chunk_id == excerpt.chunk_id
     assert excerpt.citation.publisher
+
+
+def test_caller_cannot_raise_the_outbound_quote_budget() -> None:
+    excerpt = to_excerpt(_chunk("a" * 1000), limit=500)
+    assert len(excerpt.quote) == MAX_QUOTE_CHARS
+
+
+@pytest.mark.parametrize("character", ["a", "日", "🎬"])
+def test_wire_quote_budget_counts_unicode_characters(character: str) -> None:
+    chunk = _chunk("")
+    excerpt = ChunkExcerpt(
+        chunk_id=chunk.chunk_id,
+        score=chunk.score,
+        quote=character * MAX_QUOTE_CHARS,
+        citation=chunk.citation,
+    )
+    assert len(excerpt.quote) == MAX_QUOTE_CHARS
+
+
+@pytest.mark.parametrize("character", ["a", "日", "🎬"])
+def test_wire_model_rejects_an_oversized_quote(character: str) -> None:
+    chunk = _chunk("")
+    with pytest.raises(ValidationError, match="quote"):
+        ChunkExcerpt(
+            chunk_id=chunk.chunk_id,
+            score=chunk.score,
+            quote=character * (MAX_QUOTE_CHARS + 1),
+            citation=chunk.citation,
+        )
 
 
 def test_wire_payload_has_no_field_for_the_body() -> None:

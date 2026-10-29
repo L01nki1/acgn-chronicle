@@ -1,6 +1,6 @@
 # KnowledgePort — contract reference
 
-> **Status: 0.2.0 (2026-10-28).** Structure and semantics are now consistent with the code; the
+> **Status: 0.2.1 candidate (2026-10-29).** Structure and semantics are described below; the
 > example payloads are still illustrative and must be replaced with real `curl` output before the freeze.
 > **Owner: B.** Frozen at **G1a (2026-11-02)**; after that, changes follow §7.
 
@@ -58,9 +58,9 @@ consume the port from TypeScript without sharing a codebase.
    invariant 2 possible: an evaluation run binds a `snapshot_id` and must still be re-runnable after the next
    crawl lands. Refusing an old snapshot because "the corpus moved" would make every re-run impossible and
    would kill a three-hour evaluation mid-flight, so it is not allowed.
-4. **The port carries excerpts, never full text.** The wire types have exactly one text field, `quote`,
-   clipped to ≤200 Unicode characters by `core/ground/serialize.py`. A consumer that bypasses clipping
-   breaks compliance C3.
+4. **The port carries excerpts, never full article bodies.** `ChunkExcerpt.quote` is clipped to ≤200
+   Unicode characters by `core/ground/serialize.py`; the wire model and exported schema also enforce
+   that maximum. A caller may request a shorter quote, but cannot increase the outbound budget.
 5. **Additions are Optional with defaults.** A new required field would break every consumer at once.
 6. **Types are structural.** No consumer may depend on field ordering, or on fields documented here but
    absent from the schema.
@@ -89,15 +89,38 @@ retained.
 | Field | Type | Req | Semantics |
 |---|---|---|---|
 | `current` | str | yes | the snapshot the read path serves |
-| `retained` | str[] | yes | ids still queryable, most recent first; anything else answers `410` |
+| `retained` | str[] | yes | ids still queryable, most recent first; a known retired id answers `410`, an unknown id `404` |
 
 ### 3.3 `RetrievalFilters`
 
 | Field | Type | Req | Semantics |
 |---|---|---|---|
-| `source_types` | `("official" \| "media" \| "metadata")[]` | no | display strength and compliance treatment follow this |
-| `since` / `until` | str | no | inclusive date bounds; **the daily view uses these, not a time-bucketed index** |
-| `media_ids` | int[] | no | restrict to specific works |
+| `source_types` | `("official" \| "media" \| "metadata")[]` | no | ANY listed type; omitted, `null`, or `[]` means no source-type filter |
+| `since` / `until` | str | no | inclusive UTC publication dates (`YYYY-MM-DD`); omitted or `null` leaves that bound open |
+| `media_ids` | int[] | no | ANY listed canonical media id; omitted, `null`, or `[]` means no media filter |
+
+Filter families combine with **AND**. For example, `source_types=["official", "media"]` with
+`media_ids=[101, 202]` selects either listed source type, linked to either listed work, within the date
+bounds. `filters=null` and an empty filter object both mean no filters.
+
+Date bounds refer to UTC calendar days after ingestion normalises the publication timestamp. Equal
+`since` and `until` select one whole day: `2026-10-28` means the half-open timestamp interval
+`[2026-10-28T00:00:00Z, 2026-10-29T00:00:00Z)`. Invalid date syntax or `since > until` is `422`.
+Daily views use these bounds, never a separate time-bucketed index.
+
+**Multi-value constraint and ownership:** E/F apply media-id membership within the **requested snapshot**,
+not whichever snapshot is current. On the merged 0.5/0.6 Chroma baseline, scalar-only metadata requires
+a reverse lookup (`media_id` → `doc_id`); the union of doc ids becomes a condition such as
+`{"doc_id": {"$in": ["d_1", "d_2"]}}`, combined with the other filters.
+
+PRs #18/#21 propose a Chroma 1.x backend and native array filtering. That implementation may replace the
+reverse table once adopted, provided it preserves the same ANY-within-list, snapshot and empty-result
+semantics. The port exposes canonical integer media ids, not a physical table or vector-store operator.
+
+An explicitly non-empty `media_ids` list that resolves to **zero doc ids matches nothing**. Do not remove
+the filter or turn it into an unrestricted query. `/retrieve` then returns `[]`; `/ask` refuses because the
+selected evidence set cannot support an answer. Retrieval and storage implementation remain with E/F;
+consumer confirmation of these candidate semantics is tracked in [G1a review preparation](G1aReview.md).
 
 ### 3.4 `RetrievalQuery`
 
@@ -147,10 +170,15 @@ itself — that is the compliance boundary, not an implementation detail.
 | Field | Type | Req | Semantics |
 |---|---|---|---|
 | `answer` | str | yes | answer text; when `abstained` is true this holds the refusal explanation |
-| `citations` | `Citation[]` | yes | deduplicated, ordered by first use |
-| `cited_chunk_ids` | str[] | yes | **must be a subset of the chunks actually retrieved** for this query |
-| `abstained` | bool | yes | true when the knowledge base does not support an answer |
-| `abstain_reason` | str \| null | no | why it refused |
+| `citations` | `Citation[]` | yes | deduplicated, ordered by first use; empty when `abstained=true` |
+| `cited_chunk_ids` | str[] | yes | **must be a subset of the chunks actually retrieved** for this query; empty when `abstained=true` |
+| `abstained` | bool | yes | true when the selected snapshot and filters do not support an answer |
+| `abstain_reason` | str \| null | no | non-empty missing-support explanation on refusal; `null` otherwise |
+
+A refusal is a successful `/ask` response with an explicit explanation in `answer`, no invented answer,
+and no purported supporting citations. Missing evidence includes an empty result after filtering. A
+service failure such as `503` is an HTTP error, not a knowledge-base refusal; clients must show those
+states separately. These are generation obligations for W2, not proof of a working generator in W1.
 
 ### 3.8 Daily digest types — **provisional**
 
@@ -177,6 +205,13 @@ owning issue before merge.
 typed by a consumer, and its only user (the digest) has not been crawled yet — deciding its shape now would
 be guessing with the least possible information. It returns when the digest is green-lit, as
 `Sequence[EpisodeRow] | None = None` with `EpisodeRow` typed from the real Bilibili timeline response.
+
+**Corporate ingest tag — resolution of [#17](https://github.com/L01nki1/acgn-chronicle/issues/17):**
+choose option 1 for G1a/G1b. An IR/corporate announcement keeps `source_type="official"`; an optional
+`ingest_category="corporate"` stays internal to ingestion/storage for the pre-extraction filter. It is
+not a fourth `SourceType` and is not a `FactUpdate` or other wire field. Source-mix reports continue to use
+`official` / `media` / `metadata`. F confirmed no query-time consumer needs the tag through G1b. If that
+changes, introduce an Optional-with-default wire field through §7 and notify C/F; do not add it implicitly.
 
 ### 3.9 Internal types (not exported)
 
@@ -226,6 +261,18 @@ Content-Type: application/json
 ]
 ```
 
+### 4.1 Worked abstention example (synthetic)
+
+Suppose the request asks for the release date of the hypothetical **Project Unannounced**, and no chunk
+in the selected snapshot and filter result supports a date. The response is the
+[validated JSON example](examples/ask-abstained.json): `abstained=true`, a non-empty explanation, and
+empty `citations` and `cited_chunk_ids`. It supplies no guessed date. C can use this fixture to build the
+refusal state independently of the future generator.
+
+The fixture is validated against `GroundedAnswer` by `tests/contracts/test_examples.py`. It is a contract
+example, not an HTTP capture, an LLM response, a calibration item, or an evaluation result. The real
+endpoint and retirement checks below remain open.
+
 ## 5. Error codes
 
 | Code | Meaning | Client action |
@@ -273,7 +320,12 @@ document → notify C (web) and F (Isla contact). A change that alters the wire 
 - [x] Keep internal types out of the schema via `ports.WIRE_MODELS` (§0)
 - [x] Replace the "409 when the corpus moves" rule with immutability + retention (§2, §5)
 - [ ] Run one real `curl` per endpoint and paste the actual responses over the illustrative ones in §4
-- [ ] Document how `media_ids` filtering is implemented (Chroma metadata holds scalars only, so a reverse
-      lookup table maps media ids to doc ids — consumers need to know the constraint, not the mechanism)
-- [ ] Add one worked example of an abstention response
+- [x] Document snapshot-bound `media_ids`, backend constraints and empty-result semantics (§3.3; consumer review pending)
+- [x] Add one worked abstention response with a schema-validated synthetic example (§4.1)
+- [x] Store the C4 policy constant and snapshot its wording (`core/ground/policy.py`; runtime prompt inclusion is W2)
 - [ ] Verify `GET /snapshots` and a `410` against a real retired snapshot
+- [ ] C / F / E each raise at least three consumer questions, resolve them, and record the actual answers in the PR
+
+Review questions, the W1 grounded-prompt design, and the concrete HTTP dependencies are in
+[G1aReview.md](G1aReview.md). Gate status remains in `docs/ROADMAP.md`; this checklist does not declare
+the contract frozen.

@@ -35,6 +35,21 @@ Run: `python scripts/probe_sources.py` to size the window, then `python scripts/
 then compare `snapshot_id` on a rebuild. The chosen window is frozen into `docs/DECISIONS.md` and into every
 run's `meta.json`.
 
+**WP4 / B status — candidate, not frozen (2026-10-29).** A follow-up to merged PR #11, based on
+`main` at `e58b21d`, prepares schema 0.2.1: snapshot-bound filter semantics, a validated refusal example,
+and enforcement of the existing
+200-character quote budget in the serializer and wire schema. Review preparation and the W1 prompt
+design are in [`contracts/G1aReview.md`](../contracts/G1aReview.md). On Windows / Python 3.11.13,
+`python scripts/check.py` passed lint, format, schema sync and all 50 offline tests on this candidate.
+The C4 policy constant has a wording snapshot; runtime prompt inclusion follows in W2. The #17
+ingest-category boundary is resolved with F using option 1, without a wire field.
+
+G1a remains **open**: C/F/E must each supply at least three actual consumer questions and resolve them.
+Real endpoint captures and the retired-snapshot `410` check also remain open: C's HTTP host and A/E/F's
+snapshot/retrieval paths are still scaffolds at this base. `/ask` additionally needs B's W2 generation
+implementation. Resolve that timing dependency explicitly in member Issue #4 before declaring a freeze;
+do not count the synthetic refusal fixture as a live response.
+
 ### G1b · 2026-11-09 — indexes and facts
 
 - A / A' / B index builds reproducible; chunk counts explainable and stable across rebuilds
@@ -123,7 +138,7 @@ Secondary responsibilities (revised 2026-10-28):
 | Member | Focus direction |
 |---|---|
 | A | Build the ingest backbone: adapters, backfill, dedup pipeline, and a reproducible snapshot freeze. First concrete target is a working source-to-snapshot path for ANN + Toei + Capcom. |
-| B | Freeze the contract and the grounded answer path: `ports.py`, exported schema, citation contract, and the abstention / refusal mechanism. |
+| B | Freeze `ports.py` and the exported contract, including answer/citation/refusal response semantics and the grounded-prompt design. Runtime generation follows in W2, as in the weekly timeline and Issue #4. |
 | C | Stand up the retrieval-facing interface and the front-end citation contract: query page, citation display, and clipping-compatible rendering. |
 | D | Set up evaluation-first work: QA type A/B/C/D construction, runner skeleton, run records, and the contribution/signature plan for the final report. |
 | E | Own retrieval and evaluation backend: filters, retrieval correctness, run_id and metric rules, and the measurement of latency / rerun spread. |
@@ -134,7 +149,7 @@ Secondary responsibilities (revised 2026-10-28):
 | Member | Milestone target |
 |---|---|
 | A | A working source-to-snapshot flow with real data and reproducible `snapshot_id` |
-| B | Contract + answer format + abstention logic in place |
+| B | W1: contract, answer format and abstention design in place; W2: implement the grounded answer and abstention path |
 | C | Query experience and citation rendering are wired to the contract |
 | D | QA pack and unambiguous evaluation rules are ready |
 | E | Retrieval path and metric runner are working on a frozen snapshot |
