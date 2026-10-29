@@ -74,7 +74,7 @@ open — you do not have to remember it.
 
 | Allowed | Forbidden |
 |---|---|
-| `pip install -e ".[dev]"` from PyPI | `httpx.get("https://...")` against a live site inside a test |
+| `uv sync --extra dev` from PyPI (or `pip install -e ".[dev]"`) | `httpx.get("https://...")` against a live site inside a test |
 | Reading committed sample pages from fixtures | Downloading the e5 model or calling an LLM API in a test |
 | — | An "integration test" that only passes online |
 
@@ -142,7 +142,7 @@ Deliberate design choices, so nobody "fixes" them the wrong way:
   people to type `--no-verify`, which skips the real problems too.
 - **Tests are not in `pre-commit`.** They belong to the push gate; a 3-second commit is a commit you make.
 - **Missing tooling warns and lets the commit through; a real violation blocks it.** A member who has not run
-  `pip install -e ".[dev]"` yet gets a clear message, not a dead end — an environment problem must not push
+  `uv sync --extra dev` yet gets a clear message, not a dead end — an environment problem must not push
   people toward `--no-verify`.
 - **Hooks live in `.githooks/`, tracked by git.** They are not copied into `.git/hooks`, because `.git/` is
   never updated by `git pull`, so a copied hook silently rots. `core.hooksPath` is a per-clone setting, which
