@@ -28,7 +28,7 @@ pytest -q                                     # 4 tests
 | Network-marked tests | `pytest -m network -q` | ready (local only) |
 | Historical backfill | `python scripts/backfill.py --since ... --until ...` | pending A |
 | Daily increment | `python scripts/discover_daily.py` | pending A |
-| Build index | `python scripts/build_index.py --config A` | pending F |
+| Build index | `python scripts/build_index.py --snapshot <id> --input <docs.jsonl> [--config A]` | ready (`--input` until A's reader lands) |
 | Fact extraction | `python scripts/extract_facts.py --snapshot <id> --input <chunks.jsonl>` | ready |
 | Evaluation | `python scripts/run_eval.py --config A --snapshot <id>` | pending E |
 | Serve | `uvicorn acgn_rag.web.api:app --reload` | pending C |
@@ -155,8 +155,9 @@ this section is only the decision.
 - **GPU canonical lane: two candidates — Qwen3-Embedding-0.6B and bge-m3 (dense)** — decided by the G1a
   bake-off on the real frozen corpus; **CPU lane: e5-base** stays the any-member fallback. Encoder
   identity keeps lanes separable; a G2 run binds to the identity that built its index.
-- **Bake-off menu amendment (2026-10-29): EmbeddingGemma joins the GPU-lane candidates** — 308M
-  params / 768-d MRL / Apache-2.0 / 2048-token context, strong in the 2026 sub-1B reviews — under
+- **Bake-off menu amendment (2026-10-29): EmbeddingGemma joins the GPU-lane candidates** — that is
+  **`google/embeddinggemma-300m`** (308M params / 768-d MRL / Apache-2.0 / 2048-token context, strong
+  in the 2026 sub-1B reviews; not the newer multimodal `embeddinggemma-2`, see rejected) — under
   the same pre-registered displacement rule (zh-subset hit@5 ≥ +10 pts or MRR ≥ +0.05 vs e5-base).
   Its usage recipe (query task prompt) is verified against the model card at bake-off time, not
   from memory.
@@ -168,17 +169,22 @@ this section is only the decision.
   can reproduce it). The local A380/OpenVINO lane is a cross-check / evaluation fallback recorded
   via encoder identity, not a canonical build lane — members cannot reproduce that hardware.
 - Usage differences to respect: Qwen3 takes an **instruct-style query prompt** (`prompt_name="query"` in
-  sentence-transformers), documents carry no prefix. **bge-m3 needs no prefixes** and is the only
-  candidate whose **mean-pooling architecture supports late chunking** — the config-B fallback
-  experiment is written against bge-m3. We use bge-m3's **dense channel only**; the sparse channel
-  stays untouched so the hand-built BM25 stretch keeps its point.
+  sentence-transformers), documents carry no prefix. **bge-m3 needs no prefixes** and mean-pools —
+  with 8k context it is the named late-chunking-capable fallback for config B (the EmbeddingGemma
+  family also mean-pools: 300m's 2k context is too short for it; `embeddinggemma-2`'s 128k would
+  qualify technically but is menu-excluded, see rejected). We use bge-m3's **dense channel only**;
+  the sparse channel stays untouched so the hand-built BM25 stretch keeps its point.
 - **Bake-off protocol before the G1b freeze**: rerun the mini-eval on the real frozen corpus with
   30+ hand-checked queries, both candidates; pick by zh-subset MRR and overall MRR with the spread
   reported; a candidate must beat e5-base by ≥10 points hit@5 or ≥0.05 MRR on the zh subset to
   displace it. Decision and identity recorded in DECISIONS.
 - Considered and rejected: **Ruri v3** (JP-specialist, tops JMTEB but cannot serve zh/en queries — we
   need one trilingual retriever) · **8B+ embedders** (Qwen3-8B, Octen-8B, harrier-oss-27b: out of our
-  compute class for 4×40k chunks).
+  compute class for 4×40k chunks) · **`embeddinggemma-2`** (multimodal 740M — 270M text tower + vision/audio
+  encoders — 128k ctx, mean-pooling, Apache-2.0): public multilingual MTEB is flat vs 300m
+  (61.15 → 61.36) with the gains concentrated in code retrieval and modalities we do not use, so it
+  stays out of the bake-off menu. Recorded as a **second late-chunking-capable option after bge-m3**
+  should config B ever need one.
 - **Embed-time context headers (adopted, zero cost):** what gets encoded is not the raw chunk but
   `title | publisher | published date | chunk body`. RSS bodies routinely lose their parent context
   (who announced, when); a chunk that says "will begin airing on 2026-10-05" is unretrievable without it.

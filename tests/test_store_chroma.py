@@ -99,6 +99,16 @@ def test_upsert_rejects_length_mismatch(loaded: ChromaStore) -> None:
         loaded.upsert_chunks(_two_chunks(), [VECTORS[0]])
 
 
+def test_upsert_and_query_accept_numpy_embeddings(loaded: ChromaStore) -> None:
+    # Encoder output is numpy by contract; chromadb 1.x rejects numpy scalars inside
+    # embeddings, so the store must convert at the boundary (found live by build_index).
+    np = pytest.importorskip("numpy")
+    vectors = [np.array(vector, dtype=np.float32) for vector in VECTORS]
+    loaded.upsert_chunks(_two_chunks(), vectors)  # idempotent overwrite of the same ids
+    hits = loaded.query(np.array([1.0, 0.0], dtype=np.float32), top_k=2)
+    assert [hit.payload.chunk_id for hit in hits] == ["doc-1::A::0", "doc-1::A::1"]
+
+
 def test_cosine_scores_with_known_vectors(loaded: ChromaStore) -> None:
     hits = loaded.query([1.0, 0.0], top_k=2)
     assert [hit.payload.chunk_id for hit in hits] == ["doc-1::A::0", "doc-1::A::1"]
