@@ -49,24 +49,24 @@ Task-level work is tracked as GitHub issues, one per unit, each labeled `WPn` an
 
 ## Quick start
 
-Python 3.11+ is required (CI pins 3.11; 3.13 torch wheels are unverified, so avoid it locally).
+Python **3.13** is the project baseline (`.python-version`; CI runs 3.13 on all platforms; cp313 torch
+wheels verified on the embed lane). Install [uv](https://docs.astral.sh/uv/), then:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"            # dev only: no model download, no torch
-python scripts/install_hooks.py    # optional: run the gates locally on commit/push
-cp .env.example .env               # fill in keys only when you need the LLM
+uv sync --extra dev                      # provisions 3.13 + .venv from uv.lock; no model download, no torch
+uv run python scripts/install_hooks.py   # optional: run the gates locally on commit/push
+cp .env.example .env                     # fill in keys only when you need the LLM
 ```
 
 > `[embed]` (sentence-transformers + torch) and `[store]` (chromadb) are heavy extras; install on demand:
-> `pip install -e ".[dev,embed,store]"`. CI never installs them.
+> `uv sync --extra dev --extra embed --extra store` (on Linux `pyproject.toml` already resolves the CPU
+> torch wheel). CI installs `dev` only. Plain `pip install -e ".[dev]"` still works.
 
 ## The four gates — they run automatically
 
 You commit and push; the checks run for you. CI runs the four gates on **every branch push** (feedback before
-you open a PR) and again on **every PR** (the merge gate), on ubuntu, macOS and Windows, with Python 3.11
-(baseline) and 3.13. Merging with a red check is blocked by the repository ruleset. Optional local hooks only
+you open a PR) and again on **every PR** (the merge gate), on ubuntu, macOS and Windows, with Python 3.13
+(the project baseline, exactly what `uv.lock` pins). Merging with a red check is blocked by the repository ruleset. Optional local hooks only
 make feedback faster — nothing breaks if you skip them. Which moment runs what: ONBOARDING §2.1.
 
 The order below is the order they run in, and **they stop at the first red one** — a green `pytest` says

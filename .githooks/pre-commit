@@ -27,6 +27,11 @@ fail() { printf '%s%s%s\n' "$RED" "[pre-commit] $*" "$RESET"; }
 # --- find a Python that can run ruff -----------------------------------------
 # Hooks do not inherit an activated virtualenv, so prefer the project's own interpreter.
 PY=''
+# uv path: if uv is installed and the lock exists, make sure the project .venv exists so the
+# candidate loop below finds it (uv provisions the .python-version interpreter automatically).
+if command -v uv >/dev/null 2>&1 && [ -f uv.lock ] && [ ! -x .venv/bin/python ]; then
+    uv sync --frozen --extra dev >/dev/null 2>&1 || true
+fi
 for candidate in .venv/Scripts/python.exe .venv/bin/python python3 python; do
     if command -v "$candidate" >/dev/null 2>&1; then PY="$candidate"; break; fi
 done
@@ -38,7 +43,7 @@ fi
 
 if ! "$PY" -m ruff --version >/dev/null 2>&1; then
     warn "ruff is not installed for $PY - skipping local gates (CI still gates this)."
-    warn "install it with: pip install -e \".[dev]\""
+    warn "install it with: uv sync --extra dev (or pip install -e \".[dev]\")"
     exit 0
 fi
 

@@ -7,10 +7,14 @@
 
 | Item | macOS (most of us) | Windows (1 member) |
 |---|---|---|
-| Python | 3.11 (`brew install python@3.11` or `uv python install 3.11`) | 3.11 (official installer, tick "Add to PATH") |
+| Python | 3.13 (`uv python install 3.13`; `uv sync` provisions it from `.python-version` automatically) | 3.13 (same uv path; the standalone uv installer works on Windows) |
 | Shell | zsh (system bash is 3.2 — do not use bash 4+ syntax) | Git Bash (not cmd / PowerShell) |
-| Virtualenv | `source .venv/bin/activate` | `.venv\Scripts\activate` |
+| Virtualenv | `uv sync --extra dev` creates `.venv` from `uv.lock`; activation optional — `uv run <cmd>` uses it | same (`uv run` finds `.venv\Scripts` on its own) |
 | torch wheel | native arm64, installs cleanly | fine |
+
+On **Linux**, `pyproject.toml` resolves torch from the PyTorch CPU index automatically (the PyPI linux
+wheel bundles CUDA and is ~3 GB bigger) — no flags needed. Plain `pip install -e ".[dev]"` still works
+if you maintain the venv by hand; `uv.lock` is the canonical resolution either way.
 
 **Do not** commit `.sh` / `.ps1` / `.bat` files as entry points. Every repeatable action goes through
 `python scripts/xxx.py` or `python -m acgn_rag...`, so both platforms share one command set.
@@ -48,7 +52,7 @@ deliberately does *not* do.
 
 **The only layer nobody can bypass is server-side.** To block merging while a check is red, the repository
 owner sets it once: `Settings → Rules → New branch ruleset` → target `main` → **Require status checks to
-pass** → select `ubuntu-latest / py3.11` and `macos-latest / py3.11` (add `windows-latest / py3.11` once it
+pass** → select `ubuntu-latest / py3.13` and `macos-latest / py3.13` (add `windows-latest / py3.13` once it
 has run at least once). Until that exists, a red PR can still be merged by whoever presses the button.
 
 ## 3. PR checklist (the reviewer ticks each line)
