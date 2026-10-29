@@ -120,8 +120,9 @@ class LLMClient(Protocol):
 def make_openai_client(config: LLMConfig, *, http_client: Any = None) -> LLMClient:
     """Build an OpenAI-compatible chat client from the extraction settings.
 
-    The ``openai`` import lives INSIDE this function: CI installs ``[dev]`` only and must never
-    import the vendor library. Swapping the vendor stays a ``.env`` change (D5).
+    The ``openai`` import stays inside this function so importing the module does not require
+    the optional ``[llm]`` extra. CI installs that extra and tests the client with mocked HTTP;
+    it makes no live API calls. Swapping the vendor stays a ``.env`` change (D5).
 
     ``http_client`` exists for tests: openai >= 3 ships its own HTTP stack (the ``httpx2``
     package), which respx's global patch does not intercept, so the respx-mocked vendor test
