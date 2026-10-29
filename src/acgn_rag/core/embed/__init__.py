@@ -4,8 +4,8 @@ Owner: F | Spec: 04 §7 D4 / RUNBOOK §3.4-§3.5
 
 Encoder identity, model-family prefix/prompt policy, context headers, the identity-keyed cache
 key and the throughput helper live here. Every index build records its identity so vectors from
-different lanes never mix (RUNBOOK §3.4). numpy comes with the [embed] extra; CI installs [dev]
-only and imports this package only through tests that skip when numpy is absent.
+different lanes never mix (RUNBOOK §3.4). numpy comes with [dev] as well as [embed], so CI runs
+the fake-encoder and cache tests without torch or a model download.
 """
 
 from acgn_rag.core.embed.cache import EmbedCache

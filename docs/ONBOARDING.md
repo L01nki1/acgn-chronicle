@@ -72,9 +72,13 @@ open — you do not have to remember it.
 
 **Meaning**: CI may go online only while installing dependencies; while tests run, **no external request is allowed**.
 
+CI installs the `dev`, `store` and `llm` extras, so Chroma tests run on ubuntu, macOS and Windows.
+The `embed` extra and torch stay out; encoder tests use deterministic fakes and numpy from `dev`.
+Installing the LLM client does not permit live API calls in tests.
+
 | Allowed | Forbidden |
 |---|---|
-| `uv sync --extra dev` from PyPI (or `pip install -e ".[dev]"`) | `httpx.get("https://...")` against a live site inside a test |
+| `uv sync --frozen --extra dev --extra store --extra llm` from the package indexes | `httpx.get("https://...")` against a live site inside a test |
 | Reading committed sample pages from fixtures | Downloading the e5 model or calling an LLM API in a test |
 | — | An "integration test" that only passes online |
 
