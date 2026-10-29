@@ -34,6 +34,7 @@ all = [
     { name = "torch", version = "2.15.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'linux'" },
 ]
 dev = [
+    { name = "numpy" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "respx" },
@@ -59,6 +60,7 @@ requires-dist = [
     { name = "chromadb", marker = "extra == 'store'", specifier = ">=1.0,<2" },
     { name = "feedparser", specifier = ">=6.0" },
     { name = "httpx", specifier = ">=0.27" },
+    { name = "numpy", marker = "extra == 'dev'", specifier = ">=1.26" },
     { name = "numpy", marker = "extra == 'embed'", specifier = ">=1.26" },
     { name = "openai", marker = "extra == 'llm'", specifier = ">=1.30" },
     { name = "pydantic", specifier = ">=2.7,<3" },
@@ -69,7 +71,7 @@ requires-dist = [
     { name = "respx", marker = "extra == 'dev'", specifier = ">=0.21" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.17,<0.18" },
     { name = "selectolax", specifier = ">=0.3.21" },
-    { name = "sentence-transformers", marker = "extra == 'embed'", specifier = ">=3.0" },
+    { name = "sentence-transformers", marker = "extra == 'embed'", specifier = ">=3.0,<7" },
     { name = "tenacity", specifier = ">=8.3" },
     { name = "torch", marker = "sys_platform == 'linux' and extra == 'embed'", specifier = ">=2.3", index = "https://download.pytorch.org/whl/cpu" },
     { name = "torch", marker = "sys_platform != 'linux' and extra == 'embed'", specifier = ">=2.3" },

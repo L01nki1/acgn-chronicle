@@ -24,7 +24,7 @@ dependencies = [
 # Heavy dependencies are separated: CI installs [dev] only, so tests stay network- and model-free
 [project.optional-dependencies]
 embed = [
-  "sentence-transformers>=3.0",
+  "sentence-transformers>=3.0,<7",   # upper band: an unaudited major could change encode semantics mid-project
   "torch>=2.3",
   "numpy>=1.26",
 ]
@@ -41,6 +41,7 @@ dev = [
   "pytest-cov>=5.0",
   "respx>=0.21",             # intercepts httpx so tests never reach the network
   "ruff>=0.17,<0.18",        # pinned band: a new ruff can change formatting rules and redden CI for everyone
+  "numpy>=1.26",             # let CI run the fake-encoder tests without the heavy [embed] extra
 ]
 all = [
   "acgn-rag[embed,store,llm]",

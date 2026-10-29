@@ -147,6 +147,18 @@ this section is only the decision.
 - **GPU canonical lane: two candidates — Qwen3-Embedding-0.6B and bge-m3 (dense)** — decided by the G1a
   bake-off on the real frozen corpus; **CPU lane: e5-base** stays the any-member fallback. Encoder
   identity keeps lanes separable; a G2 run binds to the identity that built its index.
+- **Bake-off menu amendment (2026-10-29): EmbeddingGemma joins the GPU-lane candidates** — 308M
+  params / 768-d MRL / Apache-2.0 / 2048-token context, strong in the 2026 sub-1B reviews — under
+  the same pre-registered displacement rule (zh-subset hit@5 ≥ +10 pts or MRR ≥ +0.05 vs e5-base).
+  Its usage recipe (query task prompt) is verified against the model card at bake-off time, not
+  from memory.
+- **Pre-registered single-lane rule:** if bge-m3 ties or wins the G1a bake-off under the existing
+  rule **and** keeps the top zh-subset MRR, bge-m3 is adopted for **both** lanes, e5-base is
+  demoted to emergency fallback, and G1b scheduling books CPU rebuilds at ~15.6 h/config
+  (365 tokens/s measured).
+- **GPU lane priority (2026-10-29): the canonical GPU runtime is Colab** (T4 measured; every member
+  can reproduce it). The local A380/OpenVINO lane is a cross-check / evaluation fallback recorded
+  via encoder identity, not a canonical build lane — members cannot reproduce that hardware.
 - Usage differences to respect: Qwen3 takes an **instruct-style query prompt** (`prompt_name="query"` in
   sentence-transformers), documents carry no prefix. **bge-m3 needs no prefixes** and is the only
   candidate whose **mean-pooling architecture supports late chunking** — the config-B fallback
