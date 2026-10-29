@@ -47,8 +47,8 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install (dev extra, locked - no embed/llm heavy deps)
-        run: uv sync --frozen --extra dev
+      - name: Install (dev + store + llm extras, locked - embed/torch stays out)
+        run: uv sync --frozen --extra dev --extra store --extra llm
 
       - name: Lint
         run: uv run --frozen ruff check .

@@ -63,20 +63,28 @@ pytest -q                                     # 4 tests
 | Committing shows no `[pre-commit]` line at all | `core.hooksPath` is not set in this clone (it is a local setting) | `python scripts/install_hooks.py` |
 | `hooks/pre-commit: bad interpreter` | The hook file picked up CRLF | `.gitattributes` forces LF for `.githooks/*`; re-checkout the file (`git checkout -- .githooks`) |
 
-### 3.1 Chroma specifics — three pitfalls to verify before building the index
+### 3.1 Chroma specifics — three pitfalls to verify before building the index (chromadb >=1.0,<2)
 
-1. **Metadata holds scalars only** (`str / int / float / bool`), never arrays. `media_ids` is
-   `Sequence[int]`, so writing it directly fails. Keep a SQLite reverse table `doc_id ↔ media_id`,
-   translate the condition into `doc_id in (...)`, and pass `{"doc_id": {"$in": [...]}}` to Chroma.
+1. **Metadata holds scalars or flat typed arrays.** Since 1.0 Chroma accepts `str / int /
+   float / bool` and one-type, one-dimensional arrays (`int[]` works, nesting is still
+   forbidden). `media_ids` is stored natively as `int[]` and filtered with
+   `{"$or": [{"media_ids": {"$contains": id}}, ...]}` — measured adequate for the small
+   any-of lists `RetrievalFilters.media_ids` implies. Long any-of lists may still justify a
+   SQLite reverse table `doc_id ↔ media_id` translated into `{"doc_id": {"$in": [...]}}`;
+   that stays a recorded future option, not the current path.
 2. **Store time as an integer epoch** (`published_ts`), not an ISO string. Range filters then compare
    numbers, which avoids format and time-zone ambiguity.
-3. **A filter can return fewer than `top_k`.** Chroma trims a candidate set, so narrow conditions return
-   little. Request `top_k × ACGN_OVERFETCH`, truncate afterwards, and assert
-   `returned >= min(top_k, available_after_filter)`.
+3. **Filtering is pre-KNN in 1.x** — the old "the filter trims the top-k after the search"
+   story is gone. But HNSW can still under-return when `ef`/`M` are small relative to the
+   filtered candidate set, so the defense stays: request `top_k × ACGN_OVERFETCH`, truncate
+   afterwards, and assert `returned >= min(top_k, available_after_filter)` (symptom row
+   "`top_k=5` returns 2 rows" in §3).
 
-**The collection must be created with `hnsw:space="cosine"`.** Chroma defaults to `l2`, and the default
-would make `score` a distance while the contract promises a similarity (`KnowledgePort.md` §3.6). With
-`cosine`, Chroma returns `1 - cosine_similarity` as the distance, so the score is `1 - distance`.
+**The collection must be created with `hnsw:space="cosine"`** — in 1.x via
+`create_collection(configuration={"hnsw": {"space": "cosine"}})`. The default space is still
+`l2`, and the default would make `score` a distance while the contract promises a similarity
+(`KnowledgePort.md` §3.6). With `cosine`, Chroma returns `1 - cosine_similarity` as the
+distance, so the score is `1 - distance`.
 
 ### 3.2 Snapshot pointer and retention
 
