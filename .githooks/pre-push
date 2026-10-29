@@ -16,6 +16,10 @@ fi
 warn() { printf '%s%s%s\n' "$YELLOW" "[pre-push] $*" "$RESET"; }
 
 PY=''
+# uv path: provision the project .venv from the lock if it does not exist yet (same as pre-commit).
+if command -v uv >/dev/null 2>&1 && [ -f uv.lock ] && [ ! -x .venv/bin/python ]; then
+    uv sync --frozen --extra dev >/dev/null 2>&1 || true
+fi
 for candidate in .venv/Scripts/python.exe .venv/bin/python python3 python; do
     if command -v "$candidate" >/dev/null 2>&1; then PY="$candidate"; break; fi
 done
@@ -27,7 +31,7 @@ fi
 
 if ! "$PY" -m pytest --version >/dev/null 2>&1; then
     warn "pytest is not installed for $PY - skipping local gates (CI still gates this)."
-    warn "install it with: pip install -e \".[dev]\""
+    warn "install it with: uv sync --extra dev (or pip install -e \".[dev]\")"
     exit 0
 fi
 

@@ -7,7 +7,7 @@ name = "acgn-rag"
 version = "0.1.0"
 description = "ACGN cross-time archive QA over RAG with verifiable citations (CS5481 Topic 5)"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 license = { text = "Course project, not for redistribution" }
 dependencies = [
   "pydantic>=2.7,<3",
@@ -29,7 +29,9 @@ embed = [
   "numpy>=1.26",
 ]
 store = [
-  "chromadb>=0.5,<0.7",      # pinned range: the 0.7 API has breaking changes
+  "chromadb>=1.0,<2",        # pinned band: required by the 3.13 baseline (chromadb <1.x pins
+                             # chroma-hnswlib, which has no cp313 wheels - local build verified
+                             # failing); 1.x = Rust core + configuration= HNSW API + int[] metadata
 ]
 llm = [
   "openai>=1.30",            # OpenAI-compatible client only; the vendor comes from .env
@@ -48,7 +50,7 @@ all = [
 acgn = "acgn_rag.cli:app"
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py313"
 line-length = 100
 # Markdown is excluded on purpose: ruff formats fenced ```python blocks but does not lint them,
 # so any illustrative snippet in docs/ could turn the build red for a reason members cannot see
@@ -71,3 +73,16 @@ markers = [
 ]
 # network-marked tests are skipped by default: neither CI nor a normal local run touches the net
 filterwarnings = ["error::DeprecationWarning:acgn_rag.*"]
+
+# Linux resolves torch from the PyTorch CPU index: the PyPI linux wheel bundles CUDA and is
+# ~3 GB larger, and nobody runs torch-CUDA locally (GPU lane = Colab; local fallback = OpenVINO).
+# macOS/Windows PyPI wheels are already CPU/MPS builds, so the marker leaves them untouched.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu", marker = "sys_platform == 'linux'" },
+]

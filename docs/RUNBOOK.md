@@ -4,8 +4,9 @@
 
 ## 1. Commands
 
-When CI is red, reproduce it locally before touching the code. `python scripts/check.py` runs the four gates
-in CI's order and stops at the first failure (details in `ONBOARDING.md` §4.1). Running them before every push
+When CI is red, reproduce it locally before touching the code. `uv run python scripts/check.py` runs the
+four gates in CI's order and stops at the first failure (details in `ONBOARDING.md` §4.1; inside an
+activated `.venv`, plain `python scripts/check.py` is the same thing). Running them before every push
 is optional — CI covers that.
 
 ```bash
@@ -20,8 +21,8 @@ pytest -q                                     # 4 tests
 | Install the commit/push gates (once per clone) | `python scripts/install_hooks.py` | ready |
 | Are the gates active in this clone? | `python scripts/install_hooks.py --check` | ready |
 | All four CI gates, in CI order | `python scripts/check.py` (`--fix` to auto-fix) | ready |
-| Install deps (no heavy extras) | `pip install -e ".[dev]"` | ready |
-| Install embedding + store | `pip install -e ".[dev,embed,store]"` | ready |
+| Install deps (no heavy extras) | `uv sync --extra dev` | ready |
+| Install embedding + store | `uv sync --extra dev --extra embed --extra store` | ready |
 | Contract consistency | `python scripts/export_schema.py --check` | ready |
 | All tests (zero network) | `pytest -q` | ready |
 | Network-marked tests | `pytest -m network -q` | ready (local only) |
