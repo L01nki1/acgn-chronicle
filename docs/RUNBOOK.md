@@ -28,7 +28,7 @@ pytest -q                                     # 4 tests
 | Network-marked tests | `pytest -m network -q` | ready (local only) |
 | Historical backfill | `python scripts/backfill.py --since ... --until ...` | pending A |
 | Daily increment | `python scripts/discover_daily.py` | pending A |
-| Build index | `python scripts/build_index.py --snapshot <id> --input <docs.jsonl> [--config A]` | ready (`--input` until A's reader lands) |
+| Build index | `python scripts/build_index.py --snapshot <id> --input <docs.jsonl> [--config A] [--fresh]` | ready (`--input` until A's reader lands) |
 | Fact extraction | `python scripts/extract_facts.py --snapshot <id> --input <chunks.jsonl>` | ready |
 | Evaluation | `python scripts/run_eval.py --config A --snapshot <id>` | pending E |
 | Serve | `uvicorn acgn_rag.web.api:app --reload` | pending C |
@@ -44,6 +44,15 @@ pytest -q                                     # 4 tests
 
 > When idempotency fails, the first suspects are always **manifest ordering / time zone / timestamp format**,
 > not the hash function.
+
+> Rebuilds **upsert**: a build over a *smaller* input than an earlier run leaves the extra rows in place
+> (stale entries a `--limit` trial run commonly produces). Pass `--fresh` to replace the selected
+> snapshot/config collections instead — each collection is deleted only **after** the input has parsed and
+> produced chunks, so an invalid or empty input never wipes a valid index, and sibling collections are
+> never touched. A build over zero documents, or whose documents yield zero chunks, is rejected with exit
+> code 2 and writes nothing (no sidecar, no collection change). Recovery limit: `--fresh` replaces the
+> whole selected collection, not individual rows — rebuilding a subset into it means the subset is all it
+> will contain; the full input must be rebuilt again to restore the rest.
 
 ## 3. Common failures
 
@@ -223,6 +232,12 @@ this section is only the decision.
   stays ingest-side metadata and the G1a source-mix counts use the three schema labels.
 - `max_tokens ≥ 1024` per call (see the DSV4-flash quirk above), and the system prompt is identical
   across a batch — keep it stable so any provider-side prompt caching can act on it.
+- **Read the run summary before trusting a run**: `extract_facts.py` prints per-run counters —
+  `calls` (LLM calls, initial attempts included) vs `retries` (whole-batch re-attempts),
+  `extracted_chunks` vs `extracted_rows` (a parsed result that states no known value is a valid
+  empty extraction: it adds to `empty_extractions` and produces no rows — not a parse failure),
+  `degraded_batches`/`degraded`, `ir_skipped`. The buckets always reconcile:
+  `extracted_chunks + degraded + ir_skipped == chunks`.
 
 ## 4. Emergency degradation
 

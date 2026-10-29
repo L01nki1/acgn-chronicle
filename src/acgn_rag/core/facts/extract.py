@@ -103,12 +103,23 @@ class FactBatch:
     ``extracted[i]`` describes the i-th CANDIDATE chunk of the batch (the chunks that survived
     the IR prefilter), in their original order - pair them with their chunks via
     ``expand_to_fact_updates``.
+
+    ``calls`` counts every LLM attempt this batch made, initial attempt included: 1 call =
+    one attempt, 3 calls = the initial attempt plus 2 retries. Retries are WHOLE-batch (the
+    numbered prompt is resent unchanged, RUNBOOK §3.6), so the re-attempt count is
+    batch-level, not per chunk; ``retries`` exposes exactly that (0 when the prefilter left
+    no candidates and the client was never reached).
     """
 
     extracted: list[AnnouncementFacts]
     degraded_chunk_ids: list[str]
     ir_skipped_chunk_ids: list[str]
     calls: int
+
+    @property
+    def retries(self) -> int:
+        """Re-attempts beyond the first for this batch (whole-batch retries)."""
+        return max(0, self.calls - 1)
 
 
 class LLMClient(Protocol):

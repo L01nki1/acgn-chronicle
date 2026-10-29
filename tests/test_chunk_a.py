@@ -175,6 +175,27 @@ def test_overlap_repeats_the_trailing_64_tokens() -> None:
         assert current.token_count > 64  # carries new content, not just the head
 
 
+def test_overlap_head_is_dropped_when_it_cannot_share_the_next_chunk() -> None:
+    """The documented drop rule (strategy_a ``_next_parts``): when the 64-token head plus the
+    next piece exceed the budget, the head is discarded and the next chunk carries only new
+    content - never a head-only chunk duplicating the previous chunk's tail verbatim."""
+    fake = FakeTokenizer()
+    first = " ".join(f"a{i}" for i in range(445)) + "."  # fits alone (445 <= 508)
+    second = " ".join(f"b{i}" for i in range(490)) + "."  # fits alone, head + piece would not
+    third = "closing sentence here."  # small enough to pack after the second sentence
+    chunks = chunk_text("doc:drop", f"{first} {second} {third}", "A", fake)
+
+    assert [chunk.token_count for chunk in chunks] == [445, 493]  # 490 + 3, no head in chunk 2
+    assert [chunk.chunk_id for chunk in chunks] == ["doc:drop::A::1", "doc:drop::A::2"]
+    head = fake.ids(chunks[0].text)[1:-1][-64:]  # the trailing 64 content tokens of chunk 1
+    opening = fake.ids(chunks[1].text)[1:-1][:64]
+    assert opening != head  # the head was dropped, not carried into chunk 2
+    tail_words = chunks[0].text.split()[-64:]
+    assert chunks[1].text.split()[:64] != tail_words
+    for chunk in chunks:
+        assert chunk.token_count <= 508  # every chunk stays within the budget
+
+
 def test_oversize_sentence_splits_at_token_boundaries() -> None:
     fake = FakeTokenizer()
     chunks = chunk_text("doc:big", _one_long_sentence(1200), "A0", fake)

@@ -16,6 +16,16 @@ row keeps ``--input`` until then.
 
 Exit codes: 0 = done, 2 = missing input or unusable extraction config. Zero network at import
 time: the vendor client is built only for a real (non-dry) run.
+
+Run-summary counters (the run report; units in parentheses): ``chunks`` (input chunks),
+``batches`` (BATCH_SIZE slices), ``calls`` (LLM API calls: initial attempts + retries),
+``retries`` (whole-batch re-attempts beyond the first), ``extracted_chunks`` (candidate chunks
+with a parsed result, ``empty_extractions`` included), ``empty_extractions`` (parsed cleanly
+but stated no known value, so zero FactUpdate rows - not a failure), ``extracted_rows``
+(FactUpdate rows), ``degraded_batches`` / ``degraded`` (fully-degraded batches / degraded
+candidate chunks), ``ir_skipped`` (input chunks the pre-filter removed). Every input chunk
+lands in exactly one of extracted / degraded / ir_skipped, so
+``extracted_chunks + degraded + ir_skipped == chunks`` always holds.
 """
 
 from __future__ import annotations
@@ -144,7 +154,8 @@ def main(argv: list[str] | None = None, *, client: LLMClient | None = None) -> i
             print(f"cannot build the extraction client: {exc}", file=sys.stderr)
             return 2
 
-    batches = calls = 0
+    batches = calls = retries = 0
+    extracted_chunks = empty_extractions = degraded_batches = 0
     rows: list[FactUpdate] = []
     degraded: list[str] = []
     ir_rows: list[dict[str, str]] = []
@@ -153,7 +164,11 @@ def main(argv: list[str] | None = None, *, client: LLMClient | None = None) -> i
         batch = extract_facts(batch_chunks, client)
         batches += 1
         calls += batch.calls
+        retries += batch.retries
+        extracted_chunks += len(batch.extracted)
         degraded.extend(batch.degraded_chunk_ids)
+        if batch.degraded_chunk_ids:  # retries exhausted: the WHOLE batch degraded
+            degraded_batches += 1
         skipped_ids = set(batch.ir_skipped_chunk_ids)
         for chunk in batch_chunks:
             if chunk.chunk_id in skipped_ids:
@@ -169,13 +184,25 @@ def main(argv: list[str] | None = None, *, client: LLMClient | None = None) -> i
         candidates = [chunk for chunk in batch_chunks if chunk.chunk_id not in dropped]
         # extract_facts aligns extracted[i] with the i-th candidate chunk of the batch
         assert len(batch.extracted) == len(candidates)
-        rows.extend(expand_to_fact_updates(batch.extracted, candidates))
+        batch_rows = expand_to_fact_updates(batch.extracted, candidates)
+        rows.extend(batch_rows)
+        # a valid empty extraction parsed cleanly but stated no known value: it produces no
+        # rows and must not be miscounted as a parse failure
+        yielding = {row.chunk_id for row in batch_rows}
+        empty_extractions += len(candidates) - len(yielding)
+
+    # every input chunk lands in exactly one bucket (extraction is whole-batch: a batch
+    # either parses entirely or degrades entirely), so the counts must reconcile
+    assert extracted_chunks + len(degraded) + len(ir_rows) == len(chunks)
 
     _atomic_write_jsonl(facts_path, [row.model_dump() for row in rows])
     _atomic_write_jsonl(ir_path, ir_rows)
     print(
         f"snapshot={args.snapshot} chunks={len(chunks)} batches={batches} calls={calls} "
-        f"extracted_rows={len(rows)} degraded={len(degraded)} ir_skipped={len(ir_rows)}"
+        f"retries={retries} extracted_chunks={extracted_chunks} "
+        f"empty_extractions={empty_extractions} extracted_rows={len(rows)} "
+        f"degraded_batches={degraded_batches} degraded={len(degraded)} "
+        f"ir_skipped={len(ir_rows)}"
     )
     print(f"wrote {facts_path}")
     if ir_rows:
