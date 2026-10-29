@@ -28,7 +28,7 @@ pytest -q                                     # 4 tests
 | Network-marked tests | `pytest -m network -q` | ready (local only) |
 | Historical backfill | `python scripts/backfill.py --since ... --until ...` | pending A |
 | Daily increment | `python scripts/discover_daily.py` | pending A |
-| Build index | `python scripts/build_index.py --config A` | pending F |
+| Build index | `python scripts/build_index.py --snapshot <id> --input <docs.jsonl> [--config A]` | ready (`--input` until A's reader lands) |
 | Fact extraction | `python scripts/extract_facts.py --snapshot <id> --input <chunks.jsonl>` | ready |
 | Evaluation | `python scripts/run_eval.py --config A --snapshot <id>` | pending E |
 | Serve | `uvicorn acgn_rag.web.api:app --reload` | pending C |

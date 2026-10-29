@@ -59,6 +59,18 @@ def _snapshot_key(name: str) -> str:
     return name[len(_SNAP_PREFIX) :].rsplit("_", 1)[0]
 
 
+def _floats(embedding: Sequence[float]) -> list[float]:
+    """Plain-Python floats: chromadb 1.x rejects numpy scalars inside embeddings.
+
+    ``list(np.array)`` passes ``numpy.float32`` objects straight through, so callers that
+    hand over encoder output (numpy by contract, PR #20) must be converted here once.
+    """
+    tolist = getattr(embedding, "tolist", None)
+    if callable(tolist):
+        return [float(value) for value in tolist()]
+    return [float(value) for value in embedding]
+
+
 def media_filter(media_ids: list[int]) -> dict[str, Any] | None:
     """Any-of filter over the native ``media_ids`` int[] via the 1.x ``$contains`` operator.
 
@@ -169,7 +181,7 @@ class ChromaStore:
             return
         collection.upsert(
             ids=[payload.chunk_id for payload in payloads],
-            embeddings=[list(embedding) for embedding in embeddings],
+            embeddings=[_floats(embedding) for embedding in embeddings],
             documents=[payload.body for payload in payloads],
             metadatas=[to_payload(payload) for payload in payloads],
         )
@@ -178,7 +190,7 @@ class ChromaStore:
         self, embedding: Sequence[float], n_results: int, where: dict[str, Any] | None
     ) -> list[tuple[str, str, dict[str, Any], float]]:
         result = self._require_collection().query(
-            query_embeddings=[list(embedding)],
+            query_embeddings=[_floats(embedding)],
             n_results=n_results,
             where=where,
             include=["documents", "metadatas", "distances"],
