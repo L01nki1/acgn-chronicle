@@ -236,9 +236,10 @@ class ChromaStore:
 
         The scoped replacement primitive behind ``build_index.py --fresh``: the name comes
         from ``collection_name``, so only that pair's ``snap_*`` collection can ever be
-        targeted and no sibling snapshot or config is touched. The binding is cleared so
-        the following ``bind`` recreates the collection with cosine HNSW and a fresh
-        ``created_ts`` stamp (build_index does both immediately after).
+        targeted and no sibling snapshot or config is touched. A binding to the dropped pair
+        is cleared so the following ``bind`` recreates the collection with cosine HNSW and a
+        fresh ``created_ts`` stamp (build_index does both immediately after); a binding to a
+        different pair stays valid, exactly as in ``prune``.
         """
         name = collection_name(snapshot_id, chunk_config)
         # collection_name always emits snap_* names; the assert pins the contract this
@@ -250,7 +251,8 @@ class ChromaStore:
         )
         if existed:
             self.client.delete_collection(name)
-        self._collection = None
+        if getattr(self._collection, "name", None) == name:
+            self._collection = None  # the bound collection was itself dropped (as in prune)
         return existed
 
     def prune(self, keep: int | None = None) -> list[str]:
