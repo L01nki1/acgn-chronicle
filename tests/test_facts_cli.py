@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -43,6 +44,21 @@ def _payload(count: int) -> str:
             "relevance": 0.9,
         }
         for i in range(count)
+    ]
+    return json.dumps(items, ensure_ascii=False)
+
+
+def _mixed_payload(normal: int, empty: int) -> str:
+    """One array holding `normal` fully-valued objects followed by `empty` known-less ones."""
+    items = [
+        {
+            "title": f"Work {i}",
+            "release_date": "2026-10-05" if i < normal else "unknown",
+            "platforms": ["Switch", "PS5"] if i < normal else [],
+            "event_type": "release" if i < normal else "unknown",
+            "relevance": 0.9,
+        }
+        for i in range(normal + empty)
     ]
     return json.dumps(items, ensure_ascii=False)
 
@@ -141,3 +157,84 @@ def test_missing_input_is_reported_not_raised(
     code = _main(["--snapshot", "snap-x", "--input", str(tmp_path / "nope.jsonl"), "--dry-run"])
     assert code == 2
     assert "NOT FOUND" in capsys.readouterr().err
+
+
+def _summary_field(out: str, name: str) -> int:
+    """Read one ``name=N`` counter off the run summary line (not the dry-run lines)."""
+    match = re.search(rf"(?m)^snapshot=\S+ .*?\b{name}=(\d+)\b", out)
+    assert match, f"no {name}= counter in:\n{out}"
+    return int(match.group(1))
+
+
+def test_outcome_counters_success_retry_degrade_ir_and_mixed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The run summary separates attempts from retries, valid empty extractions from parse
+    failures, and batch-level from chunk-level degradation; the buckets reconcile with the
+    input chunk count (extracted_chunks + degraded + ir_skipped == chunks)."""
+    monkeypatch.setenv("ACGN_DATA_DIR", str(tmp_path / "data"))
+
+    # --- retry then success (one 10-chunk batch: bad JSON, then a valid array) ---
+    chunks_path = tmp_path / "retry.jsonl"
+    _write_chunks(chunks_path, [_row(i) for i in range(10)])
+    client = FakeLLMClient(["not json at all", _payload(10)])
+    assert _main(["--snapshot", "snap-retry", "--input", str(chunks_path)], client=client) == 0
+    out = capsys.readouterr().out
+    assert _summary_field(out, "calls") == 2  # initial attempt + 1 retry
+    assert _summary_field(out, "retries") == 1
+    assert _summary_field(out, "extracted_chunks") == 10
+    assert _summary_field(out, "empty_extractions") == 0
+    assert _summary_field(out, "extracted_rows") == 40
+    assert _summary_field(out, "degraded_batches") == 0 and _summary_field(out, "degraded") == 0
+    assert _summary_field(out, "ir_skipped") == 0
+
+    # --- exhausted retries degrade the whole batch (never drops a chunk) ---
+    chunks_path = tmp_path / "degrade.jsonl"
+    _write_chunks(chunks_path, [_row(i) for i in range(4)])
+    client = FakeLLMClient(["nope", "still nope", "```json\n{}\n```"])
+    assert _main(["--snapshot", "snap-degrade", "--input", str(chunks_path)], client=client) == 0
+    out = capsys.readouterr().out
+    assert _summary_field(out, "calls") == 3 and _summary_field(out, "retries") == 2
+    assert _summary_field(out, "extracted_chunks") == 0
+    assert _summary_field(out, "degraded_batches") == 1 and _summary_field(out, "degraded") == 4
+    assert _summary_field(out, "extracted_rows") == 0
+    assert _summary_field(out, "chunks") == 4  # 0 + 4 + 0: the buckets reconcile
+
+    # --- IR-only input never reaches the client ---
+    chunks_path = tmp_path / "ir.jsonl"
+    _write_chunks(chunks_path, [_row(i, text="決算短信を公開しました") for i in range(3)])
+    client = FakeLLMClient([])  # any call would pop from an empty list and fail the test
+    assert _main(["--snapshot", "snap-ir", "--input", str(chunks_path)], client=client) == 0
+    out = capsys.readouterr().out
+    assert _summary_field(out, "calls") == 0 and _summary_field(out, "retries") == 0
+    assert _summary_field(out, "extracted_chunks") == 0 and _summary_field(out, "ir_skipped") == 3
+    assert _summary_field(out, "chunks") == 3  # 0 + 0 + 3
+
+    # --- mixed: three batches with success, a retry, an empty extraction, degradation and
+    # IR skips. batch 1: 10 normal candidates -> success. batch 2: 1 IR + 9 candidates ->
+    # one retry, then 8 valued + 1 known-less object. batch 3: 1 IR + 1 candidate ->
+    # retries exhausted, the whole batch degrades.
+    rows = [_row(i) for i in range(22)]  # batch 1 = 0..9, batch 2 = 10..19, batch 3 = 20..21
+    rows[10]["text"] = "株主総会のお知らせ"  # batch 2 opens with one IR item
+    rows[20]["text"] = "第2四半期事業報告の概要"  # batch 3 opens with one IR item
+    chunks_path = tmp_path / "mixed.jsonl"
+    _write_chunks(chunks_path, rows)
+    client = FakeLLMClient(
+        [_payload(10), "garbage", _mixed_payload(8, 1), "garbage", "garbage", "garbage"]
+    )
+    assert _main(["--snapshot", "snap-mixed", "--input", str(chunks_path)], client=client) == 0
+    out = capsys.readouterr().out
+    assert _summary_field(out, "chunks") == 22
+    assert _summary_field(out, "batches") == 3
+    assert _summary_field(out, "calls") == 6  # 1 + 2 + 3 attempts across the three batches
+    assert _summary_field(out, "retries") == 3  # 0 + 1 + 2: re-attempts, initial excluded
+    assert _summary_field(out, "extracted_chunks") == 19  # 10 + 9 + 0 (batch 3 degraded)
+    assert _summary_field(out, "empty_extractions") == 1  # parsed but stated no known value
+    assert _summary_field(out, "extracted_rows") == 72  # 40 + 32; the empty extraction: 0 rows
+    assert _summary_field(out, "degraded_batches") == 1
+    assert _summary_field(out, "degraded") == 1
+    assert _summary_field(out, "ir_skipped") == 2
+    # every input chunk lands in exactly one bucket
+    assert _summary_field(out, "extracted_chunks") + _summary_field(
+        out, "degraded"
+    ) + _summary_field(out, "ir_skipped") == _summary_field(out, "chunks")
