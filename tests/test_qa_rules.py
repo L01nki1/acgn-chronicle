@@ -23,6 +23,7 @@ def _item(
     item: dict[str, Any] = {
         "qa_id": qa_id,
         "type": qa_type,
+        "lang": "en",
         "answerable": answerable,
         "question": f"question {qa_id}",
         "gold_answer": "2026-10-05",
@@ -58,6 +59,8 @@ def _valid_set() -> list[dict[str, Any]]:
             suffix += 1
     for index, item in enumerate(items[:10]):
         items[index] = {**item, "overlap": True}
+    for index in range(8):  # the language quota needs 8 zh items in a valid set
+        items[index] = {**items[index], "lang": "zh"}
     return items
 
 
@@ -81,6 +84,7 @@ def test_summary_counts_what_the_report_needs() -> None:
     counts = summary(_valid_set())
     assert counts["total"] == 35
     assert counts["by_type"] == {"A": 11, "B": 9, "C": 7, "D": 8}
+    assert counts["by_lang"] == {"en": 27, "zh": 8}
     assert counts["unanswerable"] == 5
     assert counts["overlap"] == 10
 
@@ -130,6 +134,27 @@ def test_unanswerable_must_be_type_d() -> None:
     items[0] = {**items[0], "answerable": False}
     problems = validate(items)
     assert any("must be type D" in p for p in problems), problems
+
+
+def test_missing_lang_fails() -> None:
+    items = _valid_set()
+    del items[0]["lang"]
+    problems = validate(items)
+    assert any("'lang'" in p for p in problems), problems
+
+
+def test_lang_outside_en_zh_fails() -> None:
+    items = _valid_set()
+    items[0] = {**items[0], "lang": "jp"}
+    problems = validate(items)
+    assert any("lang must be one of" in p for p in problems), problems
+
+
+def test_language_quota_is_enforced() -> None:
+    # the same set with every zh mark dropped: the quota fails, not just the wording
+    items = [_item(i["qa_id"], i["type"], overlap=i["overlap"]) for i in _valid_set()]
+    problems = validate(items)
+    assert any("lang='zh'" in p for p in problems), problems
 
 
 def test_annotator_cannot_verify_themselves() -> None:

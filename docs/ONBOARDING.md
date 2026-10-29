@@ -161,7 +161,7 @@ that is what this table is for.
 | Default encoding: UTF-8 on macOS, cp936 on Windows | Garbled sample pages | Always pass `encoding=`; detect Japanese encodings with `charset-normalizer` |
 | Unicode normalisation: macOS uses NFD for filenames | Japanese titles split into two files | **Never use a title as a filename** — use media_id / hash |
 | Time zone | Corrupted snapshot windows | Store UTC internally, convert for display only |
-| Embedding device: macOS has MPS | Floating-point results differ slightly per device | Pin `ACGN_EMBED_DEVICE=cpu` for indexing and evaluation; any device change must be recorded in the run |
+| Embedding device: macOS has MPS | Floating-point results differ slightly per device | Never mix vectors across devices: every build records its **encoder identity** and the cache is keyed by it (RUNBOOK §3.4); `.env.example` defaults to `cpu`, the lane every member can run |
 
 ## 6. Division of labor
 

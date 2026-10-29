@@ -20,7 +20,7 @@ src/acgn_rag/
 │   ├── ingest/    # WP1 · A: four adapter families / normalization / dedup clustering / snapshots
 │   ├── facts/     # WP2 · F: L0 fact-field extraction
 │   ├── chunk/     # WP2 · F: A(512/64) / A'(256/0) / B(event aggregation)
-│   ├── embed/     # WP2 · F: multilingual-e5-base + cache
+│   ├── embed/     # WP2 · F: two-lane embedding policy + identity-keyed cache
 │   ├── store/     # WP2 · F: fact zone / raw zone (two-zone design)
 │   ├── retrieve/  # WP3 · E: vector-only + filters; stretch BM25 + RRF
 │   ├── ground/    # WP4 · B: grounded generation / abstention / compliance clipping
