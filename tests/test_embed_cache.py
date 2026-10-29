@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-np = pytest.importorskip("numpy")  # [embed] extra; CI installs [dev] only and skips this module
+np = pytest.importorskip("numpy")  # Included in [dev]; no real encoder is needed.
 
 from acgn_rag.core.embed import EmbedCache  # noqa: E402
 

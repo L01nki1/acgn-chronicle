@@ -21,7 +21,7 @@ dependencies = [
   "pyyaml>=6.0",
 ]
 
-# Heavy dependencies are separated: CI installs [dev] only, so tests stay network- and model-free
+# CI installs [dev,store,llm], not [embed]; tests use no network or real models.
 [project.optional-dependencies]
 embed = [
   "sentence-transformers>=3.0,<7",   # upper band: an unaudited major could change encode semantics mid-project

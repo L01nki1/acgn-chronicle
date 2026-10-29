@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-np = pytest.importorskip("numpy")  # [embed] extra; CI installs [dev] only and skips this module
+np = pytest.importorskip("numpy")  # Included in [dev]; no real encoder is needed.
 
 from acgn_rag.config import EmbedConfig  # noqa: E402
 from acgn_rag.core.embed import (  # noqa: E402

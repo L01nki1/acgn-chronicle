@@ -60,7 +60,12 @@ cp .env.example .env                     # fill in keys only when you need the L
 
 > `[embed]` (sentence-transformers + torch) and `[store]` (chromadb) are heavy extras; install on demand:
 > `uv sync --extra dev --extra embed --extra store` (on Linux `pyproject.toml` already resolves the CPU
-> torch wheel). CI installs `dev` only. Plain `pip install -e ".[dev]"` still works.
+> torch wheel). Plain `pip install -e ".[dev]"` still works for the lightweight local setup.
+
+CI installs `dev`, `store` and `llm` with `uv sync --frozen --extra dev --extra store --extra llm`,
+so the Chroma tests run on all three platforms. It does not install the `embed` extra or torch;
+encoder tests use deterministic fakes and numpy from `dev`. Tests make no external requests,
+download no models and make no live LLM calls.
 
 ## The four gates — they run automatically
 
