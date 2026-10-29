@@ -231,6 +231,28 @@ class ChromaStore:
         """Rows in the bound collection."""
         return int(self._require_collection().count())
 
+    def drop_collection(self, snapshot_id: str, chunk_config: str) -> bool:
+        """Delete exactly the (snapshot, chunk config) collection; True when it existed.
+
+        The scoped replacement primitive behind ``build_index.py --fresh``: the name comes
+        from ``collection_name``, so only that pair's ``snap_*`` collection can ever be
+        targeted and no sibling snapshot or config is touched. The binding is cleared so
+        the following ``bind`` recreates the collection with cosine HNSW and a fresh
+        ``created_ts`` stamp (build_index does both immediately after).
+        """
+        name = collection_name(snapshot_id, chunk_config)
+        # collection_name always emits snap_* names; the assert pins the contract this
+        # deletion relies on instead of a check that could never fire.
+        assert name.startswith(_SNAP_PREFIX)
+        existed = any(
+            (collection if isinstance(collection, str) else collection.name) == name
+            for collection in self.client.list_collections()
+        )
+        if existed:
+            self.client.delete_collection(name)
+        self._collection = None
+        return existed
+
     def prune(self, keep: int | None = None) -> list[str]:
         """Delete snap_* collections of snapshots beyond retention; return the deleted names.
 

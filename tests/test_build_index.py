@@ -7,6 +7,9 @@ chunk -> embed with context headers -> identity-keyed cache -> Chroma upsert - f
 configs sequentially (RUNBOOK §2), asserting per-config chunk counts (A' > A > A0 on this
 corpus), the sidecar identity/build records, warm-cache behavior, idempotent rebuilds and the
 --limit / --config / --data-root / --embed-cache-dir CLI surface. Nothing loads a model.
+Rejection and replacement semantics (PR #24 review) get their own tests: zero-document and
+zero-chunk inputs exit 2 without writing or deleting anything, and --fresh replaces exactly
+the selected collection (stale rows of a larger earlier build) while siblings stay intact.
 """
 
 from __future__ import annotations
@@ -193,7 +196,8 @@ def _summary(out: str, config: str) -> re.Match[str]:
         rf"config={re.escape(config)} label={re.escape(LABELS[config])} "
         r"docs=(\d+) chunks=(\d+) cache_hits=(\d+) cache_misses=(\d+) "
         r"encodes=(\d+) stored=(\d+) seconds=\d+\.\d{3} "
-        rf"collection={re.escape(collection_name(SNAP, LABELS[config]))}",
+        rf"collection={re.escape(collection_name(SNAP, LABELS[config]))} "
+        r"mode=(?P<mode>replace|upsert)",
         out,
     )
     assert line, f"no summary line for config {config!r} in:\n{out}"
@@ -213,7 +217,8 @@ def test_end_to_end_builds_all_three_configs(
         expected = _expected_chunks(config)
         counts[config] = expected
         line = _summary(out, config)
-        docs, chunks, hits, misses, encodes, stored = (int(group) for group in line.groups())
+        # groups 1-6 are the numeric counters; group 7 is the named mode (upsert/replace)
+        docs, chunks, hits, misses, encodes, stored = (int(g) for g in line.groups()[:6])
         assert docs == 3
         assert chunks == expected  # the store holds exactly the chunker's output
         assert hits + misses == chunks  # one cache lookup per chunk
@@ -293,6 +298,111 @@ def test_rebuild_is_idempotent_upsert_not_duplicate(data_root: Path, docs_path: 
     assert len(second_ids) == len(first_ids)  # upsert semantics: no duplicate ids
     assert len(set(second_ids)) == len(second_ids)
     assert set(second_ids) == set(first_ids)
+
+
+def test_empty_input_is_rejected_and_writes_nothing(
+    data_root: Path,
+    docs_path: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Zero document rows: exit 2, no sidecar rewrite, existing collections preserved."""
+    assert _run(["--snapshot", SNAP, "--input", str(docs_path), "--config", "A0"]) == 0
+    ids_before = _collection_ids(_store_at(data_root), SNAP, "A0")
+    build_before = (data_root / "index" / SNAP / "A0" / "build.json").read_text(encoding="utf-8")
+
+    empty = tmp_path / "empty.jsonl"
+    empty.write_text("", encoding="utf-8")
+    code = _run(["--snapshot", SNAP, "--input", str(empty), "--config", "A0", "--fresh"])
+    assert code == 2
+    assert "holds no document rows" in capsys.readouterr().err
+    # the earlier valid build is untouched: same sidecar bytes, same collection rows
+    assert (data_root / "index" / SNAP / "A0" / "build.json").read_text(encoding="utf-8") == (
+        build_before
+    )
+    assert _collection_ids(_store_at(data_root), SNAP, "A0") == ids_before
+
+
+def test_blank_bodies_produce_no_chunks_and_reject_the_build(
+    data_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Non-empty rows whose bodies are blank produce zero chunks: rejected, nothing written."""
+    blank = _doc(1, 3) | {"body": "   \n\n  "}
+    path = _write_docs(tmp_path / "blank.jsonl", [blank])
+    code = _run(["--snapshot", SNAP, "--input", str(path), "--config", "A0"])
+    assert code == 2
+    assert "produced no chunks" in capsys.readouterr().err
+    assert not (data_root / "index" / SNAP / "A0").exists()  # no sidecar dir
+    assert _store_at(data_root).client.list_collections() == []  # no collection created
+
+
+def test_fresh_rebuild_replaces_stale_rows_only_in_the_target_collection(
+    data_root: Path,
+    docs_path: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A smaller rebuild upserts (stale rows survive) unless --fresh replaces the collection;
+    a --fresh rebuild touches only the selected snapshot/config, never its siblings."""
+    assert _run(["--snapshot", SNAP, "--input", str(docs_path), "--config", "A0,A"]) == 0
+    capsys.readouterr()  # flush the full build's output; the next readouterr is the trial run
+    store = _store_at(data_root)
+    full_a0 = _collection_ids(store, SNAP, "A0")
+    sibling_a = _collection_ids(store, SNAP, "A")
+
+    subset_rows = _rows()[:1]
+    subset = _write_docs(tmp_path / "subset.jsonl", subset_rows)
+    expected_subset = _expected_chunks("A0", subset_rows)
+    assert expected_subset < len(full_a0)  # the trial really is smaller
+
+    # default behavior: upsert keeps the stale rows of the larger earlier build
+    assert _run(["--snapshot", SNAP, "--input", str(subset), "--config", "A0"]) == 0
+    line = _summary(capsys.readouterr().out, "A0")
+    assert line.group("mode") == "upsert"
+    assert int(line.group(2)) == expected_subset  # chunks this build produced
+    assert int(line.group(6)) == len(full_a0)  # stored: stale rows silently survive
+    assert _collection_ids(store, SNAP, "A0") == full_a0
+
+    # --fresh: exactly the selected collection is rebuilt
+    assert _run(["--snapshot", SNAP, "--input", str(subset), "--config", "A0", "--fresh"]) == 0
+    line = _summary(capsys.readouterr().out, "A0")
+    assert line.group("mode") == "replace"
+    assert int(line.group(6)) == expected_subset  # metadata/count consistency
+    expected_ids = [
+        chunk.chunk_id
+        for row in subset_rows
+        for chunk in chunk_text(row["doc_id"], row["body"], "A0", FakeTokenizer())
+    ]
+    assert _collection_ids(store, SNAP, "A0") == expected_ids
+    assert _collection_ids(store, SNAP, "A") == sibling_a  # the sibling is untouched
+    build = json.loads(
+        (data_root / "index" / SNAP / "A0" / "build.json").read_text(encoding="utf-8")
+    )
+    assert build["mode"] == "replace"
+    assert build["chunks"] == build["stored"] == expected_subset
+
+
+def test_fresh_rejects_invalid_input_without_deleting_the_collection(
+    data_root: Path,
+    docs_path: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """--fresh validates the input BEFORE the destructive step: a rejected build never wipes."""
+    assert _run(["--snapshot", SNAP, "--input", str(docs_path), "--config", "A0"]) == 0
+    ids_before = _collection_ids(_store_at(data_root), SNAP, "A0")
+
+    empty = tmp_path / "empty.jsonl"
+    empty.write_text("", encoding="utf-8")
+    code = _run(["--snapshot", SNAP, "--input", str(empty), "--config", "A0", "--fresh"])
+    assert code == 2
+    assert _collection_ids(_store_at(data_root), SNAP, "A0") == ids_before
+
+    bad = _doc(1, 3) | {"source_type": "blog"}  # invalid doc row (not a SourceType)
+    path = _write_docs(tmp_path / "bad.jsonl", [bad])
+    code = _run(["--snapshot", SNAP, "--input", str(path), "--config", "A0", "--fresh"])
+    assert code == 2
+    assert _collection_ids(_store_at(data_root), SNAP, "A0") == ids_before
 
 
 def test_limit_caps_documents(

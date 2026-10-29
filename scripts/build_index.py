@@ -31,7 +31,15 @@ chunk ``TokenCounter`` protocol) and a fake model and so load nothing; in a real
 tokenizer is taken from the embedder's own model, because the budget and the packing must
 never mix tokenizers (RUNBOOK §3.4).
 
-Exit codes: 0 = done, 2 = missing input, unknown config, or an invalid doc row.
+Rebuilds upsert by default (idempotent for the same input), so rows of a larger earlier
+build survive a smaller rebuild as stale entries (PR #24 review). ``--fresh`` replaces the
+selected snapshot/config collections instead: each collection is deleted only after the
+input has parsed and produced chunks, so an invalid or empty input never wipes a valid
+index. A build over zero documents, or one whose documents produce zero chunks, is
+rejected with exit code 2 and writes nothing.
+
+Exit codes: 0 = done, 2 = missing input, unknown config, an invalid doc row, or an input
+that yields no documents / no usable chunks.
 
 Owner: F | Spec: 02 §1, RUNBOOK §2 (build SOP), §3.4 (encoder identity), §3.5 (context headers)
 """
@@ -81,6 +89,15 @@ COLLECTION_LABELS: dict[str, str] = {"A'": "A-prime"}
 #: e5-base context limit. The budget formula (RUNBOOK §3.4) must never hard-code 508: other
 #: lanes differ (bge-m3 8k, EmbeddingGemma 2048) and must pass --max-seq-length.
 DEFAULT_MAX_SEQ_LENGTH = 512
+
+
+class BuildError(RuntimeError):
+    """A rejected build: the input cannot produce an index (no docs, or no usable chunks).
+
+    Raised before anything is encoded, written or deleted, so a previously valid
+    collection and its sidecars stay intact (PR #24 review: an empty input must not
+    publish a success ``build.json``).
+    """
 
 
 class IndexDoc(BaseModel):
@@ -147,6 +164,7 @@ class _BuildContext:
     max_seq_length: int
     cache: EmbedCache
     store: ChromaStore
+    fresh: bool  # replace each selected collection instead of upserting into it
 
 
 def _load_docs(path: Path, limit: int | None) -> list[IndexDoc]:
@@ -256,6 +274,14 @@ def _build_config(ctx: _BuildContext, config: str, docs: Sequence[IndexDoc]) -> 
                 )
             )
 
+    if not payloads:
+        # Non-empty documents can still yield zero chunks (empty or blank bodies): a build
+        # must never report success over nothing (PR #24 review, G1a "items > 0" principle).
+        raise BuildError(
+            f"the {len(docs)} input document(s) produced no chunks for config {config!r} "
+            "(empty or blank bodies?): nothing was encoded, written or deleted"
+        )
+
     before = ctx.cache.stats()
     vectors: list[Any] = []
     misses: list[int] = []
@@ -271,6 +297,10 @@ def _build_config(ctx: _BuildContext, config: str, docs: Sequence[IndexDoc]) -> 
             vectors[index] = encoded[position]
     after = ctx.cache.stats()
 
+    if ctx.fresh:
+        # Scoped replacement (PR #24 review): the deletion happens only now - after the input
+        # has parsed and produced chunks - so an invalid input never wipes a valid index.
+        ctx.store.drop_collection(ctx.snapshot_id, label)
     ctx.store.bind(ctx.snapshot_id, label)
     # chromadb 1.5.9 accepts only Python scalars (its type check rejects np.float32), so the
     # numpy rows coming from the encoder or the cache are flattened with .tolist() here;
@@ -283,6 +313,7 @@ def _build_config(ctx: _BuildContext, config: str, docs: Sequence[IndexDoc]) -> 
         "config": config,
         "label": label,
         "collection": collection_name(ctx.snapshot_id, label),
+        "mode": "replace" if ctx.fresh else "upsert",
         "docs": len(docs),
         "chunks": len(payloads),
         "cache_hits": after["hits"] - before["hits"],
@@ -356,6 +387,15 @@ def main(
         default=DEFAULT_MAX_SEQ_LENGTH,
         help="encoder context limit behind the chunk budget (RUNBOOK §3.4); default 512 (e5)",
     )
+    parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help=(
+            "replace each selected snapshot/config collection instead of upserting into it "
+            "(a rebuild over a smaller input would otherwise leave stale rows); each "
+            "collection is deleted only after the input parses and produces chunks"
+        ),
+    )
     args = parser.parse_args(argv)
 
     input_path = Path(args.input)
@@ -367,6 +407,13 @@ def main(
         configs = _parse_configs(args.config)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
+        return 2
+    if not docs:
+        print(
+            f"EMPTY INPUT: {input_path} holds no document rows; a build must produce at "
+            "least one chunk - nothing was read into the store, written or deleted",
+            file=sys.stderr,
+        )
         return 2
 
     settings = load_settings()
@@ -420,22 +467,27 @@ def main(
             else settings.paths.root / "cache" / "embed"
         ),
         store=ChromaStore(settings.paths.index / "chroma", settings.store),
+        fresh=args.fresh,
     )
 
     # RUNBOOK §2 step 3: the configs run SEQUENTIALLY - running them in parallel
     # oversubscribes the CPU and is slower overall. Do not parallelize this loop.
-    for config in configs:
-        record = _build_config(ctx, config, docs)
-        print(
-            f"config={record['config']} label={record['label']} docs={record['docs']} "
-            f"chunks={record['chunks']} cache_hits={record['cache_hits']} "
-            f"cache_misses={record['cache_misses']} encodes={record['encodes']} "
-            f"stored={record['stored']} seconds={record['seconds']:.3f} "
-            f"collection={record['collection']}"
-        )
-        out_dir = settings.paths.index / args.snapshot / record["label"]
-        print(f"wrote {out_dir / 'identity.json'}")
-        print(f"wrote {out_dir / 'build.json'}")
+    try:
+        for config in configs:
+            record = _build_config(ctx, config, docs)
+            print(
+                f"config={record['config']} label={record['label']} docs={record['docs']} "
+                f"chunks={record['chunks']} cache_hits={record['cache_hits']} "
+                f"cache_misses={record['cache_misses']} encodes={record['encodes']} "
+                f"stored={record['stored']} seconds={record['seconds']:.3f} "
+                f"collection={record['collection']} mode={record['mode']}"
+            )
+            out_dir = settings.paths.index / args.snapshot / record["label"]
+            print(f"wrote {out_dir / 'identity.json'}")
+            print(f"wrote {out_dir / 'build.json'}")
+    except BuildError as exc:
+        print(f"BUILD REJECTED: {exc}", file=sys.stderr)
+        return 2
     return 0
 
 
