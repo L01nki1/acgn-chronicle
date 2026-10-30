@@ -36,7 +36,7 @@ from acgn_rag.config import StoreConfig  # noqa: E402
 from acgn_rag.core.chunk import chunk_text  # noqa: E402
 from acgn_rag.core.store.chroma_store import ChromaStore, collection_name  # noqa: E402
 
-SNAP = "20261028abcdef1234"  # longer than 12 chars, so collection-name truncation is observable
+SNAP = "20261028abcdef1234"
 LABELS = {"A": "A", "A'": "A-prime", "A0": "A0"}
 DIM = 32
 MODEL_E5 = "intfloat/multilingual-e5-base"
@@ -403,6 +403,90 @@ def test_fresh_rejects_invalid_input_without_deleting_the_collection(
     code = _run(["--snapshot", SNAP, "--input", str(path), "--config", "A0", "--fresh"])
     assert code == 2
     assert _collection_ids(_store_at(data_root), SNAP, "A0") == ids_before
+
+
+def test_fresh_keeps_a_different_snapshot_with_the_same_legacy_prefix(
+    data_root: Path, docs_path: Path, tmp_path: Path
+) -> None:
+    snapshot_a = "20261028-abc000000000"
+    snapshot_b = "20261028-abc111111111"
+    docs_b = _write_docs(tmp_path / "snapshot-b.jsonl", [_doc(7, 3)])
+    assert _run(["--snapshot", snapshot_a, "--input", str(docs_path), "--config", "A0"]) == 0
+    assert _run(["--snapshot", snapshot_b, "--input", str(docs_b), "--config", "A0"]) == 0
+
+    store = _store_at(data_root)
+    store.bind(snapshot_b, "A0")
+    before_ids = _collection_ids(store, snapshot_b, "A0")
+    before_build = (data_root / "index" / snapshot_b / "A0" / "build.json").read_bytes()
+    before_identity = (data_root / "index" / snapshot_b / "A0" / "identity.json").read_bytes()
+    subset_a = _write_docs(tmp_path / "snapshot-a-subset.jsonl", _rows()[:1])
+    assert (
+        _run(["--snapshot", snapshot_a, "--input", str(subset_a), "--config", "A0", "--fresh"]) == 0
+    )
+
+    assert store.count() == len(before_ids)
+    assert _collection_ids(store, snapshot_b, "A0") == before_ids
+    assert store.query([1.0] * DIM, top_k=1)[0].payload.snapshot_id == snapshot_b
+    assert (data_root / "index" / snapshot_b / "A0" / "build.json").read_bytes() == before_build
+    assert (data_root / "index" / snapshot_b / "A0" / "identity.json").read_bytes() == (
+        before_identity
+    )
+
+
+def test_ambiguous_legacy_is_rejected_before_encoding_or_cache_writes(
+    data_root: Path, docs_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    snapshot = "20261028-abc000000000"
+    store = _store_at(data_root)
+    legacy_name = "snap_20261028-abc_A0"
+    legacy = store.client.create_collection(
+        name=legacy_name,
+        configuration={"hnsw": {"space": "cosine"}},
+        metadata={"created_ts": 1},
+    )
+    model = FakeModel()
+    assert (
+        _run(
+            ["--snapshot", snapshot, "--input", str(docs_path), "--config", "A0", "--fresh"],
+            model=model,
+        )
+        == 2
+    )
+    assert "snapshot ownership check failed" in capsys.readouterr().err
+    assert model.calls == []
+    assert not (data_root / "cache" / "embed").exists()
+    assert legacy.count() == 0
+    assert {collection.name for collection in store.client.list_collections()} == {legacy_name}
+    assert not (data_root / "index" / snapshot).exists()
+
+
+def test_legacy_build_records_its_actual_collection_and_fresh_uses_full_name(
+    data_root: Path, docs_path: Path
+) -> None:
+    snapshot = "20261028-abc000000000"
+    store = _store_at(data_root)
+    legacy_name = "snap_20261028-abc_A0"
+    store.client.create_collection(
+        name=legacy_name,
+        configuration={"hnsw": {"space": "cosine"}},
+        metadata={"snapshot_id": snapshot},
+    )
+    argv = ["--snapshot", snapshot, "--input", str(docs_path), "--config", "A0"]
+    assert _run(argv) == 0
+    sidecar = data_root / "index" / snapshot / "A0"
+    assert json.loads((sidecar / "identity.json").read_text(encoding="utf-8"))["collection"] == (
+        legacy_name
+    )
+    assert json.loads((sidecar / "build.json").read_text(encoding="utf-8"))["collection"] == (
+        legacy_name
+    )
+    assert store.bind(snapshot, "A0").name == legacy_name
+
+    assert _run([*argv, "--fresh"]) == 0
+    assert store.bind(snapshot, "A0").name == collection_name(snapshot, "A0")
+    assert json.loads((sidecar / "build.json").read_text(encoding="utf-8"))["collection"] == (
+        collection_name(snapshot, "A0")
+    )
 
 
 def test_limit_caps_documents(

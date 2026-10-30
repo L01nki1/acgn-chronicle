@@ -10,8 +10,8 @@ Per chunk config (A / A' / A0 - arguments of one implementation, issue #8) the p
 running them in parallel oversubscribes the CPU and is slower overall); do not parallelize
 the loop in ``main``.
 
-Encoder identity (RUNBOOK §3.4): ``ChromaStore.bind`` stamps only ``created_ts`` and exposes
-no collection-metadata parameter, so a build records its identity in
+Encoder identity (RUNBOOK §3.4): ``ChromaStore.bind`` records the full snapshot/config owner,
+while a build records its encoder identity in
 ``<data-root>/index/<snapshot>/<label>/identity.json`` and ``build.json`` next to the store
 (the store root is ``<data-root>/index/chroma``), and the output names both paths. Moving the
 identity into the Chroma collection metadata needs a store API change and stays out of this
@@ -38,8 +38,7 @@ input has parsed and produced chunks, so an invalid or empty input never wipes a
 index. A build over zero documents, or one whose documents produce zero chunks, is
 rejected with exit code 2 and writes nothing.
 
-Exit codes: 0 = done, 2 = missing input, unknown config, an invalid doc row, or an input
-that yields no documents / no usable chunks.
+Exit codes: 0 = done, 2 = invalid input, no usable chunks, or an unverified snapshot owner.
 
 Owner: F | Spec: 02 §1, RUNBOOK §2 (build SOP), §3.4 (encoder identity), §3.5 (context headers)
 """
@@ -73,7 +72,7 @@ from acgn_rag.core.embed import (
     model_spec,
 )
 from acgn_rag.core.ports import SourceType
-from acgn_rag.core.store import ChromaStore, collection_name
+from acgn_rag.core.store import ChromaStore
 from acgn_rag.core.store.payload import ChunkPayload, iso_to_epoch, payload_from_fields
 
 #: Default config order: every variant in CHUNK_VARIANTS (dict order = the declared order in
@@ -82,8 +81,8 @@ DEFAULT_CONFIGS: tuple[str, ...] = tuple(CHUNK_VARIANTS)
 
 #: chromadb collection names accept [a-zA-Z0-9._-] only (1.5.9 rejects "A'" outright), so
 #: configs get filesystem-safe labels for collection names and sidecar directories; the
-#: store's snapshot-key parser already documents the label set as A / A-prime / A0 / B
-#: (chroma_store.py). Chunk ids keep the variant name itself.
+#: store reserves underscores as name separators and accepts A / A-prime / A0 / B as labels.
+#: Chunk ids keep the variant name itself.
 COLLECTION_LABELS: dict[str, str] = {"A'": "A-prime"}
 
 #: e5-base context limit. The budget formula (RUNBOOK §3.4) must never hard-code 508: other
@@ -92,11 +91,9 @@ DEFAULT_MAX_SEQ_LENGTH = 512
 
 
 class BuildError(RuntimeError):
-    """A rejected build: the input cannot produce an index (no docs, or no usable chunks).
+    """A rejected build: the input or collection ownership cannot safely produce an index.
 
-    Raised before anything is encoded, written or deleted, so a previously valid
-    collection and its sidecars stay intact (PR #24 review: an empty input must not
-    publish a success ``build.json``).
+    Empty input and the initial ownership check run before encoding, cache writes or deletion.
     """
 
 
@@ -282,6 +279,11 @@ def _build_config(ctx: _BuildContext, config: str, docs: Sequence[IndexDoc]) -> 
             "(empty or blank bodies?): nothing was encoded, written or deleted"
         )
 
+    try:
+        ctx.store.validate_binding(ctx.snapshot_id, label)
+    except (RuntimeError, ValueError) as exc:
+        raise BuildError(f"snapshot ownership check failed: {exc}") from exc
+
     before = ctx.cache.stats()
     vectors: list[Any] = []
     misses: list[int] = []
@@ -297,11 +299,13 @@ def _build_config(ctx: _BuildContext, config: str, docs: Sequence[IndexDoc]) -> 
             vectors[index] = encoded[position]
     after = ctx.cache.stats()
 
-    if ctx.fresh:
-        # Scoped replacement (PR #24 review): the deletion happens only now - after the input
-        # has parsed and produced chunks - so an invalid input never wipes a valid index.
-        ctx.store.drop_collection(ctx.snapshot_id, label)
-    ctx.store.bind(ctx.snapshot_id, label)
+    try:
+        if ctx.fresh:
+            # Recheck ownership before deletion: preflight cannot prevent an intervening change.
+            ctx.store.drop_collection(ctx.snapshot_id, label)
+        collection = ctx.store.bind(ctx.snapshot_id, label)
+    except (RuntimeError, ValueError) as exc:
+        raise BuildError(f"snapshot ownership check failed: {exc}") from exc
     # chromadb 1.5.9 accepts only Python scalars (its type check rejects np.float32), so the
     # numpy rows coming from the encoder or the cache are flattened with .tolist() here;
     # upsert_chunks' own `list(embedding)` keeps numpy scalars and would be rejected.
@@ -312,7 +316,7 @@ def _build_config(ctx: _BuildContext, config: str, docs: Sequence[IndexDoc]) -> 
         "snapshot_id": ctx.snapshot_id,
         "config": config,
         "label": label,
-        "collection": collection_name(ctx.snapshot_id, label),
+        "collection": collection.name,
         "mode": "replace" if ctx.fresh else "upsert",
         "docs": len(docs),
         "chunks": len(payloads),
