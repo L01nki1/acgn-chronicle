@@ -26,6 +26,7 @@ from acgn_rag.core.ports import (
 from acgn_rag.core.retrieve.vector import search
 
 CONFIG_TOKENS = {"A'": "A-prime"}
+BUILD_IDENTITY_KEYS = ("model", "backend", "device", "precision", "batch_size")
 
 
 class Answerer(Protocol):
@@ -62,7 +63,8 @@ class RunSpec:
     run_id: str | None = None
     run_date: str | None = None
     git_sha: str = "unknown"
-    embed_identity: Mapping[str, Any] = field(default_factory=dict)
+    build_identity: Mapping[str, Any] = field(default_factory=dict)
+    collection: str | None = None
     llm: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -85,12 +87,55 @@ def _run_id(spec: RunSpec) -> str:
     return f"{day}-{_config_token(spec.config)}-{spec.snapshot_id}"
 
 
+def load_build_identity(
+    path: Path,
+    *,
+    snapshot_id: str,
+    config: str,
+) -> tuple[dict[str, Any], str]:
+    """Read `data/index/<snapshot>/<label>/identity.json` for one run."""
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if payload.get("snapshot_id") != snapshot_id:
+        raise ValueError(f"{path}: snapshot_id {payload.get('snapshot_id')!r} != {snapshot_id!r}")
+    if payload.get("config") != config:
+        raise ValueError(f"{path}: config {payload.get('config')!r} != {config!r}")
+    identity = payload.get("identity")
+    collection = payload.get("collection")
+    if not isinstance(identity, dict) or not identity:
+        raise ValueError(f"{path}: missing or invalid `identity`")
+    if not isinstance(collection, str) or not collection:
+        raise ValueError(f"{path}: missing or invalid `collection`")
+    missing = [key for key in BUILD_IDENTITY_KEYS if key not in identity]
+    if missing:
+        raise ValueError(f"{path}: identity is missing {', '.join(missing)}")
+    return dict(identity), collection
+
+
+def verify_build_identity(
+    build_identity: Mapping[str, Any],
+    current_identity: Mapping[str, Any],
+) -> list[str]:
+    """Return the identity fields that do not match the index that will be queried."""
+    problems: list[str] = []
+    for key in BUILD_IDENTITY_KEYS:
+        if key not in build_identity:
+            problems.append(f"build identity missing {key!r}")
+            continue
+        if str(build_identity[key]) != str(current_identity.get(key)):
+            problems.append(
+                f"{key}: build={build_identity[key]!r}, current={current_identity.get(key)!r}"
+            )
+    return problems
+
+
 def _validate_spec(spec: RunSpec) -> None:
     missing = [
         name
         for name in ("snapshot_id", "window_start", "window_end", "config")
         if not getattr(spec, name)
     ]
+    if not spec.build_identity:
+        missing.append("build_identity")
     if missing:
         raise ValueError(f"run spec is missing {', '.join(missing)}")
 
@@ -224,7 +269,9 @@ def run(
             "top_k": spec.top_k,
             "over_fetch": spec.over_fetch,
         },
-        "embed": dict(spec.embed_identity),
+        "embed": dict(spec.build_identity),
+        "build_identity": dict(spec.build_identity),
+        "collection": spec.collection,
         "llm": dict(spec.llm),
         "git_sha": spec.git_sha,
         "qa": {"path": str(spec.qa_path), "count": len(items)},
@@ -242,6 +289,8 @@ def run(
         {
             "snapshot_id": spec.snapshot_id,
             "config": spec.config,
+            "collection": spec.collection,
+            "build_identity": dict(spec.build_identity),
             "resolved": resolved,
             "unresolved": unresolved,
             "status": "resolved" if evidence_resolver is not None else "not_configured",
@@ -255,10 +304,13 @@ def run(
 
 
 __all__ = [
+    "BUILD_IDENTITY_KEYS",
     "CONFIG_TOKENS",
     "Answerer",
     "NullAnswerer",
     "RunResult",
     "RunSpec",
+    "load_build_identity",
     "run",
+    "verify_build_identity",
 ]

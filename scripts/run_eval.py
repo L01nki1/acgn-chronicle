@@ -14,8 +14,10 @@ Owner: E | Spec: docs/EVAL_PROTOCOL.md §7-§8, docs/RUNBOOK.md §1
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -23,8 +25,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from acgn_rag.config import load_settings
 from acgn_rag.core.embed import Embedder
 from acgn_rag.core.eval.qa import load_jsonl, validate
-from acgn_rag.core.eval.runner import NullAnswerer, RunSpec, run
-from acgn_rag.core.store import ChromaStore
+from acgn_rag.core.eval.runner import (
+    NullAnswerer,
+    RunSpec,
+    load_build_identity,
+    run,
+    verify_build_identity,
+)
+from acgn_rag.core.store import ChromaStore, collection_name
 
 CONFIG_CHOICES = ("A", "A'", "A0", "B")
 COLLECTION_LABELS = {"A'": "A-prime"}  # Chroma names reject "'"
@@ -84,9 +92,49 @@ def main(argv: list[str] | None = None) -> int:
     window_end = args.window_end or max(str(item["window"][1]) for item in items)
 
     settings = load_settings()
+    label = COLLECTION_LABELS.get(args.config, args.config)
+    sidecar = settings.paths.index / args.snapshot / label / "identity.json"
+    if not sidecar.exists():
+        print(f"NOT FOUND: {sidecar} - build the index for this snapshot/config", file=sys.stderr)
+        return 2
+    try:
+        build_identity, collection = load_build_identity(
+            sidecar,
+            snapshot_id=args.snapshot,
+            config=args.config,
+        )
+    except (ValueError, json.JSONDecodeError) as exc:
+        print(f"INVALID BUILD IDENTITY: {exc}", file=sys.stderr)
+        return 1
+
+    expected_collection = collection_name(args.snapshot, label)
+    if collection != expected_collection:
+        print(
+            f"COLLECTION MISMATCH: identity.json={collection!r}, "
+            f"current naming={expected_collection!r}",
+            file=sys.stderr,
+        )
+        return 1
+
+    embed_config = replace(
+        settings.embed,
+        model_name=str(build_identity["model"]),
+        device=str(build_identity["device"]),
+        batch_size=int(build_identity["batch_size"]),
+    )
+    embedder = Embedder(embed_config)
+    identity_problems = verify_build_identity(
+        build_identity,
+        embedder.identity().to_metadata(),
+    )
+    if identity_problems:
+        print("BUILD IDENTITY MISMATCH:", file=sys.stderr)
+        for problem in identity_problems:
+            print(f"  - {problem}", file=sys.stderr)
+        return 1
+
     store = ChromaStore(settings.paths.index / "chroma", settings.store)
-    store.bind(args.snapshot, COLLECTION_LABELS.get(args.config, args.config))
-    embedder = Embedder(settings.embed)
+    store.bind(args.snapshot, label)
 
     spec = RunSpec(
         snapshot_id=args.snapshot,
@@ -99,7 +147,8 @@ def main(argv: list[str] | None = None) -> int:
         over_fetch=settings.store.over_fetch_factor,
         run_id=args.run_id,
         git_sha=_git_sha(),
-        embed_identity=embedder.identity().to_metadata(),
+        build_identity=build_identity,
+        collection=collection,
         llm={
             "provider": settings.llm.base_url or "none",
             "model": settings.llm.model or "none",

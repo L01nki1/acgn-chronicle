@@ -9,7 +9,13 @@ from typing import Any
 
 import pytest
 
-from acgn_rag.core.eval.runner import NullAnswerer, RunSpec, run
+from acgn_rag.core.eval.runner import (
+    NullAnswerer,
+    RunSpec,
+    load_build_identity,
+    run,
+    verify_build_identity,
+)
 from acgn_rag.core.store.chroma_store import ScoredPayload
 from acgn_rag.core.store.payload import ChunkPayload, iso_to_epoch
 
@@ -91,7 +97,14 @@ def _spec(tmp_path: Path, **overrides: object) -> RunSpec:
         "run_id": "20261030-A-20261028abcdef",
         "run_date": "20261030",
         "git_sha": "test-sha",
-        "embed_identity": {"model": "fake", "device": "cpu"},
+        "build_identity": {
+            "model": "fake",
+            "backend": "torch",
+            "device": "cpu",
+            "precision": "fp32",
+            "batch_size": 32,
+        },
+        "collection": "snap_20261028abc_A",
         "llm": {"provider": "none", "model": "none"},
     }
     values.update(overrides)
@@ -125,6 +138,9 @@ def test_run_writes_complete_archive(tmp_path: Path) -> None:
     assert meta["retrieval"]["mode"] == "vector"
     assert meta["git_sha"] == "test-sha"
     assert meta["qa"]["count"] == 1
+    assert meta["build_identity"]["model"] == "fake"
+    assert meta["embed"]["device"] == "cpu"
+    assert meta["collection"] == "snap_20261028abc_A"
 
     assert result.metrics["retrieval_hit_rate"]["all"] == 1.0
     assert result.metrics["retrieval_hit_rate"]["en"] == 1.0
@@ -243,3 +259,72 @@ def test_evidence_resolver_marks_gold_unavailable(tmp_path: Path) -> None:
     resolved = json.loads((result.out_dir / "resolved_evidence.json").read_text(encoding="utf-8"))
     assert resolved["status"] == "resolved"
     assert resolved["unresolved"] == [GOLD]
+    assert resolved["collection"] == "snap_20261028abc_A"
+    assert resolved["build_identity"]["model"] == "fake"
+
+
+def test_run_requires_build_identity(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="build_identity"):
+        run(
+            _spec(tmp_path, build_identity={}),
+            store=FakeStore([_hit()]),
+            embedder=FakeEmbedder(),
+            qa_items=[_qa_item()],
+        )
+
+
+def test_load_build_identity_reads_sidecar(tmp_path: Path) -> None:
+    sidecar = tmp_path / "identity.json"
+    sidecar.write_text(
+        json.dumps(
+            {
+                "snapshot_id": SNAPSHOT,
+                "config": "A",
+                "label": "A",
+                "collection": "snap_20261028abc_A",
+                "identity": {
+                    "model": "fake",
+                    "backend": "torch",
+                    "device": "cpu",
+                    "precision": "fp32",
+                    "batch_size": 32,
+                    "identity_slug": "fake-torch-cpu-fp32-b32-12345678",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    identity, collection = load_build_identity(sidecar, snapshot_id=SNAPSHOT, config="A")
+    assert identity["model"] == "fake"
+    assert collection == "snap_20261028abc_A"
+
+
+def test_load_build_identity_rejects_wrong_snapshot(tmp_path: Path) -> None:
+    sidecar = tmp_path / "identity.json"
+    sidecar.write_text(
+        json.dumps(
+            {
+                "snapshot_id": "other",
+                "config": "A",
+                "collection": "snap_other_A",
+                "identity": {"model": "fake"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="snapshot_id"):
+        load_build_identity(sidecar, snapshot_id=SNAPSHOT, config="A")
+
+
+def test_verify_build_identity_matches_and_reports_mismatch() -> None:
+    build = {
+        "model": "fake",
+        "backend": "torch",
+        "device": "cpu",
+        "precision": "fp32",
+        "batch_size": 32,
+    }
+    assert verify_build_identity(build, build) == []
+    assert verify_build_identity(build, {**build, "device": "cuda"}) == [
+        "device: build='cpu', current='cuda'"
+    ]
