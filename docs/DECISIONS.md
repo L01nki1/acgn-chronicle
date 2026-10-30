@@ -18,6 +18,7 @@
 
 | Date | Decision | Reason | Affects |
 |---|---|---|---|
+| 2026-10-31 | Proposed for #31: collection names include the full snapshot id; legacy short names require a unique verified owner; pruning requires validated publication times. Consumer confirmation remains pending | Two valid full ids can share the old 12-character prefix, so builds and deletion could target another snapshot | A, E, F |
 | 2026-10-28 | Repository name is `acgn-daily` | Matches the product direction; the remote was renamed and the local remote updated | everyone |
 | 2026-10-28 | Repository renamed again to **`acgn-chronicle`** | Owner's naming call; local remote and the crawler user agent now point at the new location. The Python package (`acgn_rag`) and distribution name (`acgn-rag`) are unchanged | everyone |
 | 2026-10-28 | Planning notes (`PLAN.md`) removed from the workspace | Its content now lives in `docs/PROJECT.md` + `docs/ROADMAP.md`; keeping both invites two versions of the truth | everyone |

@@ -6,9 +6,9 @@ API surface used (all 1.x; nothing here runs on 0.5.x):
   - ``PersistentClient(path=..., settings=Settings(anonymized_telemetry=False))``: embedded,
     offline, telemetry off; the client is created lazily so importing this module costs
     nothing without the ``[store]`` extra.
-  - ``get_or_create_collection(configuration={"hnsw": {"space": "cosine"}})``: the default
-    space is still ``l2`` and would turn ``score`` into a distance while the contract
-    promises a similarity (ports.SCORE_SEMANTICS).
+  - ``create_collection(configuration={"hnsw": {"space": "cosine"}})`` for a new
+    verified name: the default space is still ``l2`` and would turn ``score`` into a
+    distance while the contract promises a similarity (ports.SCORE_SEMANTICS).
   - Typed array metadata: ``media_ids`` is stored natively as ``int[]`` and filtered with
     ``$contains`` (``media_filter``).
 
@@ -20,17 +20,28 @@ small relative to the filtered candidate set, so every query over-fetches by
 
 from __future__ import annotations
 
+import json
+import re
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
+from stat import S_ISREG
 from typing import Any
 
 from acgn_rag.config import StoreConfig
 from acgn_rag.core.store.payload import ChunkPayload, payload_from_metadata, to_payload
 
 _SNAP_PREFIX = "snap_"
+_FULL_PREFIX = "snap_full_"
 _CREATED_TS_KEY = "created_ts"
+_SNAPSHOT_ID_KEY = "snapshot_id"
+_CHUNK_CONFIG_KEY = "chunk_config"
+_NAMING_VERSION_KEY = "snapshot_name_version"
+_NAMING_VERSION = 2
+_SEGMENT = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?")
+_LEGACY_PAGE_SIZE = 500
 
 
 @dataclass(frozen=True)
@@ -47,16 +58,48 @@ class ScoredPayload:
 
 
 def collection_name(snapshot_id: str, chunk_config: str) -> str:
-    """``snap_<snapshot_id[:12]>_<chunk_config>`` - the naming convention in config.py."""
+    """Return a disjoint, reversible name containing the complete snapshot identity."""
+    _validate_segment(snapshot_id, "snapshot_id")
+    _validate_segment(chunk_config, "chunk_config")
+    name = f"{_FULL_PREFIX}{snapshot_id}_{chunk_config}"
+    if len(name) > 512:
+        raise ValueError(
+            "snapshot_id and chunk_config produce a collection name over 512 characters"
+        )
+    return name
+
+
+def _validate_segment(value: str, label: str) -> None:
+    if not isinstance(value, str) or not _SEGMENT.fullmatch(value) or ".." in value:
+        raise ValueError(f"{label} must contain only letters, digits, dots or hyphens")
+
+
+def _legacy_collection_name(snapshot_id: str, chunk_config: str) -> str:
     return f"{_SNAP_PREFIX}{snapshot_id[:12]}_{chunk_config}"
 
 
-def _snapshot_key(name: str) -> str:
-    """Invert `collection_name`: the snapshot part of a snap_* collection name.
-
-    Assumes the chunk-config label contains no underscore (labels in use: A, A-prime, A0, B).
-    """
-    return name[len(_SNAP_PREFIX) :].rsplit("_", 1)[0]
+def _parse_collection_name(name: str) -> tuple[bool, str, str]:
+    """Parse full names and legacy short names without inferring a legacy owner."""
+    if name.startswith(_FULL_PREFIX):
+        parts = name[len(_FULL_PREFIX) :].rsplit("_", 1)
+        if len(parts) == 2:
+            try:
+                if collection_name(parts[0], parts[1]) == name:
+                    return True, parts[0], parts[1]
+            except ValueError:
+                pass
+    if name.startswith(_SNAP_PREFIX):
+        parts = name[len(_SNAP_PREFIX) :].rsplit("_", 1)
+        if len(parts) == 2:
+            prefix, chunk_config = parts
+            try:
+                _validate_segment(prefix, "legacy prefix")
+                _validate_segment(chunk_config, "chunk_config")
+            except ValueError as exc:
+                raise RuntimeError(f"invalid legacy collection name {name!r}") from exc
+            if len(prefix) <= 12:
+                return False, prefix, chunk_config
+    raise RuntimeError(f"unrecognized snapshot collection name {name!r}")
 
 
 def _floats(embedding: Sequence[float]) -> list[float]:
@@ -119,6 +162,7 @@ class ChromaStore:
         self.settings = settings
         self._client: Any | None = None
         self._collection: Any | None = None
+        self._bound_snapshot_id: str | None = None
 
     @property
     def client(self) -> Any:
@@ -133,28 +177,222 @@ class ChromaStore:
             )
         return self._client
 
-    def bind(self, snapshot_id: str, chunk_config: str) -> Any:
-        """Select the collection for (snapshot, chunk config), creating it with cosine HNSW.
+    def _collections(self) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for collection in self.client.list_collections():
+            if isinstance(collection, str):
+                result[collection] = self.client.get_collection(collection)
+            else:
+                result[collection.name] = collection
+        return result
 
-        Creation also stamps a ``created_ts`` int-epoch marker into the collection metadata
-        so ``prune`` can order snapshots even if snapshot ids ever stop being date-first.
-        Some 1.x minors reject ``configuration`` and ``metadata`` together; that retry drops
-        the stamp, and prune falls back to name order (date-first ids sort chronologically).
-        """
-        name = collection_name(snapshot_id, chunk_config)
-        configuration = {"hnsw": {"space": "cosine"}}
+    @staticmethod
+    def _sidecar_exists(path: Path, collection_name: str) -> bool:
         try:
-            collection = self.client.get_or_create_collection(
-                name=name,
-                configuration=configuration,
-                metadata={_CREATED_TS_KEY: int(time.time())},
+            mode = path.lstat().st_mode
+        except FileNotFoundError:
+            return False
+        except OSError as exc:
+            raise RuntimeError(
+                f"ambiguous legacy collection {collection_name!r}: inaccessible sidecars"
+            ) from exc
+        if not S_ISREG(mode):
+            raise RuntimeError(f"ambiguous legacy collection {collection_name!r}: invalid sidecar")
+        return True
+
+    def _legacy_sidecar_owners(self, name: str, chunk_config: str, count: int) -> set[str]:
+        """Find completed sidecars that claim a legacy physical collection."""
+        owners: set[str] = set()
+        index_root = self.root.parent
+        if not index_root.is_dir():
+            return owners
+        for candidate in index_root.iterdir():
+            snapshot_id = candidate.name
+            try:
+                if _legacy_collection_name(snapshot_id, chunk_config) != name:
+                    continue
+                collection_name(snapshot_id, chunk_config)
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"ambiguous legacy collection {name!r}: invalid sidecar path"
+                ) from exc
+            if candidate.is_symlink():
+                raise RuntimeError(f"ambiguous legacy collection {name!r}: symlinked index path")
+            if not candidate.is_dir():
+                continue
+            folder = candidate / chunk_config
+            build_path = folder / "build.json"
+            identity_path = folder / "identity.json"
+            if folder.is_symlink():
+                raise RuntimeError(f"ambiguous legacy collection {name!r}: symlinked sidecars")
+            build_present = self._sidecar_exists(build_path, name)
+            identity_present = self._sidecar_exists(identity_path, name)
+            if not build_present and not identity_present:
+                continue
+            if not build_present or not identity_present:
+                raise RuntimeError(f"ambiguous legacy collection {name!r}: incomplete sidecars")
+            try:
+                build = json.loads(build_path.read_text(encoding="utf-8"))
+                identity = json.loads(identity_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                raise RuntimeError(
+                    f"ambiguous legacy collection {name!r}: unreadable sidecars"
+                ) from exc
+            if not isinstance(build, dict) or not isinstance(identity, dict):
+                raise RuntimeError(f"ambiguous legacy collection {name!r}: invalid sidecars")
+            for record in (build, identity):
+                if record.get("snapshot_id") != snapshot_id or record.get("label") != chunk_config:
+                    raise RuntimeError(
+                        f"ambiguous legacy collection {name!r}: sidecar identity mismatch"
+                    )
+            config = build.get("config")
+            expected_label = "A-prime" if config == "A'" else config
+            encoder = build.get("identity")
+            if (
+                not isinstance(config, str)
+                or expected_label != chunk_config
+                or config != identity.get("config")
+                or build.get("collection") != identity.get("collection")
+                or not isinstance(encoder, dict)
+                or encoder != identity.get("identity")
+                or not isinstance(build.get("stored"), int)
+                or isinstance(build.get("stored"), bool)
+                or build["stored"] <= 0
+                or not isinstance(build.get("chunks"), int)
+                or isinstance(build.get("chunks"), bool)
+                or build["chunks"] <= 0
+            ):
+                raise RuntimeError(f"ambiguous legacy collection {name!r}: inconsistent sidecars")
+            for field in ("model", "backend", "device", "precision", "identity_slug"):
+                if not isinstance(encoder.get(field), str) or not encoder[field]:
+                    raise RuntimeError(
+                        f"ambiguous legacy collection {name!r}: invalid encoder identity"
+                    )
+            batch_size = encoder.get("batch_size")
+            if not isinstance(batch_size, int) or isinstance(batch_size, bool) or batch_size <= 0:
+                raise RuntimeError(
+                    f"ambiguous legacy collection {name!r}: invalid encoder identity"
+                )
+            recorded_name = build["collection"]
+            if recorded_name not in {name, collection_name(snapshot_id, chunk_config)}:
+                raise RuntimeError(
+                    f"ambiguous legacy collection {name!r}: unexpected sidecar collection"
+                )
+            try:
+                stamp = datetime.fromisoformat(build["timestamp"])
+                if stamp.tzinfo is None or stamp.utcoffset() is None:
+                    raise ValueError("timestamp has no timezone")
+            except (KeyError, TypeError, ValueError) as exc:
+                raise RuntimeError(
+                    f"ambiguous legacy collection {name!r}: invalid build timestamp"
+                ) from exc
+            if recorded_name == name:
+                if build["stored"] != count:
+                    raise RuntimeError(
+                        f"ambiguous legacy collection {name!r}: sidecar count mismatch"
+                    )
+                owners.add(snapshot_id)
+        return owners
+
+    def _legacy_owner(self, name: str, chunk_config: str, collection: Any) -> str:
+        """Establish one full owner from metadata, every row and any matching sidecars."""
+        count = int(collection.count())
+        owners = self._legacy_sidecar_owners(name, chunk_config, count)
+        metadata = dict(collection.metadata or {})
+        recorded_config = metadata.get(_CHUNK_CONFIG_KEY)
+        if recorded_config is not None and recorded_config != chunk_config:
+            raise RuntimeError(f"ambiguous legacy collection {name!r}: config mismatch")
+        recorded_owner = metadata.get(_SNAPSHOT_ID_KEY)
+        if recorded_owner is not None:
+            if not isinstance(recorded_owner, str):
+                raise RuntimeError(f"ambiguous legacy collection {name!r}: invalid owner")
+            owners.add(recorded_owner)
+
+        offset = 0
+        while offset < count:
+            page = collection.get(limit=_LEGACY_PAGE_SIZE, offset=offset, include=["metadatas"])
+            ids = _field(page, "ids") or []
+            metadatas = _field(page, "metadatas") or []
+            if not ids or len(ids) != len(metadatas):
+                raise RuntimeError(f"ambiguous legacy collection {name!r}: incomplete row metadata")
+            for row in metadatas:
+                if not isinstance(row, dict) or not isinstance(row.get(_SNAPSHOT_ID_KEY), str):
+                    raise RuntimeError(
+                        f"ambiguous legacy collection {name!r}: row has no full owner"
+                    )
+                owners.add(row[_SNAPSHOT_ID_KEY])
+            offset += len(ids)
+        if offset != count or int(collection.count()) != count:
+            raise RuntimeError(
+                f"ambiguous legacy collection {name!r}: rows changed during inspection"
             )
-        except (TypeError, ValueError):
-            collection = self.client.get_or_create_collection(
-                name=name, configuration=configuration
-            )
+        if len(owners) != 1:
+            raise RuntimeError(f"ambiguous legacy collection {name!r}: no unique full owner")
+        owner = next(iter(owners))
+        try:
+            collection_name(owner, chunk_config)
+        except ValueError as exc:
+            raise RuntimeError(f"ambiguous legacy collection {name!r}: invalid full owner") from exc
+        if _legacy_collection_name(owner, chunk_config) != name:
+            raise RuntimeError(f"ambiguous legacy collection {name!r}: owner does not match name")
+        return owner
+
+    @staticmethod
+    def _check_full_owner(collection: Any, snapshot_id: str, chunk_config: str) -> None:
+        metadata = dict(collection.metadata or {})
+        if (
+            metadata.get(_SNAPSHOT_ID_KEY) != snapshot_id
+            or metadata.get(_CHUNK_CONFIG_KEY) != chunk_config
+            or metadata.get(_NAMING_VERSION_KEY) != _NAMING_VERSION
+        ):
+            raise RuntimeError(f"full-id collection {collection.name!r} has no matching owner")
+
+    def _resolve_collection(self, snapshot_id: str, chunk_config: str) -> Any | None:
+        full_name = collection_name(snapshot_id, chunk_config)
+        legacy_name = _legacy_collection_name(snapshot_id, chunk_config)
+        collections = self._collections()
+        full = collections.get(full_name)
+        legacy = collections.get(legacy_name)
+        if full is not None:
+            self._check_full_owner(full, snapshot_id, chunk_config)
+        if legacy is not None:
+            owner = self._legacy_owner(legacy_name, chunk_config, legacy)
+            if owner == snapshot_id:
+                if full is not None:
+                    raise RuntimeError(
+                        f"ambiguous snapshot {snapshot_id!r}: both full and legacy collections exist"
+                    )
+                return legacy
+        return full
+
+    def bind(self, snapshot_id: str, chunk_config: str) -> Any:
+        """Select one full snapshot/config pair, rejecting ambiguous legacy collections."""
+        name = collection_name(snapshot_id, chunk_config)
+        collection = self._resolve_collection(snapshot_id, chunk_config)
+        if collection is None:
+            configuration = {"hnsw": {"space": "cosine"}}
+            metadata = {
+                _CREATED_TS_KEY: int(time.time()),
+                _SNAPSHOT_ID_KEY: snapshot_id,
+                _CHUNK_CONFIG_KEY: chunk_config,
+                _NAMING_VERSION_KEY: _NAMING_VERSION,
+            }
+            try:
+                collection = self.client.create_collection(
+                    name=name, configuration=configuration, metadata=metadata
+                )
+            except (TypeError, ValueError):
+                # Some Chroma 1.x minors reject configuration and metadata together.
+                collection = self.client.create_collection(name=name, configuration=configuration)
+                collection.modify(metadata=metadata)
+            self._check_full_owner(collection, snapshot_id, chunk_config)
         self._collection = collection
+        self._bound_snapshot_id = snapshot_id
         return collection
+
+    def validate_binding(self, snapshot_id: str, chunk_config: str) -> None:
+        """Check ownership before a build performs cache, collection or row writes."""
+        self._resolve_collection(snapshot_id, chunk_config)
 
     def _require_collection(self) -> Any:
         if self._collection is None:
@@ -179,6 +417,8 @@ class ChromaStore:
             )
         if not payloads:
             return
+        if any(payload.snapshot_id != self._bound_snapshot_id for payload in payloads):
+            raise ValueError("payload snapshot_id must match the bound snapshot")
         collection.upsert(
             ids=[payload.chunk_id for payload in payloads],
             embeddings=[_floats(embedding) for embedding in embeddings],
@@ -232,60 +472,65 @@ class ChromaStore:
         return int(self._require_collection().count())
 
     def drop_collection(self, snapshot_id: str, chunk_config: str) -> bool:
-        """Delete exactly the (snapshot, chunk config) collection; True when it existed.
-
-        The scoped replacement primitive behind ``build_index.py --fresh``: the name comes
-        from ``collection_name``, so only that pair's ``snap_*`` collection can ever be
-        targeted and no sibling snapshot or config is touched. A binding to the dropped pair
-        is cleared so the following ``bind`` recreates the collection with cosine HNSW and a
-        fresh ``created_ts`` stamp (build_index does both immediately after); a binding to a
-        different pair stays valid, exactly as in ``prune``.
-        """
-        name = collection_name(snapshot_id, chunk_config)
-        # collection_name always emits snap_* names; the assert pins the contract this
-        # deletion relies on instead of a check that could never fire.
-        assert name.startswith(_SNAP_PREFIX)
-        existed = any(
-            (collection if isinstance(collection, str) else collection.name) == name
-            for collection in self.client.list_collections()
-        )
-        if existed:
-            self.client.delete_collection(name)
+        """Delete only the verified snapshot/config pair, preserving any other binding."""
+        collection = self._resolve_collection(snapshot_id, chunk_config)
+        if collection is None:
+            return False
+        name = collection.name
+        self.client.delete_collection(name)
         if getattr(self._collection, "name", None) == name:
-            self._collection = None  # the bound collection was itself dropped (as in prune)
-        return existed
+            self._collection = None
+            self._bound_snapshot_id = None
+        return True
 
-    def prune(self, keep: int | None = None) -> list[str]:
-        """Delete snap_* collections of snapshots beyond retention; return the deleted names.
+    def prune(
+        self,
+        keep: int | None = None,
+        *,
+        publication_times: Mapping[str, datetime] | None = None,
+    ) -> list[str]:
+        """Prune only with a complete, unambiguous publication order from a validated catalog.
 
-        Retention counts SNAPSHOTS (ACGN_KEEP_SNAPSHOTS, RUNBOOK §3.2), not collections: a
-        snapshot owns one collection per chunk config, and pruning removes the oldest
-        snapshots' collections wholesale. Snapshots are ordered by the newest created_ts
-        among their collections (0 when unstamped), tie-broken by name - snapshot ids are
-        date-first (e.g. 20261028abcdef), so name order is chronological order. Collections
-        outside the snap_* prefix are never touched.
+        The caller must keep active pins out of the deletion set; lease coordination is W2 work.
         """
         keep_n = self.settings.keep_snapshots if keep is None else keep
         if keep_n < 0:
             raise ValueError("keep must be >= 0")
         groups: dict[str, list[str]] = {}
-        stamps: dict[str, int] = {}
-        for collection in self.client.list_collections():
-            name = collection if isinstance(collection, str) else collection.name
+        pairs: set[tuple[str, str]] = set()
+        for name, collection in self._collections().items():
             if not name.startswith(_SNAP_PREFIX):
                 continue
-            metadata = {} if isinstance(collection, str) else dict(collection.metadata or {})
-            key = _snapshot_key(name)
-            groups.setdefault(key, []).append(name)
-            stamps[key] = max(stamps.get(key, 0), int(metadata.get(_CREATED_TS_KEY, 0)))
+            is_full, snapshot_or_prefix, chunk_config = _parse_collection_name(name)
+            if is_full:
+                snapshot_id = snapshot_or_prefix
+                self._check_full_owner(collection, snapshot_id, chunk_config)
+            else:
+                snapshot_id = self._legacy_owner(name, chunk_config, collection)
+            pair = (snapshot_id, chunk_config)
+            if pair in pairs:
+                raise RuntimeError(f"ambiguous snapshot {snapshot_id!r}: duplicate collections")
+            pairs.add(pair)
+            groups.setdefault(snapshot_id, []).append(name)
         if len(groups) <= keep_n:
             return []
-        ordered = sorted(groups, key=lambda key: (stamps[key], key))
+        if publication_times is None:
+            raise RuntimeError("publication times from a validated catalog are required to prune")
+        times: dict[str, datetime] = {}
+        for snapshot_id in groups:
+            value = publication_times.get(snapshot_id)
+            if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+                raise RuntimeError(f"missing or invalid publication time for {snapshot_id!r}")
+            times[snapshot_id] = value.astimezone(UTC)
+        if len(set(times.values())) != len(times):
+            raise RuntimeError("publication times do not establish an unambiguous order")
+        ordered = sorted(groups, key=times.__getitem__)
         doomed = [name for key in ordered[: len(groups) - keep_n] for name in groups[key]]
         for name in doomed:
             self.client.delete_collection(name)
         if getattr(self._collection, "name", None) in doomed:
-            self._collection = None  # the bound collection was itself retired
+            self._collection = None
+            self._bound_snapshot_id = None
         return sorted(doomed)
 
 
