@@ -89,7 +89,9 @@ identity); its implementation and two-rebuild evidence are still required on #9.
 
 Consumers carry the **full id**. The store currently shortens it to twelve characters for a collection
 name, so a read/build adapter must not treat that prefix as proof of identity: two full ids can share it.
-F must preserve a full-id mapping or reject an ambiguous binding before the W2 read path uses it. Physical
+F must preserve a full-id mapping or reject an ambiguous binding before any real multi-snapshot build,
+`--fresh`, collection drop or read binding touches storage. This is a write-safety prerequisite, not only
+a W2 read-host check: reusing a short key can mix data, and dropping it can delete another full id's data. Physical
 collection naming is internal and does not change the wire id. This implementation handoff is recorded in
 [G1aReview §6](G1aReview.md#6-snapshot-identity-handoff-to-af).
 
@@ -338,7 +340,7 @@ endpoint and retirement checks below remain W2 work.
 | Code | Meaning | Client action |
 |---|---|---|
 | 400 | malformed request body | fix the payload; do not retry |
-| 404 | snapshot or resource not found | re-read `/snapshots` and retry once with a valid id |
+| 404 | snapshot or resource not found | refresh `/snapshots` to show choices; the runner stops and records failure. A different id requires an explicit new request, never automatic retargeting |
 | **410** | the snapshot was retired (beyond retention) | re-read `/snapshots`; do **not** silently re-run against the new one (§6.6) |
 | 422 | invalid filter combination (e.g. `since` after `until`) | fix the filter; do not retry |
 | 503 | host is not serving yet (no snapshot built, or shutting down) | retry with backoff, honour `Retry-After` |

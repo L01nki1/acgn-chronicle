@@ -40,7 +40,7 @@ retrieval already works:
 | Invalid date or `since > until` | `422`, not an empty successful result |
 | ISO datetime bounds | Convert offsets to UTC; naive means UTC; lower inclusive and upper exclusive at the specified instants |
 | Equal ISO datetime instants | Valid empty interval; unlike equal date-only values, it does not select a whole day |
-| Old but retained snapshot | Same snapshot for index, reverse lookup, citations and experiment metadata |
+| Old but retained snapshot | Same snapshot for index, media-id membership, citations and experiment metadata |
 | Fewer eligible results than `top_k` | Return the available eligible results; never fill from outside the filters |
 
 ## 3. Grounded-prompt design for W2
@@ -143,8 +143,11 @@ it; no implementation is silently added to A's scaffold by this contract revisio
 The merged store currently names a collection from `snapshot_id[:12]`. A deterministic probe with two
 valid full ids, `20261028-abc000000000` and `20261028-abc111111111`, returns the same
 `snap_20261028-abc_A`. The shortened name therefore cannot itself prove a snapshot's identity.
-Before the W2 read path relies on that binding, F must use an injective full-id mapping or reject prefix
-aliases against the retained build records. A retained read must also match the selected build/config/
+Before any real multi-snapshot build, `--fresh`, `drop_collection` or read binding touches storage,
+F must use an injective full-id mapping or reject prefix aliases against retained build records. The
+guard must run before deletion as well as before `get_or_create`/upsert: `--fresh` currently drops by
+the same shortened key, so an alias can erase another snapshot even without an HTTP host. A retained
+read must also match the selected build/config/
 encoder identity; it must never silently open another full id's collection. The store implementation is
 F-owned and is handed off explicitly in the PR response rather than edited here.
 

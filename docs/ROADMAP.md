@@ -48,7 +48,9 @@ real curl/filter/refusal/retirement checks belong to W2's running service and no
 contract artifacts. C's own consumer questions and WP4 cross-review remain outstanding; F/E are asked to
 verify the encoded responses. G1a remains **open**, and this contract work does not pass A's separate
 corpus/idempotency gate. A's canonical snapshot minting and F's short-name/full-id binding need the explicit
-handoff in G1aReview §6 before the W2 host relies on them. The #17 ingest-category conclusion stays unchanged.
+handoff in G1aReview §6 before real multi-snapshot writes, `--fresh`, collection drops or read bindings.
+The alias guard is a write-safety prerequisite; the W2 host timing does not defer it. The #17 ingest-category
+conclusion stays unchanged.
 
 ### G1b · 2026-11-09 — indexes and facts
 
