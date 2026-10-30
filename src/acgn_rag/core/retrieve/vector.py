@@ -10,7 +10,7 @@ internal `RetrievedChunk`, and returns a deterministic order. It never serialize
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from acgn_rag.core.ports import (
@@ -20,9 +20,8 @@ from acgn_rag.core.ports import (
     RetrievedChunk,
 )
 from acgn_rag.core.store.chroma_store import ScoredPayload, media_filter
-from acgn_rag.core.store.payload import iso_to_epoch
 
-_DAY_SECONDS = 86_400
+_ONE_DAY = timedelta(days=1)
 
 
 class EmbedderPort(Protocol):
@@ -46,34 +45,47 @@ def _is_date_only(value: str) -> bool:
     return "T" not in value and " " not in value
 
 
-def _until_epoch(value: str) -> int:
-    """Date-only `until` is exclusive at the next UTC midnight (G1aReview §2)."""
-    epoch = iso_to_epoch(value)
-    return epoch + _DAY_SECONDS if _is_date_only(value) else epoch
+def _parse_bound(value: str) -> tuple[datetime, bool]:
+    """Parse an ISO bound as UTC; return (instant, is_date_only)."""
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC), _is_date_only(value)
 
 
 def build_where(filters: RetrievalFilters | None) -> dict[str, Any] | None:
     """Translate `RetrievalFilters` into a Chroma where-clause.
 
     Empty lists mean "no constraint in that family"; families are ANDed, values inside a
-    family are ORed; `until` is exclusive (next midnight for a date-only value).
+    family are ORed. Date-only bounds are whole UTC days (upper exclusive at next midnight);
+    ISO datetimes are half-open at their stated instants. Equal datetimes are an empty
+    interval, while equal date-only values select one day. Do not truncate a bound.
     """
     if filters is None:
         return None
-    if (
-        filters.since
-        and filters.until
-        and iso_to_epoch(filters.since) >= _until_epoch(filters.until)
-    ):
-        raise ValueError("since must be earlier than until")
+
+    since = _parse_bound(filters.since) if filters.since else None
+    until = _parse_bound(filters.until) if filters.until else None
+
+    if since is not None and until is not None:
+        since_dt, since_date_only = since
+        until_dt, until_date_only = until
+        if since_date_only and until_date_only:
+            if since_dt.date() > until_dt.date():
+                raise ValueError("since must be earlier than until")
+        else:
+            upper = until_dt + _ONE_DAY if until_date_only else until_dt
+            if since_dt > upper:
+                raise ValueError("since must be earlier than until")
 
     clauses: list[dict[str, Any]] = []
     if filters.source_types:
         clauses.append({"source_type": {"$in": list(filters.source_types)}})
-    if filters.since:
-        clauses.append({"published_ts": {"$gte": iso_to_epoch(filters.since)}})
-    if filters.until:
-        clauses.append({"published_ts": {"$lt": _until_epoch(filters.until)}})
+    if since is not None:
+        clauses.append({"published_ts": {"$gte": since[0].timestamp()}})
+    if until is not None:
+        upper = until[0] + _ONE_DAY if until[1] else until[0]
+        clauses.append({"published_ts": {"$lt": upper.timestamp()}})
     if filters.media_ids:
         media = media_filter(list(filters.media_ids))
         if media is not None:

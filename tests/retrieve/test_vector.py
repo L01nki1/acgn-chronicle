@@ -6,6 +6,7 @@ No network, no Chroma: a fake store records the where-clause and returns configu
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -17,6 +18,13 @@ from acgn_rag.core.store.payload import ChunkPayload, iso_to_epoch
 
 DAY = 86_400
 SNAPSHOT = "20261028abcdef"
+
+
+def _ts(value: str) -> float:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.timestamp()
 
 
 def _hit(
@@ -131,6 +139,45 @@ def test_build_where_full_iso_until_is_exact() -> None:
     assert build_where(RetrievalFilters(until="2026-10-28T12:00:00+00:00")) == {
         "published_ts": {"$lt": iso_to_epoch("2026-10-28T12:00:00+00:00")}
     }
+
+
+def test_build_where_equal_datetime_instants_is_empty_interval() -> None:
+    value = "2026-10-28T12:00:00+00:00"
+    assert build_where(RetrievalFilters(since=value, until=value)) == {
+        "$and": [
+            {"published_ts": {"$gte": _ts(value)}},
+            {"published_ts": {"$lt": _ts(value)}},
+        ]
+    }
+
+
+def test_build_where_reversed_datetimes_raise() -> None:
+    with pytest.raises(ValueError, match="since must be earlier"):
+        build_where(
+            RetrievalFilters(
+                since="2026-10-28T12:00:00+00:00",
+                until="2026-10-28T11:00:00+00:00",
+            )
+        )
+
+
+def test_build_where_offset_until_is_exact_utc() -> None:
+    assert build_where(RetrievalFilters(until="2026-10-29T08:00:00+08:00")) == {
+        "published_ts": {"$lt": _ts("2026-10-29T00:00:00+00:00")}
+    }
+
+
+def test_build_where_naive_datetime_is_utc() -> None:
+    assert build_where(RetrievalFilters(since="2026-10-28T12:00:00")) == {
+        "published_ts": {"$gte": _ts("2026-10-28T12:00:00+00:00")}
+    }
+
+
+def test_build_where_fractional_until_is_not_truncated() -> None:
+    value = "2026-10-28T12:00:00.500000+00:00"
+    where = build_where(RetrievalFilters(until=value))
+    assert where == {"published_ts": {"$lt": _ts(value)}}
+    assert where["published_ts"]["$lt"] % 1 == 0.5
 
 
 def test_build_where_empty_source_types_keeps_other_families() -> None:
