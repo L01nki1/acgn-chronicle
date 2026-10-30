@@ -17,7 +17,7 @@ def _chunk(text: str) -> RetrievedChunk:
     return RetrievedChunk(
         chunk_id="c_0001",
         doc_id="d_0001",
-        snapshot_id="20261028abcdef",
+        snapshot_id="20261028-abcdef012345",
         text=text,
         score=0.87,
         citation=Citation(

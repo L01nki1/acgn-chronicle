@@ -35,7 +35,7 @@ Run: `python scripts/probe_sources.py` to size the window, then `python scripts/
 then compare `snapshot_id` on a rebuild. The chosen window is frozen into `docs/DECISIONS.md` and into every
 run's `meta.json`.
 
-**WP4 / B status — candidate, not frozen (2026-10-30).** PR #26 is rebased onto `main@a4339f8`
+**WP4 / B status — candidate, not frozen (2026-10-31).** PR #26 is rebased onto `main@a4339f8`
 (Python 3.13, locked uv, merged WP2). Its 0.2.1 contract revision answers F's A1/A2/Q1–Q3 and E's E1–E3,
 enforces quote length on construction and assignment, and records snapshot identity, known/retired states
 and filter time bounds. The actual questions and B's responses are in
@@ -45,8 +45,10 @@ real-e5 checks were skipped. The assignment regressions failed before the fix an
 
 The PM resolved runtime evidence timing in [Issue #4](https://github.com/L01nki1/acgn-chronicle/issues/4#issuecomment-6502751345):
 real curl/filter/refusal/retirement checks belong to W2's running service and no longer block the W1
-contract artifacts. C's own consumer questions and WP4 cross-review remain outstanding; F/E are asked to
-verify the encoded responses. G1a remains **open**, and this contract work does not pass A's separate
+contract artifacts. E verified the answers at `c1949f1`, retaining E-owned implementation work for G1b/W2;
+D's compliance-scope review reported no blockers and its fixture-format suggestion is addressed.
+C's own consumer questions and WP4 cross-review, plus F's verification of the responses, remain outstanding.
+G1a remains **open**, and this contract work does not pass A's separate
 corpus/idempotency gate. A's canonical snapshot minting and F's short-name/full-id binding need the explicit
 handoff in G1aReview §6 before real multi-snapshot writes, `--fresh`, collection drops or read bindings.
 The alias guard is a write-safety prerequisite; the W2 host timing does not defer it. The #17 ingest-category

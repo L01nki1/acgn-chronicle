@@ -19,7 +19,7 @@ The agenda itself is not evidence that a consumer asked or accepted a question.
 |---|---|---|
 | C — web / WP6 ([#5](https://github.com/L01nki1/acgn-chronicle/issues/5)) | (1) Can the refusal fixture render separately from `503`? (2) Are empty multi-selects sent as no filter, and is `410` shown without silently changing snapshots? (3) Can `ChunkExcerpt` render a clipped quote and attribution while the request's snapshot is carried in the view and cache key? | Pending C's own questions and reply |
 | F — KB / Isla consumer ([#8](https://github.com/L01nki1/acgn-chronicle/issues/8)) | (1) Can media-id membership and the index resolve against the same retained snapshot? (2) Does every retrieved chunk retain the citation provenance B needs? (3) Is the provisional `DailyDigest` isolated behind one consumer adapter, with no dependency on the removed `episode_table`? | Actual A1/A2/Q1–Q3 answered in §5; consumer verification of the revision requested |
-| E — retrieval / runner ([#7](https://github.com/L01nki1/acgn-chronicle/issues/7)) | (1) Are ANY-within-list / AND-between-families and empty-list defaults implementable? (2) Can UTC day/datetime bounds and a non-empty media selection with no matches remain restrictive? (3) Can the runner pin its snapshot and distinguish unknown `404` from retired `410`, including while a rebuild or retention cleanup occurs? | Actual E1–E3 answered in §5; consumer verification of the revision requested |
+| E — retrieval / runner ([#7](https://github.com/L01nki1/acgn-chronicle/issues/7)) | (1) Are ANY-within-list / AND-between-families and empty-list defaults implementable? (2) Can UTC day/datetime bounds and a non-empty media selection with no matches remain restrictive? (3) Can the runner pin its snapshot and distinguish unknown `404` from retired `410`, including while a rebuild or retention cleanup occurs? | E verified the answers at `c1949f1`; E2 implementation deltas and E3 lifecycle work remain staged (§5.2) |
 
 C is WP4's cross-reviewer according to ROADMAP §4. AI checks and passing CI do not substitute for that
 review or the consumer questions. Record links to real replies and an explicit resolution per question
@@ -133,7 +133,25 @@ Optional-with-default addition and C/F notice. The conclusion is recorded in DEC
 KnowledgePort §3.8; the interface stays traceable while that record is reviewed and merged.
 
 This historical resolution is preserved separately from F's newer multi-question review above. C's own
-questions/cross-review and F/E verification of this revision remain open; W2 live checks are separately scoped.
+questions/cross-review and F's verification of this revision remain open; E's verification is recorded below.
+W2 live checks are separately scoped.
+
+### 5.2 Follow-up verification (2026-10-31)
+
+E [verified the answers at `c1949f1`](https://github.com/L01nki1/acgn-chronicle/pull/26#issuecomment-6524709359):
+E1 is confirmed, E2 is confirmed in principle, and E3 is confirmed as the target contract. E owns the
+remaining date-boundary tests and exact timestamp comparisons in the where-builder. Integer `published_ts`
+storage does not reject otherwise valid fractional-second ISO bounds: preserve the boundary when comparing
+it with stored timestamps, as §3.3 requires. E's runner will check the selected build identity
+and collection against `identity.json`. Those implementation commitments are not verified remote code.
+The [#31](https://github.com/L01nki1/acgn-chronicle/issues/31) namespace guard is a prerequisite for
+multi-snapshot runs; pin/lease coordination remains W2. E has marked B3/B4 resolved in #30.
+
+D's [compliance review of `c1949f1`](https://github.com/L01nki1/acgn-chronicle/pull/26#pullrequestreview-5715924995)
+reported no blocking findings in that scope and 20 compliance tests, eight contract tests and schema
+sync passing. Its fixture-format suggestion is addressed by using `20261028-abcdef012345` in the
+serializer compliance fixture. C4 wording changes must keep the policy constant, its snapshot test and
+the COMPLIANCE quote in sync. D's review does not cover contract semantics or replace C's cross-review.
 
 ## 6. Snapshot identity handoff to A/F
 
