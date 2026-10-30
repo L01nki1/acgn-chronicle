@@ -179,3 +179,28 @@ def test_prune_keeps_everything_within_retention(store: ChromaStore) -> None:
     store.upsert_chunks([_payload("20260101aaaa1111::A::0", (1,))], [[1.0, 0.0]])
     assert store.prune(keep=2) == []
     assert store.count() == 1  # the bound collection survived
+
+
+def test_drop_collection_clears_the_binding_only_for_the_dropped_pair(store: ChromaStore) -> None:
+    """Dropping a sibling pair must not invalidate the live binding (as in ``prune``); only
+    dropping the bound pair itself clears it, and the next ``bind`` recreates it empty."""
+    store.bind(SNAP, "A")
+    store.upsert_chunks(_two_chunks(), VECTORS)
+    store.bind(SNAP, "A0")
+    store.upsert_chunks([_payload("doc-1::A0::0", (1,))], [[1.0, 0.0]])
+    store.bind(SNAP, "A")  # the working binding is A; A0 is a sibling collection
+
+    assert store.drop_collection(SNAP, "A0") is True  # the sibling existed and is gone
+    assert {
+        col if isinstance(col, str) else col.name for col in store.client.list_collections()
+    } == {collection_name(SNAP, "A")}
+    assert store.count() == 2  # the A binding survived the sibling's deletion
+
+    assert store.drop_collection(SNAP, "no-such-config") is False  # nothing to delete
+    assert store.count() == 2  # ... and the binding still survives
+
+    assert store.drop_collection(SNAP, "A") is True  # the bound pair itself
+    with pytest.raises(RuntimeError, match="must be called before"):
+        store.count()  # the binding was cleared with it
+    store.bind(SNAP, "A")  # the following bind recreates the collection, empty
+    assert store.count() == 0
