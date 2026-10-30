@@ -87,28 +87,81 @@ def _run_id(spec: RunSpec) -> str:
     return f"{day}-{_config_token(spec.config)}-{spec.snapshot_id}"
 
 
-def load_build_identity(
-    path: Path,
+def _read_json(path: Path) -> dict[str, Any]:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path}: expected a JSON object")
+    return payload
+
+
+def load_build_records(
+    index_dir: Path,
     *,
     snapshot_id: str,
     config: str,
+    label: str,
 ) -> tuple[dict[str, Any], str]:
-    """Read `data/index/<snapshot>/<label>/identity.json` for one run."""
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    if payload.get("snapshot_id") != snapshot_id:
-        raise ValueError(f"{path}: snapshot_id {payload.get('snapshot_id')!r} != {snapshot_id!r}")
-    if payload.get("config") != config:
-        raise ValueError(f"{path}: config {payload.get('config')!r} != {config!r}")
-    identity = payload.get("identity")
-    collection = payload.get("collection")
-    if not isinstance(identity, dict) or not identity:
-        raise ValueError(f"{path}: missing or invalid `identity`")
+    """Read and cross-validate `identity.json` + `build.json` for one run.
+
+    `build.json` is written last by `build_index.py`, so it is the build-success marker. Both
+    records must name the same full snapshot id, config, label, collection and encoder identity;
+    a partial build (identity only, zero chunks or zero stored rows) is rejected before `bind`.
+    """
+    base = Path(index_dir) / snapshot_id / label
+    identity_payload = _read_json(base / "identity.json")
+    build_payload = _read_json(base / "build.json")
+
+    for name, payload in (("identity.json", identity_payload), ("build.json", build_payload)):
+        if payload.get("snapshot_id") != snapshot_id:
+            raise ValueError(
+                f"{name}: snapshot_id {payload.get('snapshot_id')!r} != {snapshot_id!r}"
+            )
+        if payload.get("config") != config:
+            raise ValueError(f"{name}: config {payload.get('config')!r} != {config!r}")
+        if payload.get("label") != label:
+            raise ValueError(f"{name}: label {payload.get('label')!r} != {label!r}")
+
+    collection = identity_payload.get("collection")
     if not isinstance(collection, str) or not collection:
-        raise ValueError(f"{path}: missing or invalid `collection`")
+        raise ValueError("identity.json: missing or invalid `collection`")
+    if build_payload.get("collection") != collection:
+        raise ValueError(
+            "build.json: collection does not match identity.json "
+            f"({build_payload.get('collection')!r} != {collection!r})"
+        )
+
+    identity = identity_payload.get("identity")
+    if not isinstance(identity, dict) or not identity:
+        raise ValueError("identity.json: missing or invalid `identity`")
+    if build_payload.get("identity") != identity:
+        raise ValueError("build.json: encoder identity does not match identity.json")
     missing = [key for key in BUILD_IDENTITY_KEYS if key not in identity]
     if missing:
-        raise ValueError(f"{path}: identity is missing {', '.join(missing)}")
+        raise ValueError(f"identity.json: identity is missing {', '.join(missing)}")
+
+    chunks = build_payload.get("chunks")
+    stored = build_payload.get("stored")
+    if not isinstance(chunks, int) or chunks <= 0:
+        raise ValueError(f"build.json: no successful chunks (chunks={chunks!r})")
+    if not isinstance(stored, int) or stored <= 0:
+        raise ValueError(f"build.json: no stored rows (stored={stored!r})")
+
     return dict(identity), collection
+
+
+def _embed_metadata(identity: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize the build identity to the `EVAL_PROTOCOL` §7 `embed` shape."""
+    versions = {
+        key.removeprefix("lib_"): value for key, value in identity.items() if key.startswith("lib_")
+    }
+    return {
+        "model": identity.get("model"),
+        "backend": identity.get("backend"),
+        "device": identity.get("device"),
+        "precision": identity.get("precision"),
+        "library_versions": versions,
+        "batch": identity.get("batch_size"),
+    }
 
 
 def verify_build_identity(
@@ -269,7 +322,7 @@ def run(
             "top_k": spec.top_k,
             "over_fetch": spec.over_fetch,
         },
-        "embed": dict(spec.build_identity),
+        "embed": _embed_metadata(spec.build_identity),
         "build_identity": dict(spec.build_identity),
         "collection": spec.collection,
         "llm": dict(spec.llm),
@@ -310,7 +363,7 @@ __all__ = [
     "NullAnswerer",
     "RunResult",
     "RunSpec",
-    "load_build_identity",
+    "load_build_records",
     "run",
     "verify_build_identity",
 ]

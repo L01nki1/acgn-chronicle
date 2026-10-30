@@ -12,7 +12,7 @@ import pytest
 from acgn_rag.core.eval.runner import (
     NullAnswerer,
     RunSpec,
-    load_build_identity,
+    load_build_records,
     run,
     verify_build_identity,
 )
@@ -103,12 +103,65 @@ def _spec(tmp_path: Path, **overrides: object) -> RunSpec:
             "device": "cpu",
             "precision": "fp32",
             "batch_size": 32,
+            "lib_torch": "2.15.0",
         },
         "collection": "snap_20261028abc_A",
         "llm": {"provider": "none", "model": "none"},
     }
     values.update(overrides)
     return RunSpec(**values)  # type: ignore[arg-type]
+
+
+def _build_identity(model: str = "fake") -> dict[str, Any]:
+    return {
+        "model": model,
+        "backend": "torch",
+        "device": "cpu",
+        "precision": "fp32",
+        "batch_size": 32,
+        "identity_slug": "fake-torch-cpu-fp32-b32-12345678",
+        "lib_torch": "2.15.0",
+    }
+
+
+def _write_build_records(
+    root: Path,
+    *,
+    snapshot_id: str = SNAPSHOT,
+    config: str = "A",
+    label: str = "A",
+    collection: str = "snap_20261028abc_A",
+    identity: dict[str, Any] | None = None,
+    build_identity: dict[str, Any] | None = None,
+    chunks: int = 1,
+    stored: int = 1,
+) -> Path:
+    base = root / snapshot_id / label
+    base.mkdir(parents=True)
+    identity = dict(identity or _build_identity())
+    build_identity = dict(build_identity or identity)
+    common = {
+        "snapshot_id": snapshot_id,
+        "config": config,
+        "label": label,
+        "collection": collection,
+    }
+    (base / "identity.json").write_text(
+        json.dumps({**common, "identity": identity}),
+        encoding="utf-8",
+    )
+    (base / "build.json").write_text(
+        json.dumps(
+            {
+                **common,
+                "chunks": chunks,
+                "stored": stored,
+                "identity": build_identity,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return base
 
 
 def test_run_writes_complete_archive(tmp_path: Path) -> None:
@@ -139,7 +192,14 @@ def test_run_writes_complete_archive(tmp_path: Path) -> None:
     assert meta["git_sha"] == "test-sha"
     assert meta["qa"]["count"] == 1
     assert meta["build_identity"]["model"] == "fake"
-    assert meta["embed"]["device"] == "cpu"
+    assert meta["embed"] == {
+        "model": "fake",
+        "backend": "torch",
+        "device": "cpu",
+        "precision": "fp32",
+        "library_versions": {"torch": "2.15.0"},
+        "batch": 32,
+    }
     assert meta["collection"] == "snap_20261028abc_A"
 
     assert result.metrics["retrieval_hit_rate"]["all"] == 1.0
@@ -273,47 +333,48 @@ def test_run_requires_build_identity(tmp_path: Path) -> None:
         )
 
 
-def test_load_build_identity_reads_sidecar(tmp_path: Path) -> None:
-    sidecar = tmp_path / "identity.json"
-    sidecar.write_text(
-        json.dumps(
-            {
-                "snapshot_id": SNAPSHOT,
-                "config": "A",
-                "label": "A",
-                "collection": "snap_20261028abc_A",
-                "identity": {
-                    "model": "fake",
-                    "backend": "torch",
-                    "device": "cpu",
-                    "precision": "fp32",
-                    "batch_size": 32,
-                    "identity_slug": "fake-torch-cpu-fp32-b32-12345678",
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-    identity, collection = load_build_identity(sidecar, snapshot_id=SNAPSHOT, config="A")
+def test_load_build_records_reads_both(tmp_path: Path) -> None:
+    root = tmp_path / "index"
+    _write_build_records(root)
+    identity, collection = load_build_records(root, snapshot_id=SNAPSHOT, config="A", label="A")
     assert identity["model"] == "fake"
     assert collection == "snap_20261028abc_A"
 
 
-def test_load_build_identity_rejects_wrong_snapshot(tmp_path: Path) -> None:
-    sidecar = tmp_path / "identity.json"
-    sidecar.write_text(
-        json.dumps(
-            {
-                "snapshot_id": "other",
-                "config": "A",
-                "collection": "snap_other_A",
-                "identity": {"model": "fake"},
-            }
-        ),
-        encoding="utf-8",
+def test_load_build_records_requires_build_json(tmp_path: Path) -> None:
+    root = tmp_path / "index"
+    base = _write_build_records(root)
+    (base / "build.json").unlink()
+    with pytest.raises(FileNotFoundError):
+        load_build_records(root, snapshot_id=SNAPSHOT, config="A", label="A")
+
+
+def test_load_build_records_rejects_mismatched_identity(tmp_path: Path) -> None:
+    root = tmp_path / "index"
+    _write_build_records(
+        root,
+        build_identity={**_build_identity(), "model": "other"},
     )
+    with pytest.raises(ValueError, match="encoder identity"):
+        load_build_records(root, snapshot_id=SNAPSHOT, config="A", label="A")
+
+
+def test_load_build_records_rejects_zero_chunks(tmp_path: Path) -> None:
+    root = tmp_path / "index"
+    _write_build_records(root, chunks=0, stored=0)
+    with pytest.raises(ValueError, match="no successful chunks"):
+        load_build_records(root, snapshot_id=SNAPSHOT, config="A", label="A")
+
+
+def test_load_build_records_rejects_wrong_snapshot(tmp_path: Path) -> None:
+    root = tmp_path / "index"
+    base = _write_build_records(root)
+    identity_path = base / "identity.json"
+    payload = json.loads(identity_path.read_text(encoding="utf-8"))
+    payload["snapshot_id"] = "other"
+    identity_path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="snapshot_id"):
-        load_build_identity(sidecar, snapshot_id=SNAPSHOT, config="A")
+        load_build_records(root, snapshot_id=SNAPSHOT, config="A", label="A")
 
 
 def test_verify_build_identity_matches_and_reports_mismatch() -> None:

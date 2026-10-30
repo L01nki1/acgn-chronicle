@@ -28,7 +28,7 @@ from acgn_rag.core.eval.qa import load_jsonl, validate
 from acgn_rag.core.eval.runner import (
     NullAnswerer,
     RunSpec,
-    load_build_identity,
+    load_build_records,
     run,
     verify_build_identity,
 )
@@ -93,24 +93,26 @@ def main(argv: list[str] | None = None) -> int:
 
     settings = load_settings()
     label = COLLECTION_LABELS.get(args.config, args.config)
-    sidecar = settings.paths.index / args.snapshot / label / "identity.json"
-    if not sidecar.exists():
-        print(f"NOT FOUND: {sidecar} - build the index for this snapshot/config", file=sys.stderr)
-        return 2
     try:
-        build_identity, collection = load_build_identity(
-            sidecar,
+        build_identity, collection = load_build_records(
+            settings.paths.index,
             snapshot_id=args.snapshot,
             config=args.config,
+            label=label,
         )
+    except OSError as exc:
+        print(f"BUILD RECORD NOT FOUND: {exc}", file=sys.stderr)
+        return 2
     except (ValueError, json.JSONDecodeError) as exc:
-        print(f"INVALID BUILD IDENTITY: {exc}", file=sys.stderr)
+        print(f"INVALID BUILD RECORD: {exc}", file=sys.stderr)
         return 1
 
+    # TODO(#31): after F's injective full-id mapping lands, bind by the recorded collection
+    # instead of recomputing the short name. Until then this equality is the fail-safe.
     expected_collection = collection_name(args.snapshot, label)
     if collection != expected_collection:
         print(
-            f"COLLECTION MISMATCH: identity.json={collection!r}, "
+            f"COLLECTION MISMATCH: build record={collection!r}, "
             f"current naming={expected_collection!r}",
             file=sys.stderr,
         )
