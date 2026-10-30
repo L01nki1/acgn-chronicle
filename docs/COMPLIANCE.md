@@ -43,7 +43,9 @@ summary + source URL + <=200 character excerpt + mandatory attribution
 
 **Test**: `tests/compliance/test_serialize_limits.py` covers clipping, caller attempts to increase the
 budget, and direct wire-model validation with ASCII, CJK and non-BMP Unicode characters. The exported
-schema carries `quote.maxLength=200`.
+schema carries `quote.maxLength=200`. `ChunkExcerpt` also validates normal attribute assignment;
+an invalid replacement raises and leaves the previous quote intact. Its assignment regression covers
+ASCII, CJK and non-BMP text and permits a valid replacement at the exact limit.
 
 ## C4 — `media` commentary must not be paraphrased
 

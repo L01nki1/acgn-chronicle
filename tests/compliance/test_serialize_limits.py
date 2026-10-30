@@ -112,6 +112,16 @@ def test_wire_model_rejects_an_oversized_quote(character: str) -> None:
         )
 
 
+@pytest.mark.parametrize("character", ["a", "日", "🎬"])
+def test_wire_quote_budget_survives_attribute_assignment(character: str) -> None:
+    excerpt = to_excerpt(_chunk("original quote"))
+    with pytest.raises(ValidationError, match="quote"):
+        excerpt.quote = character * (MAX_QUOTE_CHARS + 1)
+    assert excerpt.quote == "original quote"
+    excerpt.quote = character * MAX_QUOTE_CHARS
+    assert len(excerpt.quote) == MAX_QUOTE_CHARS
+
+
 def test_wire_payload_has_no_field_for_the_body() -> None:
     """Structural, not behavioural: the wire type must have nowhere to put the article.
 

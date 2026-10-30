@@ -21,7 +21,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 SourceType = Literal["official", "media", "metadata"]
 
@@ -44,7 +44,8 @@ class CorpusSnapshot(BaseModel):
 
     snapshot_id: str = Field(
         ...,
-        description="content hash + date; rebuilding the same corpus must match",
+        description="YYYYMMDD-<12 lowercase SHA-256 hex>; date is the frozen window_end UTC day, "
+        "not the rebuild day; hash is from A's canonical content manifest",
     )
     created_at: str
     item_count: int
@@ -73,7 +74,8 @@ class SnapshotInventory(BaseModel):
     )
     retained: Sequence[str] = Field(
         ...,
-        description="ids still queryable, most recent first; a retired id answers 410",
+        description="full ids still queryable, most recent first; a known completed snapshot "
+        "retired from service answers 410, a never-known id 404; absence alone does not prove retirement",
     )
 
 
@@ -86,13 +88,14 @@ class RetrievalFilters(BaseModel):
     )
     since: str | None = Field(
         None,
-        description="inclusive UTC publication date (YYYY-MM-DD); absent/null leaves the lower "
-        "bound open. Daily views use these bounds, never a time-bucketed index",
+        description="inclusive lower bound: a YYYY-MM-DD date starts at UTC midnight; an ISO-8601 "
+        "datetime is converted to UTC (naive means UTC). Absent/null leaves the bound open",
     )
     until: str | None = Field(
         None,
-        description="inclusive UTC publication date (YYYY-MM-DD); absent/null leaves the upper "
-        "bound open. since after until is a 422; equal dates select that whole UTC day",
+        description="exclusive upper bound: a YYYY-MM-DD date includes that whole UTC day and "
+        "ends at next midnight; an ISO-8601 datetime ends at that UTC instant (naive means UTC). "
+        "Invalid or reversed bounds are 422 at the HTTP boundary; absent/null leaves it open",
     )
     media_ids: Sequence[int] | None = Field(
         None,
@@ -157,6 +160,8 @@ class ChunkExcerpt(BaseModel):
     Response unit of `POST /retrieve`. `quote` is the complete text content of the response -
     there is no second field carrying more of the article.
     """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     chunk_id: str
     score: float = Field(..., description=SCORE_SEMANTICS)

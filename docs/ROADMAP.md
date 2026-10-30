@@ -3,7 +3,7 @@
 > This is the execution map. **Task-level detail lives in GitHub issues**; each issue links back to the gate
 > it belongs to. If an issue and this document disagree about dates or ownership, this document wins and we fix
 > the issue.
-> Today is 2026-10-28. W1 closes on 11/2 — the corpus gate is five days out.
+> W1 runs 2026-10-27–2026-11-02; the corpus and contract gate closes on 2026-11-02.
 
 ## 1. Three acceptance phases
 
@@ -35,20 +35,20 @@ Run: `python scripts/probe_sources.py` to size the window, then `python scripts/
 then compare `snapshot_id` on a rebuild. The chosen window is frozen into `docs/DECISIONS.md` and into every
 run's `meta.json`.
 
-**WP4 / B status — candidate, not frozen (2026-10-29).** A follow-up to merged PR #11, based on
-`main` at `e58b21d`, prepares schema 0.2.1: snapshot-bound filter semantics, a validated refusal example,
-and enforcement of the existing
-200-character quote budget in the serializer and wire schema. Review preparation and the W1 prompt
-design are in [`contracts/G1aReview.md`](../contracts/G1aReview.md). On Windows / Python 3.11.13,
-`python scripts/check.py` passed lint, format, schema sync and all 50 offline tests on this candidate.
-The C4 policy constant has a wording snapshot; runtime prompt inclusion follows in W2. The #17
-ingest-category boundary is resolved with F using option 1, without a wire field.
+**WP4 / B status — candidate, not frozen (2026-10-30).** PR #26 is rebased onto `main@a4339f8`
+(Python 3.13, locked uv, merged WP2). Its 0.2.1 contract revision answers F's A1/A2/Q1–Q3 and E's E1–E3,
+enforces quote length on construction and assignment, and records snapshot identity, known/retired states
+and filter time bounds. The actual questions and B's responses are in
+[`contracts/G1aReview.md`](../contracts/G1aReview.md). On Windows / Python 3.13.5, the locked
+`dev,store,llm` environment passed lint, format, schema sync and 154 offline tests; two explicitly opt-in
+real-e5 checks were skipped. The assignment regressions failed before the fix and now pass.
 
-G1a remains **open**: C/F/E must each supply at least three actual consumer questions and resolve them.
-Real endpoint captures and the retired-snapshot `410` check also remain open: C's HTTP host and A/E/F's
-snapshot/retrieval paths are still scaffolds at this base. `/ask` additionally needs B's W2 generation
-implementation. Resolve that timing dependency explicitly in member Issue #4 before declaring a freeze;
-do not count the synthetic refusal fixture as a live response.
+The PM resolved runtime evidence timing in [Issue #4](https://github.com/L01nki1/acgn-chronicle/issues/4#issuecomment-6502751345):
+real curl/filter/refusal/retirement checks belong to W2's running service and no longer block the W1
+contract artifacts. C's own consumer questions and WP4 cross-review remain outstanding; F/E are asked to
+verify the encoded responses. G1a remains **open**, and this contract work does not pass A's separate
+corpus/idempotency gate. A's canonical snapshot minting and F's short-name/full-id binding need the explicit
+handoff in G1aReview §6 before the W2 host relies on them. The #17 ingest-category conclusion stays unchanged.
 
 ### G1b · 2026-11-09 — indexes and facts
 
