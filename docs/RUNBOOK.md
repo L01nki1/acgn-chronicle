@@ -100,6 +100,12 @@ distance, so the score is `1 - distance`.
 - New collections are named `snap_full_<full_snapshot_id>_<config_label>`. The store records the full
   snapshot id, configuration label and naming version in collection metadata; `A'` uses label
   `A-prime`. `identity.json` and `build.json` record the actual collection name.
+- Build-side `bind` may create a collection. A reader uses `bind_existing`, which does not initialize a
+  missing Chroma database or create a collection and raises `LookupError` when none is present. A read
+  host still validates both sidecars, requires the returned collection name to match them, and consults
+  the catalog to distinguish a never-known snapshot from a retired one. Sidecars alone cannot prove that
+  a fresh rebuild finished. This binding does not enforce read-only access or protect against concurrent
+  deletion.
 - Existing `snap_<snapshot_id[:12]>_<config_label>` collections are opened or deleted only when all
   available owner metadata, row metadata and completed sidecars identify one full snapshot. Unknown,
   mixed, incomplete or contradictory ownership aborts before that configuration's encoding, cache

@@ -63,6 +63,135 @@ def _names(store: ChromaStore) -> set[str]:
     }
 
 
+def _write_completed_sidecars(store: ChromaStore, snapshot_id: str, name: str) -> tuple[Path, Path]:
+    folder = store.root.parent / snapshot_id / "A"
+    folder.mkdir(parents=True, exist_ok=True)
+    identity = {
+        "snapshot_id": snapshot_id,
+        "config": "A",
+        "label": "A",
+        "collection": name,
+        "identity": {
+            "model": "example",
+            "backend": "torch",
+            "device": "cpu",
+            "precision": "fp32",
+            "identity_slug": "example-torch-cpu-fp32",
+            "batch_size": 32,
+        },
+    }
+    build = identity | {"stored": 1, "chunks": 1, "timestamp": "2026-10-31T00:00:00+00:00"}
+    identity_path = folder / "identity.json"
+    build_path = folder / "build.json"
+    identity_path.write_text(json.dumps(identity), encoding="utf-8")
+    build_path.write_text(json.dumps(build), encoding="utf-8")
+    return identity_path, build_path
+
+
+def test_bind_existing_does_not_create_an_absent_store_directory(store: ChromaStore) -> None:
+    paths = _write_completed_sidecars(store, SNAP_A, collection_name(SNAP_A, "A"))
+    original = [path.read_bytes() for path in paths]
+    assert not store.root.exists()
+    with pytest.raises(LookupError, match="collection"):
+        store.bind_existing(SNAP_A, "A")
+    assert not store.root.exists()
+    assert [path.read_bytes() for path in paths] == original
+
+
+def test_bind_existing_does_not_initialize_an_empty_store_directory(store: ChromaStore) -> None:
+    store.root.mkdir(parents=True)
+    with pytest.raises(LookupError, match="collection"):
+        store.bind_existing(SNAP_A, "A")
+    assert list(store.root.iterdir()) == []
+
+
+def test_bind_existing_rejects_a_non_file_database_path(store: ChromaStore) -> None:
+    database = store.root / "chroma.sqlite3"
+    database.mkdir(parents=True)
+    with pytest.raises(RuntimeError, match="invalid snapshot database"):
+        store.bind_existing(SNAP_A, "A")
+    assert list(database.iterdir()) == []
+
+
+def test_bind_existing_reports_an_inaccessible_database(
+    store: ChromaStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database = store.root / "chroma.sqlite3"
+    original_stat = Path.stat
+
+    def stat_with_denied_database(path: Path, *args, **kwargs):
+        if path == database:
+            raise PermissionError("access denied")
+        return original_stat(path, *args, **kwargs)
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(Path, "stat", stat_with_denied_database)
+        with pytest.raises(RuntimeError, match="cannot inspect the snapshot database"):
+            store.bind_existing(SNAP_A, "A")
+    assert not store.root.exists()
+
+
+def test_bind_existing_missing_collection_does_not_create_with_completed_sidecars(
+    store: ChromaStore,
+) -> None:
+    paths = _write_completed_sidecars(store, SNAP_A, collection_name(SNAP_A, "A"))
+    original = [path.read_bytes() for path in paths]
+    assert _names(store) == set()
+
+    with pytest.raises(LookupError, match="collection"):
+        store.bind_existing(SNAP_A, "A")
+
+    assert _names(store) == set()
+    assert [path.read_bytes() for path in paths] == original
+
+
+def test_bind_existing_missing_snapshot_preserves_previous_binding(store: ChromaStore) -> None:
+    store.bind(SNAP_A, "A")
+    store.upsert_chunks([_payload(SNAP_A, "first snapshot")], [[1.0, 0.0]])
+    _write_completed_sidecars(store, SNAP_B, collection_name(SNAP_B, "A"))
+    before = _names(store)
+
+    with pytest.raises(LookupError, match="collection"):
+        store.bind_existing(SNAP_B, "A")
+
+    assert _names(store) == before
+    assert store.query([1.0, 0.0], top_k=1)[0].payload.snapshot_id == SNAP_A
+
+
+def test_bind_existing_opens_a_verified_full_collection(store: ChromaStore) -> None:
+    store.bind(SNAP_A, "A")
+    store.upsert_chunks([_payload(SNAP_A, "first snapshot")], [[1.0, 0.0]])
+    before = _names(store)
+
+    assert store.bind_existing(SNAP_A, "A").name == collection_name(SNAP_A, "A")
+    assert store.query([1.0, 0.0], top_k=1)[0].payload.snapshot_id == SNAP_A
+    assert _names(store) == before
+
+
+def test_bind_existing_uses_verified_legacy_name_from_completed_sidecars(
+    store: ChromaStore,
+) -> None:
+    _legacy_collection(store, [_payload(SNAP_A, "legacy A")])
+    _write_completed_sidecars(store, SNAP_A, LEGACY_NAME)
+    before = _names(store)
+
+    assert store.bind_existing(SNAP_A, "A").name == LEGACY_NAME
+    assert store.query([1.0, 0.0], top_k=1)[0].payload.snapshot_id == SNAP_A
+    assert _names(store) == before
+
+
+def test_bind_existing_rejects_full_and_legacy_for_same_owner(store: ChromaStore) -> None:
+    store.bind(SNAP_A, "A")
+    _legacy_collection(store, [_payload(SNAP_A, "legacy A")])
+    _write_completed_sidecars(store, SNAP_A, LEGACY_NAME)
+    before = _names(store)
+
+    with pytest.raises(RuntimeError, match="ambiguous snapshot"):
+        store.bind_existing(SNAP_A, "A")
+
+    assert _names(store) == before
+
+
 def test_full_ids_with_the_same_old_prefix_remain_isolated(store: ChromaStore) -> None:
     assert collection_name(SNAP_A, "A") != collection_name(SNAP_B, "A")
     store.bind(SNAP_A, "A")
@@ -141,25 +270,7 @@ def test_empty_unowned_legacy_collection_fails_before_mutation(store: ChromaStor
 
 def test_conflicting_legacy_sidecar_claims_fail_before_mutation(store: ChromaStore) -> None:
     legacy = _legacy_collection(store, [_payload(SNAP_A, "A")])
-    folder = store.root.parent / SNAP_B / "A"
-    folder.mkdir(parents=True)
-    identity = {
-        "snapshot_id": SNAP_B,
-        "config": "A",
-        "label": "A",
-        "collection": LEGACY_NAME,
-        "identity": {
-            "model": "example",
-            "backend": "torch",
-            "device": "cpu",
-            "precision": "fp32",
-            "identity_slug": "example-torch-cpu-fp32",
-            "batch_size": 32,
-        },
-    }
-    build = identity | {"stored": 1, "chunks": 1, "timestamp": "2026-10-31T00:00:00+00:00"}
-    (folder / "identity.json").write_text(json.dumps(identity), encoding="utf-8")
-    (folder / "build.json").write_text(json.dumps(build), encoding="utf-8")
+    _write_completed_sidecars(store, SNAP_B, LEGACY_NAME)
 
     before = _names(store)
     with pytest.raises(RuntimeError, match="ambiguous legacy"):
@@ -220,6 +331,8 @@ def test_full_collection_with_wrong_owner_metadata_is_rejected(store: ChromaStor
     )
     with pytest.raises(RuntimeError, match="owner"):
         store.bind(SNAP_A, "A")
+    with pytest.raises(RuntimeError, match="owner"):
+        store.bind_existing(SNAP_A, "A")
     with pytest.raises(RuntimeError, match="owner"):
         store.drop_collection(SNAP_A, "A")
     assert name in _names(store)
