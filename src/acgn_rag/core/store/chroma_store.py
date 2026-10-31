@@ -42,6 +42,7 @@ _NAMING_VERSION_KEY = "snapshot_name_version"
 _NAMING_VERSION = 2
 _SEGMENT = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?")
 _LEGACY_PAGE_SIZE = 500
+_PERSISTENT_DB = "chroma.sqlite3"
 
 
 @dataclass(frozen=True)
@@ -153,6 +154,7 @@ class ChromaStore:
     """Embedded Chroma client bound to one (snapshot, chunk config) collection at a time.
 
     ``bind`` selects (creating if needed) the collection for a snapshot + chunk config;
+    ``bind_existing`` opens only a verified existing collection for a read;
     ``upsert_chunks`` / ``query`` / ``count`` operate on the bound collection, and ``prune``
     manages retention across all snap_* collections in the root.
     """
@@ -386,6 +388,31 @@ class ChromaStore:
                 collection = self.client.create_collection(name=name, configuration=configuration)
                 collection.modify(metadata=metadata)
             self._check_full_owner(collection, snapshot_id, chunk_config)
+        self._collection = collection
+        self._bound_snapshot_id = snapshot_id
+        return collection
+
+    def bind_existing(self, snapshot_id: str, chunk_config: str) -> Any:
+        """Bind a verified existing collection without creating one.
+
+        Missing physical storage raises ``LookupError``; the caller must consult the catalog
+        to distinguish unknown from retired snapshots. On failure the previous binding remains.
+        This does not enforce read-only access or protect against concurrent deletion.
+        """
+        name = collection_name(snapshot_id, chunk_config)
+        if self._client is None:
+            # PersistentClient initializes an empty database if its storage file is missing.
+            try:
+                mode = (self.root / _PERSISTENT_DB).stat().st_mode
+            except FileNotFoundError as exc:
+                raise LookupError(f"no existing snapshot collection {name!r}") from exc
+            except OSError as exc:
+                raise RuntimeError(f"cannot inspect the snapshot database at {self.root}") from exc
+            if not S_ISREG(mode):
+                raise RuntimeError(f"invalid snapshot database at {self.root}")
+        collection = self._resolve_collection(snapshot_id, chunk_config)
+        if collection is None:
+            raise LookupError(f"no existing snapshot collection {name!r}")
         self._collection = collection
         self._bound_snapshot_id = snapshot_id
         return collection
