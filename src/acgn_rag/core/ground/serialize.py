@@ -6,7 +6,7 @@ Clients may only receive four things: a summary, the source URL, a <=200 charact
 mandatory attribution. Full text is never served - this module is the only place in the project
 allowed to shorten an article body; do not slice text anywhere else.
 
-Measurement unit: **Unicode characters** (not bytes, not UTF-8 code units), so Japanese, Chinese
+Measurement unit: **Unicode code points** (not bytes or UTF-16 code units), so Japanese, Chinese
 and English excerpts share one budget. Rationale in docs/COMPLIANCE.md.
 
 The conversion here is also the type boundary: `RetrievedChunk` (internal, carries the body) goes

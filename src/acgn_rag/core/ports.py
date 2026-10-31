@@ -25,7 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 SourceType = Literal["official", "media", "metadata"]
 
-SCHEMA_VERSION = "0.2.1"
+SCHEMA_VERSION = "0.2.2"
 
 # Shared by the wire constraint and the serializer; serialize.MAX_QUOTE_CHARS re-exports it.
 MAX_QUOTE_CHARS = 200
@@ -70,11 +70,12 @@ class SnapshotInventory(BaseModel):
 
     current: str = Field(
         ...,
-        description="the snapshot the read path serves; flips atomically after a build succeeds",
+        description="the queryable snapshot the ready host serves; always included in retained; "
+        "flips atomically after a build succeeds",
     )
     retained: Sequence[str] = Field(
         ...,
-        description="full ids still queryable, most recent first; a known completed snapshot "
+        description="full ids still queryable, including current, most recent first; a known completed snapshot "
         "retired from service answers 410, a never-known id 404; absence alone does not prove retirement",
     )
 
@@ -107,7 +108,12 @@ class RetrievalFilters(BaseModel):
 
 class RetrievalQuery(BaseModel):
     text: str
-    top_k: int = 5
+    top_k: int = Field(
+        5,
+        ge=1,
+        description="positive result count, minimum 1; invalid request shape/type/enum or a "
+        "non-positive count is 400 at the HTTP boundary, not an empty successful result",
+    )
     snapshot_id: str = Field(
         ...,
         description=(
@@ -168,8 +174,8 @@ class ChunkExcerpt(BaseModel):
     quote: str = Field(
         ...,
         max_length=MAX_QUOTE_CHARS,
-        description="at most 200 Unicode characters, clipped by ground/serialize; the client "
-        "must not re-expand it from the source page",
+        description="at most 200 Unicode code points, clipped by ground/serialize; JavaScript "
+        "UTF-16 length is not the unit; the client must not re-expand it from the source page",
     )
     citation: Citation = Field(
         ...,

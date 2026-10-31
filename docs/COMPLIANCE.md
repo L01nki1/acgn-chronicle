@@ -35,7 +35,8 @@ summary + source URL + <=200 character excerpt + mandatory attribution
 - Public constant: `core/ground/serialize.MAX_QUOTE_CHARS = 200`. Its value is defined once in
   `core/ports.py` and re-exported by the serializer, so the `ChunkExcerpt.quote` schema constraint and
   the clipping boundary share one budget. `to_excerpt(..., limit=500)` still emits at most 200 characters.
-- **Unit: Unicode characters** (`len(str)`). Counting bytes would leave Japanese with roughly 60 characters
+- **Unit: Unicode code points** (`len(str)`). JavaScript must count/clip code points with `Array.from`,
+  not UTF-16 `.length` / `.slice()`. Counting bytes would leave Japanese with roughly 60 characters
   per excerpt while English gets 200 — a per-language display gap that "quote a passage" does not intend.
 - Clipping: `text[:199] + "…"`, so the ellipsis is charged against the budget and the total stays <=200.
 - Whitespace collapsing is allowed; **re-wording, reordering or dropping sentences is not** — that is rewriting.

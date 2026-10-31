@@ -1,7 +1,7 @@
 # G1a contract review preparation
 
-Owner: B. Candidate: schema **0.2.1**, rebased onto `main` at `a4339f8` (Python 3.13 / locked uv,
-Chroma 1.x and WP2 builds merged). This revision answers F's and E's actual review on
+Owner: B. Candidate: schema **0.2.2**, rebased onto `main` at `a4339f8` (Python 3.13 / locked uv,
+Chroma 1.x and WP2 builds merged). This revision answers C's, F's and E's actual review on
 PR [#26](https://github.com/L01nki1/acgn-chronicle/pull/26). The contract reference is
 [KnowledgePort.md](KnowledgePort.md).
 Gate status stays in [`docs/ROADMAP.md`](../docs/ROADMAP.md); member progress stays in
@@ -11,13 +11,14 @@ Gate status stays in [`docs/ROADMAP.md`](../docs/ROADMAP.md); member progress st
 
 The following agenda entries are **B-authored prompts for review**, not questions or approvals supplied by C/F/E.
 Issue #4 requires each of C, F and E to raise at least three consumer-side questions and for the actual
-questions and resolutions to be recorded in the PR. F's A1/A2/Q1–Q3 and E's E1–E3 now have actual
-source records and B's answers in §5; C's own questions and WP4 cross-review remain outstanding.
+questions and resolutions to be recorded in the PR. C's C1–C6, F's A1/A2/Q1–Q3 and E's E1–E3 now have
+actual source records and B's answers in §5. C's COMMENT review has no blocking structural finding;
+approval of this revised candidate remains pending.
 The agenda itself is not evidence that a consumer asked or accepted a question.
 
 | Consumer | Topics to check against the candidate | Actual questions and resolution |
 |---|---|---|
-| C — web / WP6 ([#5](https://github.com/L01nki1/acgn-chronicle/issues/5)) | (1) Can the refusal fixture render separately from `503`? (2) Are empty multi-selects sent as no filter, and is `410` shown without silently changing snapshots? (3) Can `ChunkExcerpt` render a clipped quote and attribution while the request's snapshot is carried in the view and cache key? | Pending C's own questions and reply |
+| C — web / WP6 ([#5](https://github.com/L01nki1/acgn-chronicle/issues/5)) | (1) Can the refusal fixture render separately from `503`? (2) Are empty multi-selects sent as no filter, and is `410` shown without silently changing snapshots? (3) Can `ChunkExcerpt` render a clipped quote and attribution while the request's snapshot is carried in the view and cache key? | Actual C1–C6 accepted in §5.3; C's approval of the revised candidate is pending |
 | F — KB / Isla consumer ([#8](https://github.com/L01nki1/acgn-chronicle/issues/8)) | (1) Can media-id membership and the index resolve against the same retained snapshot? (2) Does every retrieved chunk retain the citation provenance B needs? (3) Is the provisional `DailyDigest` isolated behind one consumer adapter, with no dependency on the removed `episode_table`? | F verified `30f746d`; its Q2 interruption caveat and Q3 storage candidate are recorded in §5.2/§6 |
 | E — retrieval / runner ([#7](https://github.com/L01nki1/acgn-chronicle/issues/7)) | (1) Are ANY-within-list / AND-between-families and empty-list defaults implementable? (2) Can UTC day/datetime bounds and a non-empty media selection with no matches remain restrictive? (3) Can the runner pin its snapshot and distinguish unknown `404` from retired `410`, including while a rebuild or retention cleanup occurs? | E verified the answers at `c1949f1`; E2 implementation deltas and E3 lifecycle work remain staged (§5.2) |
 
@@ -113,7 +114,7 @@ They are not an approval on behalf of C or a claim that live verification has ru
 |---|---|---|
 | F A1 | Current backend is Chroma 1.x with native `media_ids: int[]`, `$contains` / `$or`; reverse lookup is a long-list fallback | KnowledgePort §3.3 matches merged `media_filter` |
 | F A2 | Never-known id → `404`; known completed snapshot retired from service → `410`; an absent id alone does not prove retirement | `SnapshotInventory.retained` Field description and exported schema updated with both codes |
-| F Q1 | Quote construction, serialization and normal attribute assignment enforce ≤200 Unicode characters now; the request-context citation/refusal guard is a mandatory G1b delivery in `ground/` | Three assignment regressions reproduced before the fix; G1b must test actual retrieved-set containment and refusal consistency |
+| F Q1 | Quote construction, serialization and normal attribute assignment enforce ≤200 Unicode code points now; the request-context citation/refusal guard is a mandatory G1b delivery in `ground/` | Three assignment regressions reproduced before the fix; G1b must test actual retrieved-set containment and refusal consistency |
 | F Q2 | Matching successful `build.json` + `identity.json` are initial known-build evidence for the served configuration; validate them before any build-side `bind` | KnowledgePort §3.2 defines `404` / `410` / `503`; read guard/catalog/pins are W2 lifecycle work |
 | F Q3 | Pin `YYYYMMDD-<12 lowercase SHA-256 hex>`, with date from frozen `window_end` UTC day, not rebuild time | KnowledgePort §3.1; A's canonical minting and F's full-id namespace guard remain implementation handoffs (§6) |
 | E1 | Accepted: omitted/null/empty means no filter in that family; OR within, AND between; restrictive no-match → empty; insufficient eligible results are never padded from outside filters | KnowledgePort §3.3–§3.4; G1b where-builder tests belong to E |
@@ -132,8 +133,8 @@ add no `SourceType` label and no `FactUpdate` field. A later wire consumer needs
 Optional-with-default addition and C/F notice. The conclusion is recorded in DECISIONS and
 KnowledgePort §3.8; the interface stays traceable while that record is reviewed and merged.
 
-This historical resolution is preserved separately from F's newer multi-question review above. C's own
-questions/cross-review remain open; F's and E's verification are recorded below.
+This historical resolution is preserved separately from F's newer multi-question review above. F's and
+E's verification and C's actual questions are recorded below; C's approval of the revision is pending.
 W2 live checks are separately scoped.
 
 ### 5.2 Follow-up verification (2026-10-31)
@@ -161,8 +162,37 @@ the host must open existing collections without creating them. This is the W2 li
 a claim that its transition/pin mechanism exists. Q3's candidate implementation remains under review (§6).
 
 D's [WP5 consumer-computability check](https://github.com/L01nki1/acgn-chronicle/pull/26#issuecomment-6538104805)
-found no metric-input gap. Together with F/E's scoped verification, it leaves C's own questions and
-WP4 cross-review outstanding; none of these checks replaces C's review or passes the corpus gate.
+found no metric-input gap. F/E/D's scoped verification does not replace C's approval of the revised
+candidate or pass the separate corpus gate.
+
+### 5.3 C's actual questions and B's resolutions
+
+Sources: C's [C1–C5 COMMENT cross-review at `2832e0b`](https://github.com/L01nki1/acgn-chronicle/pull/26#pullrequestreview-5721850600),
+the [C6 addendum](https://github.com/L01nki1/acgn-chronicle/pull/26#issuecomment-6542128712), and
+[D's C4 consumer position](https://github.com/L01nki1/acgn-chronicle/pull/26#issuecomment-6540790847).
+B accepts all six below. C supplied the required own consumer questions and found no blocking
+structural issue; its APPROVE review of the resulting 0.2.2 candidate remains pending.
+
+| Item | Accepted resolution | Remaining owner / verification |
+|---|---|---|
+| C1 — quote unit | The 200-unit limit counts Unicode code points, not UTF-16 code units; JS clients count code points rather than use `.length` as the unit | B updates the Field/schema descriptions and reference; C retains client clipping |
+| C2 — error shape | Every non-2xx contract response has `{"detail": string}` with extra fields allowed; `503` supplies `Retry-After` as integer delay-seconds | C's host enforces the envelope and header; W2 tests use the real backend |
+| C3 — validation boundary | Invalid body shape/type/enum is `400`; structurally valid requests with invalid date/datetime syntax or reversed filter bounds are `422` | C maps HTTP errors; E implements semantic filter validation |
+| C4 — serving identity | G1a/G2 use one active config/encoder identity per deployment, supplied through deployment/session context (CLI/env), outside the wire. Restart or identity/config change invalidates the client cache namespace | C/E configure and invalidate consumers. If W2 needs simultaneous configs, agree an Optional field or equivalent header before the 11/02 freeze; this revision adds neither |
+| C5 — inventory membership | A ready host's `current` is queryable and included in `retained`; an unsafe transition returns `503` rather than an inconsistent successful inventory | A/C/F enforce lifecycle readiness; C may retain its defensive union |
+| C6 — `top_k` minimum | `top_k` is a positive integer, minimum 1 (default 5); non-positive values are request errors (`400`), not empty success | B enforces the minimum in the model/exported schema; C's request-validation handler maps failure to `400` |
+
+The 0.2.2 candidate passed all four local gates on Windows / Python 3.13.5: **158 passed**, with two
+explicitly opt-in real-e5 checks skipped. Three C6 cases failed before the fix: zero/negative counts
+were accepted and the exported minimum was absent. A separate combination check of C's PR #35
+`e30f6d4` plus B's 0.2.2 port model passed seven HTTP-adapter cases for C2/C3/C6. That combination is
+not reported as the unmodified PR #35 result or as a running W2 backend.
+
+B also reviewed [WP6 PR #35](https://github.com/L01nki1/acgn-chronicle/pull/35) at `e30f6d4`.
+Its [independent review](https://github.com/L01nki1/acgn-chronicle/pull/35#pullrequestreview-5722387980)
+reproduced a P2 finding: an example-question action is dropped while a request
+is busy. C owns that fix; B will re-review it. This mock consumer check does not establish
+W2 retrieval or generation behaviour.
 
 ## 6. Snapshot identity handoff to A/F
 
@@ -184,11 +214,15 @@ Date-first makes the id readable but does not make its hash a clock. Retention's
 come from validated build/catalog timestamps, especially when several snapshots share a `window_end`
 day; a missing age record must not be replaced by an assumed ordering of those hashes.
 
-F published [PR #32](https://github.com/L01nki1/acgn-chronicle/pull/32) at `fbc609d` for #31. In an
-isolated copy on Windows / Python 3.13.5, B ran `test_snapshot_identity_safety.py`, `test_store_chroma.py`
-and `test_build_index.py`: **52 passed**. The candidate covers full-id isolation, pre-mutation ownership
-checks, verified legacy ownership, same-owner full/legacy ambiguity and publication-time pruning.
-It is not merged: E's [requested change](https://github.com/L01nki1/acgn-chronicle/pull/32#pullrequestreview-5720797378)
-still requires a no-create read binding and a missing-collection regression. The existing `bind` is a
-build operation and may create a collection. B's consumer check does not accept a read-path workaround
-or mark #31 resolved; F implements the missing API, then E/B recheck the candidate.
+F published [PR #32](https://github.com/L01nki1/acgn-chronicle/pull/32) for #31. B's historical check of
+`fbc609d` on Windows / Python 3.13.5 ran `test_snapshot_identity_safety.py`, `test_store_chroma.py` and
+`test_build_index.py`: **52 passed**. That candidate covered full-id isolation, pre-mutation ownership,
+verified legacy ownership, same-owner full/legacy ambiguity and publication-time pruning; its missing
+no-create read binding was recorded in E's [requested change](https://github.com/L01nki1/acgn-chronicle/pull/32#pullrequestreview-5720797378).
+
+F's [update at `430aafc`](https://github.com/L01nki1/acgn-chronicle/pull/32#issuecomment-6539237186)
+adds `bind_existing` and the missing-storage/collection, legacy-resolution and binding-preservation
+regressions. B reran those three suites on Windows / Python 3.13.5: **61 passed, no skips**. Build-side
+`bind` may create; read-side `bind_existing` must not. B's [consumer acceptance review](https://github.com/L01nki1/acgn-chronicle/pull/32#pullrequestreview-5722387709)
+approves that exact head; E's prior changes-requested review awaits re-review, and PR #32 remains unmerged.
+These offline results do not establish the W2 completion/catalog/lease mechanism or resolve #31.

@@ -1,6 +1,6 @@
 # KnowledgePort — contract reference
 
-> **Status: 0.2.1 candidate (2026-10-30).** Examples are contract fixtures; real `curl` captures belong
+> **Status: 0.2.2 candidate (2026-10-31).** Examples are contract fixtures; real `curl` captures belong
 > to W2 runtime verification, per the [PM's gate resolution](https://github.com/L01nki1/acgn-chronicle/issues/4#issuecomment-6502751345).
 > **Owner: B.** Frozen at **G1a (2026-11-02)**; after that, changes follow §7.
 
@@ -59,8 +59,9 @@ consume the port from TypeScript without sharing a codebase.
    crawl lands. Refusing an old snapshot because "the corpus moved" would make every re-run impossible and
    would kill a three-hour evaluation mid-flight, so it is not allowed.
 4. **The port carries excerpts, never full article bodies.** `ChunkExcerpt.quote` is clipped to ≤200
-   Unicode characters by `core/ground/serialize.py`; the wire model and exported schema also enforce
+   Unicode code points by `core/ground/serialize.py`; the wire model and exported schema also enforce
    that maximum. A caller may request a shorter quote, but cannot increase the outbound budget.
+   JavaScript UTF-16 `.length` is not this unit; clients count/clip with `Array.from(...)`.
 5. **Additions are Optional with defaults.** A new required field would break every consumer at once.
 6. **Types are structural.** No consumer may depend on field ordering, or on fields documented here but
    absent from the schema.
@@ -68,7 +69,7 @@ consume the port from TypeScript without sharing a codebase.
 ## 3. Types
 
 The tables below are a reading aid. **Normative shape = the schema**; if a table here disagrees with the
-schema, the table is a bug.
+schema, the table is a bug. HTTP error envelopes and headers are specified separately in §5.
 
 ### 3.1 `CorpusSnapshot`
 
@@ -102,8 +103,13 @@ retained.
 
 | Field | Type | Req | Semantics |
 |---|---|---|---|
-| `current` | str | yes | the snapshot the read path serves |
-| `retained` | str[] | yes | ids still queryable, most recent first; a known retired id answers `410`, an unknown id `404` |
+| `current` | str | yes | the queryable snapshot the ready host serves; always a member of `retained` |
+| `retained` | str[] | yes | ids still queryable, including `current`, most recent first; a known retired id answers `410`, an unknown id `404` |
+
+A ready host never returns a `200` inventory with an unqueryable or unretained `current`. If readiness,
+publication or pin transitions prevent that guarantee, return `503` under §5 rather than an inconsistent
+success payload. The W2 inventory producer enforces this cross-field rule; the schema descriptions alone
+do not implement a serving catalog.
 
 "Most recent" is publication order from the serving catalog/build metadata, not lexical hash order.
 The date component of an immutable id is fixed by its window and cannot order multiple publications of
@@ -181,12 +187,14 @@ consumer confirmation of these candidate semantics is tracked in [G1a review pre
 | Field | Type | Req | Semantics |
 |---|---|---|---|
 | `text` | str | yes | natural-language question |
-| `top_k` | int | no (5) | desired result count; the server may return fewer if filters exclude most candidates |
+| `top_k` | int, ≥1 | no (5) | positive desired result count; the server may return fewer if filters exclude most candidates |
 | `snapshot_id` | str | yes | binds the query to a frozen corpus; unknown → `404`, retired → `410` |
 | `filters` | `RetrievalFilters` | no | |
 
 Return the available eligible chunks when fewer than `top_k` exist. Never fill the remainder from outside
 the filters. An explicitly restrictive no-match filter stays restrictive throughout retrieval and refusal.
+`top_k` has minimum **1** (default **5**), enforced by the request model and exported schema. Zero or a
+negative value is an invalid request (`400`), not a valid request returning an empty successful result.
 
 ### 3.5 `Citation`
 
@@ -205,14 +213,14 @@ the filters. An explicitly restrictive no-match filter stays restrictive through
 |---|---|---|---|
 | `chunk_id` | str | yes | stable within a snapshot |
 | `score` | float | yes | cosine similarity in `[-1, 1]`, higher is better — see below |
-| `quote` | str | yes | **≤200 Unicode characters.** The complete text content of the response |
+| `quote` | str | yes | **≤200 Unicode code points.** The complete text content of the response |
 | `citation` | `Citation` | yes | |
 
 There is **no field carrying more of the article**. If a client wants the whole text it must fetch the `url`
 itself — that is the compliance boundary, not an implementation detail.
 
 `ChunkExcerpt` validates the quote budget both on construction and on normal attribute assignment.
-Assigning a quote over 200 Unicode characters raises validation failure and leaves the previous value
+Assigning a quote over 200 Unicode code points raises validation failure and leaves the previous value
 intact; shorter caller budgets are still allowed by the serializer. A raw dict or a validation-bypass
 constructor is not a supported outbound path: the server must use the serializer and validated wire model.
 
@@ -344,12 +352,18 @@ endpoint and retirement checks below remain W2 work.
 
 ## 5. Error codes
 
+Every non-2xx contract response uses `{"detail": string}`; extra fields are allowed. `detail` is a
+human-readable string, never a validation-error list. HTTP adapters normalize framework validation and
+HTTP errors into this envelope. A `503` also carries `Retry-After` as integer **delay-seconds** (for
+example `Retry-After: 5`), not an HTTP-date. These are transport requirements for the W2 host; the G1a
+mock is consumer evidence, not a claim that the runtime service exists.
+
 | Code | Meaning | Client action |
 |---|---|---|
-| 400 | malformed request body | fix the payload; do not retry |
+| 400 | malformed JSON or request shape/type/enum that cannot validate as `RetrievalQuery`, including `top_k < 1` | fix the payload; do not retry |
 | 404 | snapshot or resource not found | refresh `/snapshots` to show choices; the runner stops and records failure. A different id requires an explicit new request, never automatic retargeting |
 | **410** | the snapshot was retired (beyond retention) | re-read `/snapshots`; do **not** silently re-run against the new one (§6.6) |
-| 422 | invalid filter combination (e.g. `since` after `until`) | fix the filter; do not retry |
+| 422 | structurally valid request with semantically invalid filter values: invalid date/datetime syntax or reversed bounds | fix the filter; do not retry |
 | 503 | host is not serving yet (no snapshot built, or shutting down) | retry with backoff, honour `Retry-After` |
 
 **409 was removed from every read path in 0.2.0.** It used to mean "the requested snapshot no longer matches
@@ -357,15 +371,25 @@ the current corpus", which — see §2.3 — makes a retained snapshot unqueryab
 evaluation irreproducible. `/retrieve` and `/ask` are reads; there is no conflict for them to signal. 409 is
 reserved for a future write endpoint (e.g. `POST /build` while a build is already running).
 
+For example, `source_types=["blog"]` fails the request enum and is `400`; `since="not-a-date"` is a
+valid string field but fails filter interpretation and is `422`. FastAPI's default validation status/body
+does not override this contract: `RequestValidationError` is normalized to `400` with string `detail`.
+
 ## 6. Client obligations
 
 1. **Never render a citation without its `url`.** Attribution is mandatory (C3).
 2. **Display the source type.** `official` / `media` / `metadata` must be visually distinguishable (C5).
 3. **Never re-expand an excerpt.** `quote` is already the maximum allowed quote; do not fetch the page and
-   splice more text in.
+   splice more text in. Any second clipping layer counts **Unicode code points**, for example with
+   `Array.from(quote)` in JavaScript, rather than UTF-16 `.length` / `.slice()`.
 4. **Echo the `snapshot_id`** the result was computed against, wherever the result is shown.
 5. **Cache key = `(snapshot_id, text, filters, top_k, config)`.** A cache keyed on the question alone will
-   serve an answer built from a different corpus, and nothing in the payload will reveal it.
+   serve an answer built from a different corpus, and nothing in the payload will reveal it. For G1a/G2,
+   one deployment serves one active config/encoder identity; clients obtain that identity from trusted
+   deployment/session context (CLI/env and validated build sidecars), not from wire fields. The tuple
+   lives inside that deployment/session and encoder/build-identity namespace. Invalidate the in-memory
+   cache on host restart or any deployment/config/encoder/build-identity change; do not reuse cached
+   results when the context cannot be established. No config wire field is added for this choice.
 6. **On `410`, do not silently fall back to the current snapshot.** That would attach an old answer to a new
    corpus. Show that the corpus was retired and offer a re-run.
 7. **Do not retry `400` / `422`**, and do not retry `410` against the same id.
@@ -378,6 +402,11 @@ builds arrive. A retired/missing snapshot stops the run and records the failure,
 The existing cache tuple applies within one fixed serving configuration/encoder identity; changing that
 identity invalidates the cache namespace. Pin acquisition/release and prune coordination are W2 lifecycle
 implementation work, not behaviour already supplied by `ChromaStore.prune`.
+
+If W2 requires multiple concurrently served configurations instead, agree an Optional wire discriminator
+or equivalent response header **before the 11/02 freeze**, update/export the contract and notify C/E/F.
+Do not silently introduce concurrent configs under the single-config assumption. That alternative is
+not selected by this revision.
 
 ## 7. Change process (freeze policy)
 
