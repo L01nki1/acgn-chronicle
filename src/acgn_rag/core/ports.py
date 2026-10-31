@@ -21,11 +21,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SourceType = Literal["official", "media", "metadata"]
 
-SCHEMA_VERSION = "0.2.2"
+SCHEMA_VERSION = "0.2.3"
 
 # Shared by the wire constraint and the serializer; serialize.MAX_QUOTE_CHARS re-exports it.
 MAX_QUOTE_CHARS = 200
@@ -51,7 +51,8 @@ class CorpusSnapshot(BaseModel):
     item_count: int
     deduped_count: int = Field(
         ...,
-        description="items after deduplication - the denominator of every metric",
+        description="corpus items after deduplication; run provenance, not a QA metric denominator. "
+        "Each QA metric uses its own eligible item set and reports its n",
     )
     source_count: int
     window_start: str = Field(
@@ -131,7 +132,11 @@ class Citation(BaseModel):
         ...,
         description="drives display strength and compliance clipping",
     )
-    publisher: str = Field(..., description="'Capcom' | 'ANN' | 'AniList' ...")
+    publisher: str = Field(
+        ...,
+        description="publisher display name, for example Capcom, ANN or AniList; an open string, "
+        "not a closed enum or a stable registry identifier",
+    )
     title: str
     url: str = Field(
         ...,
@@ -188,12 +193,15 @@ class GroundedAnswer(BaseModel):
         ..., description="supported answer text, or an explicit refusal explanation when abstained"
     )
     citations: Sequence[Citation] = Field(
-        ..., description="deduplicated in first-use order; empty when abstained"
+        ...,
+        description="deduplicated in first-use order; chunk ids match cited_chunk_ids at model "
+        "validation time; empty when abstained",
     )
     cited_chunk_ids: Sequence[str] = Field(
         ...,
-        description="must be a subset of the chunks actually retrieved for this query; empty when "
-        "abstained",
+        description="matches citations' chunk ids, including multiplicity, at model validation time; "
+        "must also be a subset of the chunks actually retrieved for this query (G1b outbound guard); "
+        "empty when abstained",
     )
     abstained: bool = Field(
         ..., description="true when the selected snapshot and filters do not support an answer"
@@ -202,6 +210,12 @@ class GroundedAnswer(BaseModel):
         None,
         description="non-empty explanation of missing support when abstained; null otherwise",
     )
+
+    @model_validator(mode="after")
+    def citations_match_cited_ids(self) -> GroundedAnswer:
+        if sorted(citation.chunk_id for citation in self.citations) != sorted(self.cited_chunk_ids):
+            raise ValueError("cited_chunk_ids must match the chunk ids of citations")
+        return self
 
 
 # ---- Secondary task ports (interface first; full logic lands later) ----

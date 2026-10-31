@@ -35,15 +35,15 @@ Run: `python scripts/probe_sources.py` to size the window, then `python scripts/
 then compare `snapshot_id` on a rebuild. The chosen window is frozen into `docs/DECISIONS.md` and into every
 run's `meta.json`.
 
-**WP4 / B status — candidate, not frozen (2026-10-31).** PR #26 is rebased onto `main@a4339f8`
-(Python 3.13, locked uv, merged WP2). Its 0.2.2 contract candidate answers F's A1/A2/Q1–Q3, E's E1–E3
+**WP4 / B status — candidate, not frozen (2026-11-01).** PR #26 is rebased onto `main@a4339f8`
+(Python 3.13, locked uv, merged WP2). Its 0.2.3 contract candidate answers F's A1/A2/Q1–Q3, E's E1–E3
 and C's C1–C6,
 enforces quote length on construction and assignment, and records snapshot identity, known/retired states
 and filter time bounds. The actual questions and B's responses are in
 [`contracts/G1aReview.md`](../contracts/G1aReview.md). On Windows / Python 3.13.5, the locked
-`dev,store,llm` environment passed lint, format, schema sync and 158 offline tests; two explicitly opt-in
-real-e5 checks were skipped. Non-positive `top_k` and missing-schema-minimum regressions failed before
-the new bound; the assignment regressions remain covered.
+`dev,store,llm` environment passed lint, format, schema sync and 165 offline tests; two explicitly opt-in
+real-e5 checks were skipped. Five citation-list mismatch cases failed before the new model validator;
+the prior top_k and quote-assignment regressions remain covered.
 
 The PM resolved runtime evidence timing in [Issue #4](https://github.com/L01nki1/acgn-chronicle/issues/4#issuecomment-6502751345):
 real curl/filter/refusal/retirement checks belong to W2's running service and no longer block the W1
@@ -51,8 +51,11 @@ contract artifacts. E verified the answers at `c1949f1`, retaining E-owned imple
 D's compliance-scope review reported no blockers and its fixture-format suggestion is addressed.
 F verified `30f746d`, and D's WP5 check found no metric-input gap. F's interrupted-fresh-build caveat is
 now explicit in KnowledgePort §3.2: old sidecars cannot prove a replacement collection completed; unsafe
-transitions answer `503`. C supplied six questions and a non-blocking structural COMMENT review; B
-accepts and records C1–C6. C's final approval of the revised candidate remains pending.
+transitions answer `503`. C supplied six questions and [approved 0.2.2 at `c8c3e88`](https://github.com/L01nki1/acgn-chronicle/pull/26#pullrequestreview-5723391766).
+Candidate 0.2.3 adds validation-time citation/id agreement and corrects the QA denominator/display-name
+descriptions; C's approval of that new semantic revision requires re-review. Actual retrieved-set and
+refusal enforcement remain B's G1b outbound guard, not this model-validation check. The proposed
+publisher_id is deferred pending A/F's stable registry/alias/propagation definition; no field is added.
 G1a remains **open**, and this contract work does not pass A's separate
 corpus/idempotency gate. A's canonical snapshot minting and F's short-name/full-id binding need the explicit
 handoff in G1aReview §6 before real multi-snapshot writes, `--fresh`, collection drops or read bindings.
@@ -65,6 +68,8 @@ fix. B's Windows / Python 3.13.5 isolation/store/build recheck passed 61 tests a
 pending; B's consumer evidence does not merge the candidate. A's canonical minting confirmation and
 corpus evidence are still outstanding. B's separate WP6 review of PR #35 found an in-flight example/mode
 action mismatch requiring C's correction; PR #36 must keep content-category balance separate from source mix.
+B's W1 contribution entry has been applied in PR #33 at `a086fc6`; its dated blocker text is maintained
+by B rather than treated as an unfiled contribution.
 
 ### G1b · 2026-11-09 — indexes and facts
 

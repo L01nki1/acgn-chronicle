@@ -1,6 +1,6 @@
 # G1a contract review preparation
 
-Owner: B. Candidate: schema **0.2.2**, rebased onto `main` at `a4339f8` (Python 3.13 / locked uv,
+Owner: B. Candidate: schema **0.2.3**, rebased onto `main` at `a4339f8` (Python 3.13 / locked uv,
 Chroma 1.x and WP2 builds merged). This revision answers C's, F's and E's actual review on
 PR [#26](https://github.com/L01nki1/acgn-chronicle/pull/26). The contract reference is
 [KnowledgePort.md](KnowledgePort.md).
@@ -12,13 +12,13 @@ Gate status stays in [`docs/ROADMAP.md`](../docs/ROADMAP.md); member progress st
 The following agenda entries are **B-authored prompts for review**, not questions or approvals supplied by C/F/E.
 Issue #4 requires each of C, F and E to raise at least three consumer-side questions and for the actual
 questions and resolutions to be recorded in the PR. C's C1–C6, F's A1/A2/Q1–Q3 and E's E1–E3 now have
-actual source records and B's answers in §5. C's COMMENT review has no blocking structural finding;
-approval of this revised candidate remains pending.
+actual source records and B's answers in §5. C approved 0.2.2 at `c8c3e88`; that approval does not
+cover this 0.2.3 semantic revision, which requires C's re-review.
 The agenda itself is not evidence that a consumer asked or accepted a question.
 
 | Consumer | Topics to check against the candidate | Actual questions and resolution |
 |---|---|---|
-| C — web / WP6 ([#5](https://github.com/L01nki1/acgn-chronicle/issues/5)) | (1) Can the refusal fixture render separately from `503`? (2) Are empty multi-selects sent as no filter, and is `410` shown without silently changing snapshots? (3) Can `ChunkExcerpt` render a clipped quote and attribution while the request's snapshot is carried in the view and cache key? | Actual C1–C6 accepted in §5.3; C's approval of the revised candidate is pending |
+| C — web / WP6 ([#5](https://github.com/L01nki1/acgn-chronicle/issues/5)) | (1) Can the refusal fixture render separately from `503`? (2) Are empty multi-selects sent as no filter, and is `410` shown without silently changing snapshots? (3) Can `ChunkExcerpt` render a clipped quote and attribution while the request's snapshot is carried in the view and cache key? | C1–C6 accepted and 0.2.2 approved at `c8c3e88` (§5.3); 0.2.3 needs C's re-review (§5.4) |
 | F — KB / Isla consumer ([#8](https://github.com/L01nki1/acgn-chronicle/issues/8)) | (1) Can media-id membership and the index resolve against the same retained snapshot? (2) Does every retrieved chunk retain the citation provenance B needs? (3) Is the provisional `DailyDigest` isolated behind one consumer adapter, with no dependency on the removed `episode_table`? | F verified `30f746d`; its Q2 interruption caveat and Q3 storage candidate are recorded in §5.2/§6 |
 | E — retrieval / runner ([#7](https://github.com/L01nki1/acgn-chronicle/issues/7)) | (1) Are ANY-within-list / AND-between-families and empty-list defaults implementable? (2) Can UTC day/datetime bounds and a non-empty media selection with no matches remain restrictive? (3) Can the runner pin its snapshot and distinguish unknown `404` from retired `410`, including while a rebuild or retention cleanup occurs? | E verified the answers at `c1949f1`; E2 implementation deltas and E3 lifecycle work remain staged (§5.2) |
 
@@ -58,8 +58,8 @@ W1 delivers this design. Generation implementation starts in W2.
    Discard unsupported claims; if none remain, return the explicit refusal shape in §4.1 of the contract.
    G1b supplies the actual retrieved-id set to B's outbound guard: the subset/citation checks and refusal
    cross-field rules are server responsibilities, not facts a client can establish from the wire payload.
-   The current schema/fixture does not implement that guard; positive and negative request-context tests
-   are required when the generation/serialization path lands.
+   The validation-time list-agreement check in §5.4 does not implement that request-context guard;
+   positive and negative context tests are required when the generation/serialization path lands.
 4. Deduplicate citations in first-use order. An index belonging to another request or snapshot is invalid.
    Only `ground/serialize.py` converts internal chunks to outbound excerpts.
 5. The prompt must retain `MEDIA_SOURCE_RULE` from `core/ground/policy.py`. The W1 snapshot in
@@ -133,8 +133,12 @@ add no `SourceType` label and no `FactUpdate` field. A later wire consumer needs
 Optional-with-default addition and C/F notice. The conclusion is recorded in DECISIONS and
 KnowledgePort §3.8; the interface stays traceable while that record is reviewed and merged.
 
+PR #36 at `ce5b788` also records #17, but B's [requested correction](https://github.com/L01nki1/acgn-chronicle/pull/36#pullrequestreview-5722388244)
+remains open: content-category quotas are separate from source labels, and the duplicate decision row
+must be coordinated. This does not reopen the option-1 agreement or close #17.
+
 This historical resolution is preserved separately from F's newer multi-question review above. F's and
-E's verification and C's actual questions are recorded below; C's approval of the revision is pending.
+E's verification and C's 0.2.2 approval are recorded below; the 0.2.3 revision requires re-review.
 W2 live checks are separately scoped.
 
 ### 5.2 Follow-up verification (2026-10-31)
@@ -170,8 +174,10 @@ candidate or pass the separate corpus gate.
 Sources: C's [C1–C5 COMMENT cross-review at `2832e0b`](https://github.com/L01nki1/acgn-chronicle/pull/26#pullrequestreview-5721850600),
 the [C6 addendum](https://github.com/L01nki1/acgn-chronicle/pull/26#issuecomment-6542128712), and
 [D's C4 consumer position](https://github.com/L01nki1/acgn-chronicle/pull/26#issuecomment-6540790847).
-B accepts all six below. C supplied the required own consumer questions and found no blocking
-structural issue; its APPROVE review of the resulting 0.2.2 candidate remains pending.
+B accepted all six below. C supplied the required own consumer questions and found no blocking
+structural issue. C's [detailed verification](https://github.com/L01nki1/acgn-chronicle/pull/26#pullrequestreview-5723365234)
+and [APPROVE review](https://github.com/L01nki1/acgn-chronicle/pull/26#pullrequestreview-5723391766)
+apply to the 0.2.2 candidate at `c8c3e88`; they do not approve later semantic changes.
 
 | Item | Accepted resolution | Remaining owner / verification |
 |---|---|---|
@@ -193,6 +199,38 @@ Its [independent review](https://github.com/L01nki1/acgn-chronicle/pull/35#pullr
 reproduced a P2 finding: an example-question action is dropped while a request
 is busy. C owns that fix; B will re-review it. This mock consumer check does not establish
 W2 retrieval or generation behaviour.
+
+### 5.4 D's follow-up proposals and the 0.2.3 boundary
+
+Source: D's [two contract proposals](https://github.com/L01nki1/acgn-chronicle/pull/26#issuecomment-6544652493).
+B accepts validation-time agreement between `GroundedAnswer`'s two citation lists: construction or
+fresh model validation checks `sorted(c.chunk_id for c in citations) == sorted(cited_chunk_ids)`.
+This is multiset equality, including duplicate counts, not an ordering or deduplication rule. It does
+not guarantee consistency after arbitrary later mutation. G1b must freshly validate the final payload
+and check it against the actual retrieved set, enforce refusal consistency, and deduplicate in first-use
+order. The model check alone establishes none of those request-context guarantees.
+
+B defers the proposed Optional `publisher_id` until A/F define the stable source registry, aliases and
+field propagation through [#23](https://github.com/L01nki1/acgn-chronicle/issues/23). A's registry remains
+a scaffold without that normative mapping. `publisher` is an open display string; its examples are not
+a closed enum. This candidate adds no `publisher_id`; a later addition needs its own Optional contract
+change and consumer review, rather than treating the proposal as an adopted registry.
+
+D also [ratified the metric denominator rule](https://github.com/L01nki1/acgn-chronicle/issues/30#issuecomment-6542499030):
+`deduped_count` records corpus provenance, not the denominator of any QA metric. Each metric reports
+its own eligible-item denominator and exclusions. B's contract description follows that ruling; D/E
+retain ownership of metric definitions and output.
+The corresponding old PROJECT invariant/glossary wording is D's pending PR #28 sync, not a claim that
+this contract-only correction has updated every project document.
+
+The 0.2.3 revision passed all four local gates on Windows / Python 3.13.5: **165 passed**, two opt-in
+real-e5 checks skipped. Five list-mismatch cases failed before the validator and pass after it.
+
+These changes form candidate 0.2.3 and require C's renewed review. C's earlier approval remains
+historical evidence for exact head `c8c3e88`, not approval of this candidate.
+
+B's W1 contribution entry is now applied in [PR #33 at `a086fc6`](https://github.com/L01nki1/acgn-chronicle/pull/33).
+It no longer awaits initial application by D; its old C-approval blocker needs B's current-state update.
 
 ## 6. Snapshot identity handoff to A/F
 

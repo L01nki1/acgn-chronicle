@@ -39,7 +39,7 @@
               "type": "string"
             },
             "publisher": {
-              "description": "'Capcom' | 'ANN' | 'AniList' ...",
+              "description": "publisher display name, for example Capcom, ANN or AniList; an open string, not a closed enum or a stable registry identifier",
               "title": "Publisher",
               "type": "string"
             },
@@ -119,7 +119,7 @@
           "type": "string"
         },
         "publisher": {
-          "description": "'Capcom' | 'ANN' | 'AniList' ...",
+          "description": "publisher display name, for example Capcom, ANN or AniList; an open string, not a closed enum or a stable registry identifier",
           "title": "Publisher",
           "type": "string"
         },
@@ -169,7 +169,7 @@
               "type": "string"
             },
             "publisher": {
-              "description": "'Capcom' | 'ANN' | 'AniList' ...",
+              "description": "publisher display name, for example Capcom, ANN or AniList; an open string, not a closed enum or a stable registry identifier",
               "title": "Publisher",
               "type": "string"
             },
@@ -259,7 +259,7 @@
           "type": "string"
         },
         "deduped_count": {
-          "description": "items after deduplication - the denominator of every metric",
+          "description": "corpus items after deduplication; run provenance, not a QA metric denominator. Each QA metric uses its own eligible item set and reports its n",
           "title": "Deduped Count",
           "type": "integer"
         },
@@ -337,7 +337,7 @@
               "type": "string"
             },
             "publisher": {
-              "description": "'Capcom' | 'ANN' | 'AniList' ...",
+              "description": "publisher display name, for example Capcom, ANN or AniList; an open string, not a closed enum or a stable registry identifier",
               "title": "Publisher",
               "type": "string"
             },
@@ -585,7 +585,7 @@
               "type": "string"
             },
             "publisher": {
-              "description": "'Capcom' | 'ANN' | 'AniList' ...",
+              "description": "publisher display name, for example Capcom, ANN or AniList; an open string, not a closed enum or a stable registry identifier",
               "title": "Publisher",
               "type": "string"
             },
@@ -646,7 +646,7 @@
           "type": "string"
         },
         "citations": {
-          "description": "deduplicated in first-use order; empty when abstained",
+          "description": "deduplicated in first-use order; chunk ids match cited_chunk_ids at model validation time; empty when abstained",
           "items": {
             "$ref": "#/$defs/Citation"
           },
@@ -654,7 +654,7 @@
           "type": "array"
         },
         "cited_chunk_ids": {
-          "description": "must be a subset of the chunks actually retrieved for this query; empty when abstained",
+          "description": "matches citations' chunk ids, including multiplicity, at model validation time; must also be a subset of the chunks actually retrieved for this query (G1b outbound guard); empty when abstained",
           "items": {
             "type": "string"
           },
@@ -875,6 +875,6 @@
       "type": "object"
     }
   },
-  "schema_version": "0.2.2",
+  "schema_version": "0.2.3",
   "source": "src/acgn_rag/core/ports.py"
 }

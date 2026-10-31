@@ -1,6 +1,6 @@
 # KnowledgePort — contract reference
 
-> **Status: 0.2.2 candidate (2026-10-31).** Examples are contract fixtures; real `curl` captures belong
+> **Status: 0.2.3 candidate (2026-11-01).** Examples are contract fixtures; real `curl` captures belong
 > to W2 runtime verification, per the [PM's gate resolution](https://github.com/L01nki1/acgn-chronicle/issues/4#issuecomment-6502751345).
 > **Owner: B.** Frozen at **G1a (2026-11-02)**; after that, changes follow §7.
 
@@ -78,7 +78,7 @@ schema, the table is a bug. HTTP error envelopes and headers are specified separ
 | `snapshot_id` | str | yes | `YYYYMMDD-<12 lowercase SHA-256 hex>`; date is the frozen `window_end` UTC day, hash comes from the canonical content manifest |
 | `created_at` | str | yes | ISO-8601 timestamp of the freeze |
 | `item_count` | int | yes | raw items in the snapshot |
-| `deduped_count` | int | yes | items after clustering — **the denominator of every metric** |
+| `deduped_count` | int | yes | corpus items after deduplication; provenance, **not a QA metric denominator** |
 | `source_count` | int | yes | distinct publishers contributing |
 | `window_start` / `window_end` | str | yes | corpus time span; required for reproducible evaluation |
 
@@ -87,6 +87,11 @@ The order is **date first, hyphen, twelve hash digits**: for example, the illust
 `created_at`, the wall-clock rebuild date and machine-specific paths do not enter its content identity.
 A owns the canonical manifest representation (stable ordering, UTF-8/LF, UTC timestamps and content
 identity); its implementation and two-rebuild evidence are still required on #9.
+
+QA metrics run over the deduplicated corpus but use their own eligible QA item sets as divisors, with
+`n` and exclusion counts reported beside the rates. `deduped_count` remains corpus provenance. This
+follows [D's denominator ruling](https://github.com/L01nki1/acgn-chronicle/issues/30#issuecomment-6542499030);
+the metric definitions and run-output shape stay in the evaluation protocol, owned by D/E.
 
 Consumers carry the **full id**. The store currently shortens it to twelve characters for a collection
 name, so a read/build adapter must not treat that prefix as proof of identity: two full ids can share it.
@@ -201,11 +206,17 @@ negative value is an invalid request (`400`), not a valid request returning an e
 | Field | Type | Req | Semantics |
 |---|---|---|---|
 | `source_type` | enum | yes | `official` / `media` / `metadata` |
-| `publisher` | str | yes | e.g. `Capcom`, `ANN`, `AniList` |
+| `publisher` | str | yes | open publisher display name, e.g. `Capcom`, `ANN`, `AniList`; not an enum or registry id |
 | `title` | str | yes | headline as published |
 | `url` | str | yes | canonical original URL — **never** an archive link. Required, so attribution is structural rather than a convention |
 | `published_at` | str | yes | publication date |
 | `chunk_id` | str | yes | the citation must be able to locate its own chunk |
+
+Those publisher names are examples, not a closed set. Display strings do not establish canonical
+publisher identity or alias equivalence. D's proposed Optional `publisher_id` is not part of this revision:
+A/F must first define the stable source-registry key, alias policy and ingest/storage propagation.
+Once agreed, a separate Optional-with-default addition can expose that identity and notify C/D/E/F.
+Publisher-level canonical grouping must not be inferred from the examples in this display field.
 
 ### 3.6 `ChunkExcerpt` — the response unit of `/retrieve`
 
@@ -241,7 +252,7 @@ constructor is not a supported outbound path: the server must use the serializer
 |---|---|---|---|
 | `answer` | str | yes | answer text; when `abstained` is true this holds the refusal explanation |
 | `citations` | `Citation[]` | yes | deduplicated, ordered by first use; empty when `abstained=true` |
-| `cited_chunk_ids` | str[] | yes | **must be a subset of the chunks actually retrieved** for this query; empty when `abstained=true` |
+| `cited_chunk_ids` | str[] | yes | same chunk ids as `citations`, including multiplicity; **must also be a subset of the chunks actually retrieved**; empty when `abstained=true` |
 | `abstained` | bool | yes | true when the selected snapshot and filters do not support an answer |
 | `abstain_reason` | str \| null | no | non-empty missing-support explanation on refusal; `null` otherwise |
 
@@ -250,12 +261,17 @@ and no purported supporting citations. Missing evidence includes an empty result
 service failure such as `503` is an HTTP error, not a knowledge-base refusal; clients must show those
 states separately. These are generation obligations for W2, not proof of a working generator in W1.
 
-**Validation owner (F Q1):** G1b adds B's deterministic outbound check in `ground/`, supplied with the
-actual request's retrieved-id set. It checks the subset assertion and citation alignment, plus refusal
-consistency (empty citation/id arrays and a non-blank reason when abstained; `null` reason otherwise).
-These cross-field and request-context checks are not encoded by the current exported schema and must
-not remain prose-only. Consumers do not infer the retrieved set from the answer itself. W1's fixture
-validates the response shape; G1b's positive/negative request-context tests establish runtime enforcement.
+**Validation owner (F Q1 / D's consistency proposal):** `GroundedAnswer` now rejects mismatched
+`citations[*].chunk_id` and `cited_chunk_ids` during model validation. It compares their multisets,
+without requiring the second list to repeat the first list's ordering. JSON Schema alone cannot encode
+this cross-field check. It does not prove that any chunk was actually retrieved.
+
+G1b adds B's deterministic outbound check in `ground/`, supplied with the actual request's retrieved-id
+set. It freshly validates the final payload and checks containment, citation deduplication/order and
+refusal consistency (empty citation/id arrays and a non-blank reason when abstained; `null` otherwise).
+Construction-time validation is not a guarantee after arbitrary list/attribute mutation or a bypass
+constructor. Consumers do not infer the retrieved set from the answer itself. The synthetic refusal
+fixture remains shape evidence; G1b's positive/negative request-context tests establish runtime enforcement.
 
 ### 3.8 Daily digest types — **provisional**
 
@@ -427,8 +443,8 @@ document → notify C (web) and F (Isla contact). A change that alters the wire 
 Per the [PM resolution on Issue #4](https://github.com/L01nki1/acgn-chronicle/issues/4#issuecomment-6502751345),
 the 2026-11-02 contract gate covers code types, the exported schema, this reference and green CI. Live
 curl and retirement checks gate W2's running service. Existing filter/refusal design artifacts remain useful
-G1a deliveries; their runtime checks move with the host. Consumer questions and C's cross-review remain open
-until their actual records are supplied.
+G1a deliveries; their runtime checks move with the host. Actual C/F/E questions and answers are recorded
+in G1aReview §5; C approved 0.2.2 at `c8c3e88`. The 0.2.3 semantic revision requires renewed C review.
 
 - [x] Decide `score`'s meaning — cosine similarity, higher is better, never comparable across configs (§3.6)
 - [x] `episode_table` — dropped from 0.2.0 rather than guessed (§3.8)
@@ -437,7 +453,8 @@ until their actual records are supplied.
 - [x] Document snapshot-bound native-array filtering, date/empty-result semantics and the F/E responses (§3.3)
 - [x] Add one worked abstention response with a schema-validated synthetic example (§4.1)
 - [x] Store the C4 policy constant and snapshot its wording (`core/ground/policy.py`; runtime prompt inclusion is W2)
-- [ ] C / F / E each raise at least three consumer questions, resolve them, and record the actual answers in the PR
+- [x] C / F / E each raise at least three consumer questions, resolve them, and record the actual answers in the PR (G1aReview §5)
+- [ ] C re-reviews the 0.2.3 semantic revision; the `c8c3e88` approval remains version-bound
 
 ### 8.2 W2: verify the running contract
 
