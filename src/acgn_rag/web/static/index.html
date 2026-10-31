@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="ACGN Chronicle 跨时档案问答的 G1a 查询页面骨架，使用固定 mock 数据。"
+    />
+    <title>ACGN Chronicle · 档案检索</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到主要内容</a>
+
+    <header class="site-header">
+      <div class="wordmark" aria-label="ACGN Chronicle">
+        <span class="wordmark-main">ACGN</span>
+        <span class="wordmark-sub">Chronicle</span>
+      </div>
+      <p class="site-tagline">跨时档案问答 · 每条结论都要能回到来源</p>
+      <span class="mode-chip">G1a · mock 数据</span>
+    </header>
+
+    <div class="mock-banner" role="status">
+      当前页是 G1a 界面骨架：数据来自固定 mock，不是真实语料；引用 URL 指向
+      example.com。引用跳转将在 G2 启用。
+    </div>
+
+    <main id="main" class="layout">
+      <aside class="control-panel" aria-labelledby="query-title">
+        <h1 id="query-title">问档案</h1>
+        <p class="intro">
+          输入一个问题，页面只展示检索片段或明确拒答。空结果与拒答是两种状态，不会混在一起。
+        </p>
+
+        <form id="query-form">
+          <label class="field-label" for="question">问题或检索词</label>
+          <textarea
+            id="question"
+            name="question"
+            rows="3"
+            maxlength="500"
+            required
+            spellcheck="false"
+          >第二季什么时候开播？</textarea>
+
+          <fieldset class="mode-switch">
+            <legend>输出</legend>
+            <label>
+              <input type="radio" name="mode" value="retrieve" checked />
+              <span>片段检索</span>
+            </label>
+            <label>
+              <input type="radio" name="mode" value="ask" />
+              <span>带引用问答</span>
+            </label>
+          </fieldset>
+
+          <details class="filters" open>
+            <summary>筛选条件</summary>
+
+            <fieldset class="source-types">
+              <legend>来源类型</legend>
+              <label>
+                <input type="checkbox" name="source_type" value="official" checked />
+                <span>官方</span>
+              </label>
+              <label>
+                <input type="checkbox" name="source_type" value="media" checked />
+                <span>媒体</span>
+              </label>
+              <label>
+                <input type="checkbox" name="source_type" value="metadata" checked />
+                <span>元数据</span>
+              </label>
+            </fieldset>
+
+            <div class="field-grid">
+              <div class="field">
+                <label for="since">开始日期</label>
+                <input type="date" id="since" name="since" />
+              </div>
+              <div class="field">
+                <label for="until">结束日期</label>
+                <input type="date" id="until" name="until" />
+              </div>
+            </div>
+
+            <div class="field-grid">
+              <div class="field">
+                <label for="media-id">作品 ID（可选）</label>
+                <input
+                  type="number"
+                  id="media-id"
+                  name="media_id"
+                  min="1"
+                  step="1"
+                  placeholder="90210"
+                />
+              </div>
+              <div class="field">
+                <label for="top-k">返回条数</label>
+                <select id="top-k" name="top_k">
+                  <option value="3">3</option>
+                  <option value="5" selected>5</option>
+                  <option value="10">10</option>
+                </select>
+              </div>
+            </div>
+          </details>
+
+          <button type="submit" id="submit-button">检索片段</button>
+          <p class="form-note" id="form-note">
+            结果绑定到下方快照；切换快照会改变缓存键，不会复用旧语料的答案。
+          </p>
+        </form>
+
+        <section class="examples" aria-labelledby="examples-title">
+          <h2 id="examples-title">示例问题</h2>
+          <div class="example-list">
+            <button type="button" data-example="第二季什么时候开播？">第二季什么时候开播？</button>
+            <button type="button" data-example="蓝光第一卷什么时候发售？">
+              蓝光第一卷什么时候发售？
+            </button>
+            <button type="button" data-example="月灯食堂剧场版什么时候上映？">
+              月灯食堂剧场版什么时候上映？
+            </button>
+            <button type="button" data-example="导演的私人电话是多少？">
+              导演的私人电话是多少？
+            </button>
+          </div>
+        </section>
+
+        <section class="contract-notes" aria-labelledby="notes-title">
+          <h2 id="notes-title">页面遵守的契约</h2>
+          <ul>
+            <li>引用对象没有 URL 就不渲染，不灰显、不藏在提示里。</li>
+            <li>正文在服务端裁剪一次，客户端渲染前再裁剪一次，上限 200 个字符。</li>
+            <li>每次结果都显示对应快照；缓存键包含快照、问题、筛选、top_k 与配置。</li>
+            <li>410 表示快照已退役，页面不会自动切到当前快照。</li>
+            <li>没有检索到片段不是拒答；拒答一定会给出原因。</li>
+          </ul>
+        </section>
+      </aside>
+
+      <section class="results" aria-labelledby="results-title">
+        <div class="snapshot-bar">
+          <label for="snapshot-select">快照</label>
+          <select id="snapshot-select" disabled>
+            <option>正在读取…</option>
+          </select>
+          <span class="snapshot-id" id="snapshot-id">—</span>
+          <span class="snapshot-config">配置 A · mock</span>
+        </div>
+
+        <header class="results-header">
+          <h2 id="results-title">检索结果</h2>
+          <p id="result-meta">等待请求</p>
+        </header>
+
+        <div class="result-state" id="result-state" aria-live="polite" aria-busy="false">
+          <div class="state-panel placeholder-panel">
+            <p>正在读取 mock 快照…</p>
+          </div>
+        </div>
+
+        <footer class="results-footer">
+          <p>
+            数据为 G1a mock；引用 URL 仅用于检查渲染规则。真实语料与检索将在 W2 接入。
+          </p>
+        </footer>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>ACGN Chronicle · CS5481 Topic 5 · G1a 页面骨架</p>
+      <p>无 URL 不渲染 · 客户端二次裁剪 · 快照随结果展示 · 410 不自动回退</p>
+    </footer>
+
+    <noscript>
+      <div class="state-panel error-panel">
+        <p>这个页面需要 JavaScript 才能读取 mock 快照；脚本未加载时不会展示任何引用。</p>
+      </div>
+    </noscript>
+
+    <script type="module" src="/static/app.mjs"></script>
+  </body>
+</html>
