@@ -60,4 +60,4 @@ jobs:
         run: uv run --frozen python scripts/export_schema.py --check
 
       - name: Tests (no network)
-        run: uv run --frozen pytest -q
+        run: uv run --frozen python scripts/ci_pytest_report.py
