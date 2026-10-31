@@ -86,7 +86,8 @@
           "description": "url is required, so attribution is structural rather than a convention"
         },
         "quote": {
-          "description": "at most 200 Unicode characters, clipped by ground/serialize; the client must not re-expand it from the source page",
+          "description": "at most 200 Unicode code points, clipped by ground/serialize; JavaScript UTF-16 length is not the unit; the client must not re-expand it from the source page",
+          "maxLength": 200,
           "title": "Quote",
           "type": "string"
         },
@@ -267,7 +268,7 @@
           "type": "integer"
         },
         "snapshot_id": {
-          "description": "content hash + date; rebuilding the same corpus must match",
+          "description": "YYYYMMDD-<12 lowercase SHA-256 hex>; date is the frozen window_end UTC day, not the rebuild day; hash is from A's canonical content manifest",
           "title": "Snapshot Id",
           "type": "string"
         },
@@ -631,17 +632,21 @@
             }
           ],
           "default": null,
+          "description": "non-empty explanation of missing support when abstained; null otherwise",
           "title": "Abstain Reason"
         },
         "abstained": {
+          "description": "true when the selected snapshot and filters do not support an answer",
           "title": "Abstained",
           "type": "boolean"
         },
         "answer": {
+          "description": "supported answer text, or an explicit refusal explanation when abstained",
           "title": "Answer",
           "type": "string"
         },
         "citations": {
+          "description": "deduplicated in first-use order; empty when abstained",
           "items": {
             "$ref": "#/$defs/Citation"
           },
@@ -649,7 +654,7 @@
           "type": "array"
         },
         "cited_chunk_ids": {
-          "description": "must be a subset of the chunks actually retrieved for this query",
+          "description": "must be a subset of the chunks actually retrieved for this query; empty when abstained",
           "items": {
             "type": "string"
           },
@@ -667,6 +672,7 @@
       "type": "object"
     },
     "RetrievalFilters": {
+      "description": "AND between filter families, ANY within a list; absent/null/empty lists do not filter.",
       "properties": {
         "media_ids": {
           "anyOf": [
@@ -681,6 +687,7 @@
             }
           ],
           "default": null,
+          "description": "match ANY listed canonical media id; absent, null or [] means no media filter. Apply membership within the requested snapshot; a non-empty selection with no matching documents matches nothing, never drops the filter. Combine filter families using AND",
           "title": "Media Ids"
         },
         "since": {
@@ -693,7 +700,7 @@
             }
           ],
           "default": null,
-          "description": "daily views (\"today only\") also use this; never add a time-bucketed index",
+          "description": "inclusive lower bound: a YYYY-MM-DD date starts at UTC midnight; an ISO-8601 datetime is converted to UTC (naive means UTC). Absent/null leaves the bound open",
           "title": "Since"
         },
         "source_types": {
@@ -714,6 +721,7 @@
             }
           ],
           "default": null,
+          "description": "match ANY listed source type; absent, null or [] means no source-type filter",
           "title": "Source Types"
         },
         "until": {
@@ -726,6 +734,7 @@
             }
           ],
           "default": null,
+          "description": "exclusive upper bound: a YYYY-MM-DD date includes that whole UTC day and ends at next midnight; an ISO-8601 datetime ends at that UTC instant (naive means UTC). Invalid or reversed bounds are 422 at the HTTP boundary; absent/null leaves it open",
           "title": "Until"
         }
       },
@@ -735,6 +744,7 @@
     "RetrievalQuery": {
       "$defs": {
         "RetrievalFilters": {
+          "description": "AND between filter families, ANY within a list; absent/null/empty lists do not filter.",
           "properties": {
             "media_ids": {
               "anyOf": [
@@ -749,6 +759,7 @@
                 }
               ],
               "default": null,
+              "description": "match ANY listed canonical media id; absent, null or [] means no media filter. Apply membership within the requested snapshot; a non-empty selection with no matching documents matches nothing, never drops the filter. Combine filter families using AND",
               "title": "Media Ids"
             },
             "since": {
@@ -761,7 +772,7 @@
                 }
               ],
               "default": null,
-              "description": "daily views (\"today only\") also use this; never add a time-bucketed index",
+              "description": "inclusive lower bound: a YYYY-MM-DD date starts at UTC midnight; an ISO-8601 datetime is converted to UTC (naive means UTC). Absent/null leaves the bound open",
               "title": "Since"
             },
             "source_types": {
@@ -782,6 +793,7 @@
                 }
               ],
               "default": null,
+              "description": "match ANY listed source type; absent, null or [] means no source-type filter",
               "title": "Source Types"
             },
             "until": {
@@ -794,6 +806,7 @@
                 }
               ],
               "default": null,
+              "description": "exclusive upper bound: a YYYY-MM-DD date includes that whole UTC day and ends at next midnight; an ISO-8601 datetime ends at that UTC instant (naive means UTC). Invalid or reversed bounds are 422 at the HTTP boundary; absent/null leaves it open",
               "title": "Until"
             }
           },
@@ -824,6 +837,8 @@
         },
         "top_k": {
           "default": 5,
+          "description": "positive result count, minimum 1; invalid request shape/type/enum or a non-positive count is 400 at the HTTP boundary, not an empty successful result",
+          "minimum": 1,
           "title": "Top K",
           "type": "integer"
         }
@@ -839,12 +854,12 @@
       "description": "What this host can serve right now (response of `GET /snapshots`).\n\nA client must not invent a snapshot id, and must not assume that the id it used yesterday is\nstill retained. Availability is governed by retention, not by currency.",
       "properties": {
         "current": {
-          "description": "the snapshot the read path serves; flips atomically after a build succeeds",
+          "description": "the queryable snapshot the ready host serves; always included in retained; flips atomically after a build succeeds",
           "title": "Current",
           "type": "string"
         },
         "retained": {
-          "description": "ids still queryable, most recent first; a retired id answers 410",
+          "description": "full ids still queryable, including current, most recent first; a known completed snapshot retired from service answers 410, a never-known id 404; absence alone does not prove retirement",
           "items": {
             "type": "string"
           },
@@ -860,6 +875,6 @@
       "type": "object"
     }
   },
-  "schema_version": "0.2.0",
+  "schema_version": "0.2.2",
   "source": "src/acgn_rag/core/ports.py"
 }

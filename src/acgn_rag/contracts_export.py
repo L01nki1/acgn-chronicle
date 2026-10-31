@@ -74,7 +74,7 @@ def check() -> tuple[bool, str]:
 
 def write() -> Path:
     SCHEMA_PATH.parent.mkdir(parents=True, exist_ok=True)
-    SCHEMA_PATH.write_text(dump(), encoding="utf-8")
+    SCHEMA_PATH.write_text(dump(), encoding="utf-8", newline="\n")
     return SCHEMA_PATH
 
 

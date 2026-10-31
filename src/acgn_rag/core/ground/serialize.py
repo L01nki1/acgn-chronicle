@@ -6,7 +6,7 @@ Clients may only receive four things: a summary, the source URL, a <=200 charact
 mandatory attribution. Full text is never served - this module is the only place in the project
 allowed to shorten an article body; do not slice text anywhere else.
 
-Measurement unit: **Unicode characters** (not bytes, not UTF-8 code units), so Japanese, Chinese
+Measurement unit: **Unicode code points** (not bytes or UTF-16 code units), so Japanese, Chinese
 and English excerpts share one budget. Rationale in docs/COMPLIANCE.md.
 
 The conversion here is also the type boundary: `RetrievedChunk` (internal, carries the body) goes
@@ -16,9 +16,8 @@ the wire shape outside the schema, where no test could check it.
 
 from __future__ import annotations
 
-from acgn_rag.core.ports import ChunkExcerpt, Citation, RetrievedChunk
+from acgn_rag.core.ports import MAX_QUOTE_CHARS, ChunkExcerpt, Citation, RetrievedChunk
 
-MAX_QUOTE_CHARS = 200
 ELLIPSIS = "\u2026"
 
 
@@ -41,12 +40,13 @@ def to_excerpt(chunk: RetrievedChunk, limit: int = MAX_QUOTE_CHARS) -> ChunkExce
 
     The body is dropped here rather than redacted later: after this call the only text in the
     object is `quote`, so no downstream handler can accidentally serialize the article.
+    A caller may request a shorter quote, but cannot raise the outbound budget above 200.
     """
     citation: Citation = chunk.citation
     return ChunkExcerpt(
         chunk_id=chunk.chunk_id,
         score=chunk.score,
-        quote=clip_quote(chunk.text, limit),
+        quote=clip_quote(chunk.text, min(limit, MAX_QUOTE_CHARS)),
         citation=citation,
     )
 

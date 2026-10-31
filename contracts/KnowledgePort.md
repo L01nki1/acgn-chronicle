@@ -1,7 +1,7 @@
 # KnowledgePort — contract reference
 
-> **Status: 0.2.0 (2026-10-28).** Structure and semantics are now consistent with the code; the
-> example payloads are still illustrative and must be replaced with real `curl` output before the freeze.
+> **Status: 0.2.2 candidate (2026-10-31).** Examples are contract fixtures; real `curl` captures belong
+> to W2 runtime verification, per the [PM's gate resolution](https://github.com/L01nki1/acgn-chronicle/issues/4#issuecomment-6502751345).
 > **Owner: B.** Frozen at **G1a (2026-11-02)**; after that, changes follow §7.
 
 ## 0. Who owns what (read this before arguing with the document)
@@ -58,9 +58,10 @@ consume the port from TypeScript without sharing a codebase.
    invariant 2 possible: an evaluation run binds a `snapshot_id` and must still be re-runnable after the next
    crawl lands. Refusing an old snapshot because "the corpus moved" would make every re-run impossible and
    would kill a three-hour evaluation mid-flight, so it is not allowed.
-4. **The port carries excerpts, never full text.** The wire types have exactly one text field, `quote`,
-   clipped to ≤200 Unicode characters by `core/ground/serialize.py`. A consumer that bypasses clipping
-   breaks compliance C3.
+4. **The port carries excerpts, never full article bodies.** `ChunkExcerpt.quote` is clipped to ≤200
+   Unicode code points by `core/ground/serialize.py`; the wire model and exported schema also enforce
+   that maximum. A caller may request a shorter quote, but cannot increase the outbound budget.
+   JavaScript UTF-16 `.length` is not this unit; clients count/clip with `Array.from(...)`.
 5. **Additions are Optional with defaults.** A new required field would break every consumer at once.
 6. **Types are structural.** No consumer may depend on field ordering, or on fields documented here but
    absent from the schema.
@@ -68,18 +69,32 @@ consume the port from TypeScript without sharing a codebase.
 ## 3. Types
 
 The tables below are a reading aid. **Normative shape = the schema**; if a table here disagrees with the
-schema, the table is a bug.
+schema, the table is a bug. HTTP error envelopes and headers are specified separately in §5.
 
 ### 3.1 `CorpusSnapshot`
 
 | Field | Type | Req | Semantics |
 |---|---|---|---|
-| `snapshot_id` | str | yes | `sha256(content manifest)[:12]` + date; rebuilding the same corpus must produce the same value |
+| `snapshot_id` | str | yes | `YYYYMMDD-<12 lowercase SHA-256 hex>`; date is the frozen `window_end` UTC day, hash comes from the canonical content manifest |
 | `created_at` | str | yes | ISO-8601 timestamp of the freeze |
 | `item_count` | int | yes | raw items in the snapshot |
 | `deduped_count` | int | yes | items after clustering — **the denominator of every metric** |
 | `source_count` | int | yes | distinct publishers contributing |
 | `window_start` / `window_end` | str | yes | corpus time span; required for reproducible evaluation |
+
+The order is **date first, hyphen, twelve hash digits**: for example, the illustrative id
+`20261028-abcdef012345`. Rebuilding the same frozen corpus on a later day must keep the same id:
+`created_at`, the wall-clock rebuild date and machine-specific paths do not enter its content identity.
+A owns the canonical manifest representation (stable ordering, UTF-8/LF, UTC timestamps and content
+identity); its implementation and two-rebuild evidence are still required on #9.
+
+Consumers carry the **full id**. The store currently shortens it to twelve characters for a collection
+name, so a read/build adapter must not treat that prefix as proof of identity: two full ids can share it.
+F must preserve a full-id mapping or reject an ambiguous binding before any real multi-snapshot build,
+`--fresh`, collection drop or read binding touches storage. This is a write-safety prerequisite, not only
+a W2 read-host check: reusing a short key can mix data, and dropping it can delete another full id's data. Physical
+collection naming is internal and does not change the wire id. This implementation handoff is recorded in
+[G1aReview §6](G1aReview.md#6-snapshot-identity-handoff-to-af).
 
 ### 3.2 `SnapshotInventory`
 
@@ -88,25 +103,98 @@ retained.
 
 | Field | Type | Req | Semantics |
 |---|---|---|---|
-| `current` | str | yes | the snapshot the read path serves |
-| `retained` | str[] | yes | ids still queryable, most recent first; anything else answers `410` |
+| `current` | str | yes | the queryable snapshot the ready host serves; always a member of `retained` |
+| `retained` | str[] | yes | ids still queryable, including `current`, most recent first; a known retired id answers `410`, an unknown id `404` |
+
+A ready host never returns a `200` inventory with an unqueryable or unretained `current`. If readiness,
+publication or pin transitions prevent that guarantee, return `503` under §5 rather than an inconsistent
+success payload. The W2 inventory producer enforces this cross-field rule; the schema descriptions alone
+do not implement a serving catalog.
+
+"Most recent" is publication order from the serving catalog/build metadata, not lexical hash order.
+The date component of an immutable id is fixed by its window and cannot order multiple publications of
+that day's different corpora.
+
+**Operational meaning of known (F Q2, target for the host):** for the served configuration, a successful
+build is evidenced by the matching `<data-root>/index/<snapshot_id>/<label>/build.json` and
+`identity.json`. `build.json` is written last by `scripts/build_index.py`; both records must validate and
+name the same full snapshot id, configuration, collection and encoder identity. `A'` uses label `A-prime`.
+These retained sidecars are the initial registry evidence; a future A-owned catalog may carry the same facts.
+
+Matching old sidecars do not prove that the **current physical collection instance** completed. A fresh
+replacement can leave the old records in place while its new collection is empty or partially written.
+The build/host lifecycle must expose an authoritative in-progress state before destructive replacement,
+or atomically publish an independently completed generation. Until that generation is proven complete,
+reads return `503`; neither a reused physical name nor matching old metadata proves readiness. A/C/F own
+that W2 publication/transition mechanism and its interruption tests, alongside pin/lease coordination.
+
+| Host state for the requested full id and configuration | Read result |
+|---|---|
+| Host has no served snapshot / inventory is not ready | `503` with `Retry-After` |
+| Ready host has no completed-build record for that id/configuration | `404` (never known to that serving context) |
+| Valid completed-build records remain, but the collection has been retired | `410` (known, no longer retained); include the current id in the error response |
+| Matching records prove the present collection generation completed and is available | Serve that retained snapshot, even if it is not current |
+| Records are partial, corrupt, inconsistent, or a build/pin transition prevents a safe read | `503`; do not guess `404`/`410` from an incomplete record |
+
+Check this state **before** calling a store build-side binding operation, which may create a missing
+collection. A read must open only an existing verified collection and fail without creating anything if
+it is absent. Retention keeps completed-build records after pruning collections so retired ids remain known.
+This is the A/C/F host-lifecycle contract for W2, not a claim that a live endpoint already implements it.
 
 ### 3.3 `RetrievalFilters`
 
 | Field | Type | Req | Semantics |
 |---|---|---|---|
-| `source_types` | `("official" \| "media" \| "metadata")[]` | no | display strength and compliance treatment follow this |
-| `since` / `until` | str | no | inclusive date bounds; **the daily view uses these, not a time-bucketed index** |
-| `media_ids` | int[] | no | restrict to specific works |
+| `source_types` | `("official" \| "media" \| "metadata")[]` | no | ANY listed type; omitted, `null`, or `[]` means no source-type filter |
+| `since` / `until` | str | no | UTC date-only bounds or ISO-8601 datetimes; lower inclusive, upper exclusive after the date-only conversion below; omitted/`null` is open |
+| `media_ids` | int[] | no | ANY listed canonical media id; omitted, `null`, or `[]` means no media filter |
+
+Filter families combine with **AND**. For example, `source_types=["official", "media"]` with
+`media_ids=[101, 202]` selects either listed source type, linked to either listed work, within the date
+bounds. `filters=null` and an empty filter object both mean no filters.
+
+Date-only values (`YYYY-MM-DD`) refer to whole UTC calendar days. `since=D` starts at `D 00:00Z`;
+`until=D` ends at the **next** midnight, exclusive. Equal dates therefore select one whole day:
+`2026-10-28` means `[2026-10-28T00:00:00Z, 2026-10-29T00:00:00Z)`.
+
+Full ISO-8601 datetimes are also accepted: offsets are converted to UTC, naive values mean UTC, `since`
+is inclusive at that instant and `until` is exclusive at that instant. For example,
+`until=2026-10-29T08:00:00+08:00` ends at `2026-10-29T00:00:00Z`, not at the following midnight.
+Do not round a timestamp bound before comparing it with `published_ts`.
+
+Invalid syntax or reversed bounds is `422` at the HTTP boundary (E's adapter raises a typed error).
+For two date-only values, compare their UTC calendar dates before expanding `until`: `since` after
+`until` is invalid, including adjacent reversed dates. Otherwise compare the converted lower and upper
+instants. Equal datetime instants form a valid empty interval; equal date-only inputs form a whole day.
+Daily views use these bounds, never a separate time-bucketed index. The where-builder and HTTP adapter
+implement these semantics in G1b/W2; a string-typed field alone does not validate dates.
+
+**Current multi-value mechanism and ownership:** the merged backend is Chroma **1.x** (`>=1.0,<2`).
+`core/store/payload.py` stores native `media_ids: int[]`; `core/store/chroma_store.media_filter` uses
+`$contains` for one id and `$or` over those clauses for ANY-of membership. An empty list produces no
+media constraint. The collection is bound to the requested `(snapshot_id, config)`; membership must never
+silently use the current snapshot instead. A reverse `media_id` → `doc_id` table is only a documented
+fallback for long ANY-of lists, not the current implementation. Clients depend on the semantics, not a
+physical table or vector-store operator. E/F own the storage and where-builder implementation.
+
+An explicitly non-empty `media_ids` list that resolves to **zero doc ids matches nothing**. Do not remove
+the filter or turn it into an unrestricted query. `/retrieve` then returns `[]`; `/ask` refuses because the
+selected evidence set cannot support an answer. Retrieval and storage implementation remain with E/F;
+consumer confirmation of these candidate semantics is tracked in [G1a review preparation](G1aReview.md).
 
 ### 3.4 `RetrievalQuery`
 
 | Field | Type | Req | Semantics |
 |---|---|---|---|
 | `text` | str | yes | natural-language question |
-| `top_k` | int | no (5) | desired result count; the server may return fewer if filters exclude most candidates |
+| `top_k` | int, ≥1 | no (5) | positive desired result count; the server may return fewer if filters exclude most candidates |
 | `snapshot_id` | str | yes | binds the query to a frozen corpus; unknown → `404`, retired → `410` |
 | `filters` | `RetrievalFilters` | no | |
+
+Return the available eligible chunks when fewer than `top_k` exist. Never fill the remainder from outside
+the filters. An explicitly restrictive no-match filter stays restrictive throughout retrieval and refusal.
+`top_k` has minimum **1** (default **5**), enforced by the request model and exported schema. Zero or a
+negative value is an invalid request (`400`), not a valid request returning an empty successful result.
 
 ### 3.5 `Citation`
 
@@ -125,11 +213,16 @@ retained.
 |---|---|---|---|
 | `chunk_id` | str | yes | stable within a snapshot |
 | `score` | float | yes | cosine similarity in `[-1, 1]`, higher is better — see below |
-| `quote` | str | yes | **≤200 Unicode characters.** The complete text content of the response |
+| `quote` | str | yes | **≤200 Unicode code points.** The complete text content of the response |
 | `citation` | `Citation` | yes | |
 
 There is **no field carrying more of the article**. If a client wants the whole text it must fetch the `url`
 itself — that is the compliance boundary, not an implementation detail.
+
+`ChunkExcerpt` validates the quote budget both on construction and on normal attribute assignment.
+Assigning a quote over 200 Unicode code points raises validation failure and leaves the previous value
+intact; shorter caller budgets are still allowed by the serializer. A raw dict or a validation-bypass
+constructor is not a supported outbound path: the server must use the serializer and validated wire model.
 
 **`score` semantics** (was open; decided 2026-10-28):
 
@@ -147,10 +240,22 @@ itself — that is the compliance boundary, not an implementation detail.
 | Field | Type | Req | Semantics |
 |---|---|---|---|
 | `answer` | str | yes | answer text; when `abstained` is true this holds the refusal explanation |
-| `citations` | `Citation[]` | yes | deduplicated, ordered by first use |
-| `cited_chunk_ids` | str[] | yes | **must be a subset of the chunks actually retrieved** for this query |
-| `abstained` | bool | yes | true when the knowledge base does not support an answer |
-| `abstain_reason` | str \| null | no | why it refused |
+| `citations` | `Citation[]` | yes | deduplicated, ordered by first use; empty when `abstained=true` |
+| `cited_chunk_ids` | str[] | yes | **must be a subset of the chunks actually retrieved** for this query; empty when `abstained=true` |
+| `abstained` | bool | yes | true when the selected snapshot and filters do not support an answer |
+| `abstain_reason` | str \| null | no | non-empty missing-support explanation on refusal; `null` otherwise |
+
+A refusal is a successful `/ask` response with an explicit explanation in `answer`, no invented answer,
+and no purported supporting citations. Missing evidence includes an empty result after filtering. A
+service failure such as `503` is an HTTP error, not a knowledge-base refusal; clients must show those
+states separately. These are generation obligations for W2, not proof of a working generator in W1.
+
+**Validation owner (F Q1):** G1b adds B's deterministic outbound check in `ground/`, supplied with the
+actual request's retrieved-id set. It checks the subset assertion and citation alignment, plus refusal
+consistency (empty citation/id arrays and a non-blank reason when abstained; `null` reason otherwise).
+These cross-field and request-context checks are not encoded by the current exported schema and must
+not remain prose-only. Consumers do not infer the retrieved set from the answer itself. W1's fixture
+validates the response shape; G1b's positive/negative request-context tests establish runtime enforcement.
 
 ### 3.8 Daily digest types — **provisional**
 
@@ -178,6 +283,13 @@ typed by a consumer, and its only user (the digest) has not been crawled yet —
 be guessing with the least possible information. It returns when the digest is green-lit, as
 `Sequence[EpisodeRow] | None = None` with `EpisodeRow` typed from the real Bilibili timeline response.
 
+**Corporate ingest tag — resolution of [#17](https://github.com/L01nki1/acgn-chronicle/issues/17):**
+choose option 1 for G1a/G1b. An IR/corporate announcement keeps `source_type="official"`; an optional
+`ingest_category="corporate"` stays internal to ingestion/storage for the pre-extraction filter. It is
+not a fourth `SourceType` and is not a `FactUpdate` or other wire field. Source-mix reports continue to use
+`official` / `media` / `metadata`. F confirmed no query-time consumer needs the tag through G1b. If that
+changes, introduce an Optional-with-default wire field through §7 and notify C/F; do not add it implicitly.
+
 ### 3.9 Internal types (not exported)
 
 | Type | Why it is internal |
@@ -194,7 +306,7 @@ be guessing with the least possible information. It returns when the digest is g
 | POST | `/ask` | `RetrievalQuery` | `GroundedAnswer` |
 | GET | `/daily?snapshot_id=&date=` | — | `DailyDigest` (later stage) |
 
-Illustrative exchange — **verify before freeze**:
+Illustrative exchange — **verify against the W2 host**:
 
 ```http
 POST /retrieve
@@ -203,7 +315,7 @@ Content-Type: application/json
 {
   "text": "When does the second season start airing?",
   "top_k": 5,
-  "snapshot_id": "20261028abcdef",
+  "snapshot_id": "20261028-abcdef012345",
   "filters": {"source_types": ["official"], "since": "2023-10-28"}
 }
 ```
@@ -226,14 +338,32 @@ Content-Type: application/json
 ]
 ```
 
+### 4.1 Worked abstention example (synthetic)
+
+Suppose the request asks for the release date of the hypothetical **Project Unannounced**, and no chunk
+in the selected snapshot and filter result supports a date. The response is the
+[validated JSON example](examples/ask-abstained.json): `abstained=true`, a non-empty explanation, and
+empty `citations` and `cited_chunk_ids`. It supplies no guessed date. C can use this fixture to build the
+refusal state independently of the future generator.
+
+The fixture is validated against `GroundedAnswer` by `tests/contracts/test_examples.py`. It is a contract
+example, not an HTTP capture, an LLM response, a calibration item, or an evaluation result. The real
+endpoint and retirement checks below remain W2 work.
+
 ## 5. Error codes
+
+Every non-2xx contract response uses `{"detail": string}`; extra fields are allowed. `detail` is a
+human-readable string, never a validation-error list. HTTP adapters normalize framework validation and
+HTTP errors into this envelope. A `503` also carries `Retry-After` as integer **delay-seconds** (for
+example `Retry-After: 5`), not an HTTP-date. These are transport requirements for the W2 host; the G1a
+mock is consumer evidence, not a claim that the runtime service exists.
 
 | Code | Meaning | Client action |
 |---|---|---|
-| 400 | malformed request body | fix the payload; do not retry |
-| 404 | snapshot or resource not found | re-read `/snapshots` and retry once with a valid id |
+| 400 | malformed JSON or request shape/type/enum that cannot validate as `RetrievalQuery`, including `top_k < 1` | fix the payload; do not retry |
+| 404 | snapshot or resource not found | refresh `/snapshots` to show choices; the runner stops and records failure. A different id requires an explicit new request, never automatic retargeting |
 | **410** | the snapshot was retired (beyond retention) | re-read `/snapshots`; do **not** silently re-run against the new one (§6.6) |
-| 422 | invalid filter combination (e.g. `since` after `until`) | fix the filter; do not retry |
+| 422 | structurally valid request with semantically invalid filter values: invalid date/datetime syntax or reversed bounds | fix the filter; do not retry |
 | 503 | host is not serving yet (no snapshot built, or shutting down) | retry with backoff, honour `Retry-After` |
 
 **409 was removed from every read path in 0.2.0.** It used to mean "the requested snapshot no longer matches
@@ -241,18 +371,42 @@ the current corpus", which — see §2.3 — makes a retained snapshot unqueryab
 evaluation irreproducible. `/retrieve` and `/ask` are reads; there is no conflict for them to signal. 409 is
 reserved for a future write endpoint (e.g. `POST /build` while a build is already running).
 
+For example, `source_types=["blog"]` fails the request enum and is `400`; `since="not-a-date"` is a
+valid string field but fails filter interpretation and is `422`. FastAPI's default validation status/body
+does not override this contract: `RequestValidationError` is normalized to `400` with string `detail`.
+
 ## 6. Client obligations
 
 1. **Never render a citation without its `url`.** Attribution is mandatory (C3).
 2. **Display the source type.** `official` / `media` / `metadata` must be visually distinguishable (C5).
 3. **Never re-expand an excerpt.** `quote` is already the maximum allowed quote; do not fetch the page and
-   splice more text in.
+   splice more text in. Any second clipping layer counts **Unicode code points**, for example with
+   `Array.from(quote)` in JavaScript, rather than UTF-16 `.length` / `.slice()`.
 4. **Echo the `snapshot_id`** the result was computed against, wherever the result is shown.
 5. **Cache key = `(snapshot_id, text, filters, top_k, config)`.** A cache keyed on the question alone will
-   serve an answer built from a different corpus, and nothing in the payload will reveal it.
+   serve an answer built from a different corpus, and nothing in the payload will reveal it. For G1a/G2,
+   one deployment serves one active config/encoder identity; clients obtain that identity from trusted
+   deployment/session context (CLI/env and validated build sidecars), not from wire fields. The tuple
+   lives inside that deployment/session and encoder/build-identity namespace. Invalidate the in-memory
+   cache on host restart or any deployment/config/encoder/build-identity change; do not reuse cached
+   results when the context cannot be established. No config wire field is added for this choice.
 6. **On `410`, do not silently fall back to the current snapshot.** That would attach an old answer to a new
    corpus. Show that the corpus was retired and offer a re-run.
 7. **Do not retry `400` / `422`**, and do not retry `410` against the same id.
+
+A runner pins one full snapshot id and its selected configuration/build identity for the entire run:
+collection, metadata, URL resolution, citations, `resolved_evidence.json` and `meta.json` all agree.
+`CURRENT` may change without redirecting an in-flight request. Retention must protect active request/run
+pins until completion; keeping only current+previous without a pin/lease check is not sufficient if more
+builds arrive. A retired/missing snapshot stops the run and records the failure, with no silent fallback.
+The existing cache tuple applies within one fixed serving configuration/encoder identity; changing that
+identity invalidates the cache namespace. Pin acquisition/release and prune coordination are W2 lifecycle
+implementation work, not behaviour already supplied by `ChromaStore.prune`.
+
+If W2 requires multiple concurrently served configurations instead, agree an Optional wire discriminator
+or equivalent response header **before the 11/02 freeze**, update/export the contract and notify C/E/F.
+Do not silently introduce concurrent configs under the single-config assumption. That alternative is
+not selected by this revision.
 
 ## 7. Change process (freeze policy)
 
@@ -266,14 +420,32 @@ Steps for any semantic change: PR states the reason → `python scripts/export_s
 document → notify C (web) and F (Isla contact). A change that alters the wire shape must also bump
 `SCHEMA_VERSION`.
 
-## 8. TODO before the G1a freeze (owner: B)
+## 8. Gate checklist (owner: B)
+
+### 8.1 G1a: contract/design and consumer review
+
+Per the [PM resolution on Issue #4](https://github.com/L01nki1/acgn-chronicle/issues/4#issuecomment-6502751345),
+the 2026-11-02 contract gate covers code types, the exported schema, this reference and green CI. Live
+curl and retirement checks gate W2's running service. Existing filter/refusal design artifacts remain useful
+G1a deliveries; their runtime checks move with the host. Consumer questions and C's cross-review remain open
+until their actual records are supplied.
 
 - [x] Decide `score`'s meaning — cosine similarity, higher is better, never comparable across configs (§3.6)
 - [x] `episode_table` — dropped from 0.2.0 rather than guessed (§3.8)
 - [x] Keep internal types out of the schema via `ports.WIRE_MODELS` (§0)
 - [x] Replace the "409 when the corpus moves" rule with immutability + retention (§2, §5)
-- [ ] Run one real `curl` per endpoint and paste the actual responses over the illustrative ones in §4
-- [ ] Document how `media_ids` filtering is implemented (Chroma metadata holds scalars only, so a reverse
-      lookup table maps media ids to doc ids — consumers need to know the constraint, not the mechanism)
-- [ ] Add one worked example of an abstention response
-- [ ] Verify `GET /snapshots` and a `410` against a real retired snapshot
+- [x] Document snapshot-bound native-array filtering, date/empty-result semantics and the F/E responses (§3.3)
+- [x] Add one worked abstention response with a schema-validated synthetic example (§4.1)
+- [x] Store the C4 policy constant and snapshot its wording (`core/ground/policy.py`; runtime prompt inclusion is W2)
+- [ ] C / F / E each raise at least three consumer questions, resolve them, and record the actual answers in the PR
+
+### 8.2 W2: verify the running contract
+
+- [ ] Replace illustrative endpoint examples with real curl captures against the implemented host (`/daily` remains conditional G3)
+- [ ] Verify native `media_ids`, source-type/date filter combinations, no-match and `top_k` boundaries
+- [ ] Capture a real refusal and validate B's request-context citation/refusal checks
+- [ ] Verify `GET /snapshots`, unknown `404`, a known retired `410`, and pins surviving rebuild/prune
+
+Review questions, the W1 grounded-prompt design, and the concrete HTTP dependencies are in
+[G1aReview.md](G1aReview.md). Gate status remains in `docs/ROADMAP.md`; this checklist does not declare
+the contract frozen.
