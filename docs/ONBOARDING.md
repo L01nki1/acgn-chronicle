@@ -67,6 +67,18 @@ open — you do not have to remember it.
 3. New directories match the ownership map in spec 02 §2; cross-WP edits @ the owner in the description
 4. Any change touching an invariant (spec 02 §3) comes with a test
 5. The reviewer is that WP's cross-reviewer, not yourself
+6. **Every limit has a boundary assertion on the composed input.** A constant that bounds anything
+   (`MAX_*`, `budget`, `max_seq_length`, `top_k`, `limit`) is not done until a test asserts the text the
+   *production path* actually builds against it — not the convenient subset of it. The 2026-10-31 review
+   found the chunk budget verified as `prefix + body` while production encodes `prefix + header + body`;
+   both tests were green and every full chunk was silently truncated by the encoder.
+7. **A rule a consumer must obey goes into a type or a validator, not a `Field(description=…)`.** A
+   description is documentation: nothing fails when a consumer breaks it. When two fields must agree
+   (`citations` vs `cited_chunk_ids`), a `model_validator` enforces it; when a value comes from a closed
+   set (`publisher`), the type or a registry enforces it.
+8. **Report a defect where the file lives.** Code already on `main` → the owner's member issue. Code on an
+   open branch → that PR, as a line comment, because a fix proposed against `main` for a file someone is
+   rewriting is a guaranteed conflict and a second source of truth.
 
 ## 4. "CI does not use the network" — exact meaning
 
