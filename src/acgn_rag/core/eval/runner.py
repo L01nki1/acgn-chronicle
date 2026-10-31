@@ -181,6 +181,38 @@ def verify_build_identity(
     return problems
 
 
+def _collection_name(value: Any) -> str:
+    return str(getattr(value, "name", value))
+
+
+def bind_existing_collection(
+    store: Any,
+    *,
+    snapshot_id: str,
+    chunk_config: str,
+    collection: str,
+) -> Any:
+    """Bind the actual sidecar collection without creating a missing one.
+
+    The store may expose a legacy physical name or the new full-id name. The sidecar is the
+    authority; the store must resolve to that same name. A read must not create evidence, so
+    presence is checked before `bind()` (which may create on a missing collection).
+    """
+    client = getattr(store, "client", None)
+    if client is None:
+        raise RuntimeError("store does not expose a client for collection presence checks")
+    names = {_collection_name(item) for item in client.list_collections()}
+    if collection not in names:
+        raise FileNotFoundError(f"collection {collection!r} is not present")
+    bound = store.bind(snapshot_id, chunk_config)
+    bound_name = _collection_name(bound)
+    if bound_name != collection:
+        raise RuntimeError(
+            f"bound collection {bound_name!r} does not match sidecar collection {collection!r}"
+        )
+    return bound
+
+
 def _validate_spec(spec: RunSpec) -> None:
     missing = [
         name
@@ -363,6 +395,7 @@ __all__ = [
     "NullAnswerer",
     "RunResult",
     "RunSpec",
+    "bind_existing_collection",
     "load_build_records",
     "run",
     "verify_build_identity",

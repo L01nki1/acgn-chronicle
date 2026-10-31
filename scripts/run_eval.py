@@ -28,11 +28,12 @@ from acgn_rag.core.eval.qa import load_jsonl, validate
 from acgn_rag.core.eval.runner import (
     NullAnswerer,
     RunSpec,
+    bind_existing_collection,
     load_build_records,
     run,
     verify_build_identity,
 )
-from acgn_rag.core.store import ChromaStore, collection_name
+from acgn_rag.core.store import ChromaStore
 
 CONFIG_CHOICES = ("A", "A'", "A0", "B")
 COLLECTION_LABELS = {"A'": "A-prime"}  # Chroma names reject "'"
@@ -107,16 +108,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"INVALID BUILD RECORD: {exc}", file=sys.stderr)
         return 1
 
-    # TODO(#31): after F's injective full-id mapping lands, bind by the recorded collection
-    # instead of recomputing the short name. Until then this equality is the fail-safe.
-    expected_collection = collection_name(args.snapshot, label)
-    if collection != expected_collection:
-        print(
-            f"COLLECTION MISMATCH: build record={collection!r}, "
-            f"current naming={expected_collection!r}",
-            file=sys.stderr,
-        )
-        return 1
+    # The sidecar is the authority: use its actual collection name (legacy or full-id).
+    # Never reconstruct the physical name from the snapshot id.
 
     embed_config = replace(
         settings.embed,
@@ -136,7 +129,19 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     store = ChromaStore(settings.paths.index / "chroma", settings.store)
-    store.bind(args.snapshot, label)
+    try:
+        bind_existing_collection(
+            store,
+            snapshot_id=args.snapshot,
+            chunk_config=label,
+            collection=collection,
+        )
+    except FileNotFoundError as exc:
+        print(f"COLLECTION NOT FOUND: {exc}", file=sys.stderr)
+        return 2
+    except RuntimeError as exc:
+        print(f"COLLECTION BINDING FAILED: {exc}", file=sys.stderr)
+        return 1
 
     spec = RunSpec(
         snapshot_id=args.snapshot,

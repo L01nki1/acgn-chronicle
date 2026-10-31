@@ -12,6 +12,7 @@ import pytest
 from acgn_rag.core.eval.runner import (
     NullAnswerer,
     RunSpec,
+    bind_existing_collection,
     load_build_records,
     run,
     verify_build_identity,
@@ -61,6 +62,38 @@ class FakeStore:
 class FakeEmbedder:
     def encode_queries(self, texts: Any) -> list[list[float]]:
         return [[0.1, 0.2] for _ in texts]
+
+
+@dataclass(frozen=True)
+class NamedCollection:
+    name: str
+
+
+class BindClient:
+    def __init__(self, names: list[str]) -> None:
+        self._names = names
+
+    def list_collections(self) -> list[NamedCollection]:
+        return [NamedCollection(name) for name in self._names]
+
+
+class BindStore:
+    def __init__(
+        self,
+        names: list[str],
+        bound_name: str,
+        error: RuntimeError | None = None,
+    ) -> None:
+        self.client = BindClient(names)
+        self._bound_name = bound_name
+        self._error = error
+        self.bound = False
+
+    def bind(self, snapshot_id: str, chunk_config: str) -> NamedCollection:
+        self.bound = True
+        if self._error is not None:
+            raise self._error
+        return NamedCollection(self._bound_name)
 
 
 def _qa_item(
@@ -389,3 +422,53 @@ def test_verify_build_identity_matches_and_reports_mismatch() -> None:
     assert verify_build_identity(build, {**build, "device": "cuda"}) == [
         "device: build='cpu', current='cuda'"
     ]
+
+
+def test_bind_existing_collection_uses_actual_name() -> None:
+    store = BindStore(["snap_legacy_A"], "snap_legacy_A")
+    bound = bind_existing_collection(
+        store,
+        snapshot_id=SNAPSHOT,
+        chunk_config="A",
+        collection="snap_legacy_A",
+    )
+    assert bound.name == "snap_legacy_A"
+    assert store.bound
+
+
+def test_bind_existing_collection_missing_does_not_bind() -> None:
+    store = BindStore([], "snap_full_A")
+    with pytest.raises(FileNotFoundError):
+        bind_existing_collection(
+            store,
+            snapshot_id=SNAPSHOT,
+            chunk_config="A",
+            collection="snap_full_A",
+        )
+    assert not store.bound
+
+
+def test_bind_existing_collection_rejects_name_mismatch() -> None:
+    store = BindStore(["snap_legacy_A"], "snap_full_A")
+    with pytest.raises(RuntimeError, match="does not match sidecar"):
+        bind_existing_collection(
+            store,
+            snapshot_id=SNAPSHOT,
+            chunk_config="A",
+            collection="snap_legacy_A",
+        )
+
+
+def test_bind_existing_collection_propagates_ambiguity() -> None:
+    store = BindStore(
+        ["snap_legacy_A"],
+        "snap_legacy_A",
+        error=RuntimeError("ambiguous snapshot"),
+    )
+    with pytest.raises(RuntimeError, match="ambiguous"):
+        bind_existing_collection(
+            store,
+            snapshot_id=SNAPSHOT,
+            chunk_config="A",
+            collection="snap_legacy_A",
+        )
