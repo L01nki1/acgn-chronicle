@@ -38,6 +38,9 @@ run's `meta.json`.
 ### G1b · 2026-11-09 — indexes and facts
 
 - A / A' / B index builds reproducible; chunk counts explainable and stable across rebuilds
+- **no silent truncation**: for every config and a non-empty context header,
+  `len(ids(prefix + header + "\n" + chunk)) <= max_seq_length` on every chunk
+  (`test_encoded_length_never_exceeds_context`); a full-budget chunk that overflows raises at build time
 - encoding on the recorded lane with an identity-keyed cache (model policy: RUNBOOK §3.5); compliance tests green (`pytest tests/compliance -q`)
 - L0 fact extraction on a 30-item spot check ≥90% field accuracy, every row carries `chunkId` + `url`
 
@@ -63,6 +66,8 @@ run's `meta.json`.
 5. Unanswerable questions produce `abstained=true` and a refusal reason instead of a guessed answer.
 6. Evaluation uses a QA set with at least 30 items, balanced across the required QA types, and reports the metric definitions and rerun spread.
 7. The final report contains the required task-5 narrative: method, experiments, discussion, references, and the separate contribution/signature page.
+8. `cited_chunk_ids` equals the chunk ids of `citations` (a validator, not a convention), and every citation's `chunk_id` is in the retrieved set.
+9. Filter conversion is single-point: `RetrievalFilters` → store `where` happens in one function, covered by a test for each filter family and for `[]` (means "no filter", not "match nothing").
 
 #### G2 stretch items (nice-to-have, cut first if schedule slips)
 
@@ -159,6 +164,10 @@ Secondary responsibilities (revised 2026-10-28):
 - **Member issue** = **one persistent issue per member** (`[A]`, `[B]`…) labeled `WPn`, with no milestone
   because it spans every gate. It is a workbench, not a ticket for one task. Do not open a task issue for
   each unit of work.
+- **A finding about code that is already written** goes to the owner's member issue — unless the file sits
+  on an open branch, in which case it goes on that PR as a line comment (ONBOARDING §3 item 8). It never
+  becomes a task issue: a fix proposed against `main` for a file someone is rewriting is a conflict plus a
+  second source of truth.
 - **Stage report** = a comment on your own member issue at the end of each stage, in this fixed shape. A
   report missing the evidence line does not count:
 
