@@ -3,6 +3,7 @@
 > Rule (06 §2): every change of scope, interface or metric definition gets one line here
 > (date, decision, reason, who it affects). **Verbal decisions do not count.**
 > This file is the only place for change history; the spec documents describe the current truth only.
+> The per-member contribution log (issue #6, G1a) lives at **`CONTRIBUTION_LOG.md`** — D updates it weekly.
 
 ## Baseline decisions (04 §7)
 
