@@ -468,12 +468,12 @@ class ChromaStore:
         distances = _field(result, "distances")[0] or []
         return list(zip(ids, documents, metadatas, distances, strict=True))
 
-    def _available(self, where: dict[str, Any] | None) -> int:
-        """Rows matching the filter: the denominator of the pitfall-3 assert."""
+    def _available(self, where: dict[str, Any] | None, probe: int) -> int:
+        """Matching-row lower bound; materialize at most ``probe`` filtered ids."""
         collection = self._require_collection()
         if where is None:
             return int(collection.count())
-        return len(_field(collection.get(where=where, include=[]), "ids"))
+        return len(_field(collection.get(where=where, limit=probe, include=[]), "ids"))
 
     def query(
         self, embedding: Sequence[float], top_k: int, where: dict[str, Any] | None = None
@@ -485,9 +485,16 @@ class ChromaStore:
         ``min(top_k, available_after_filter)`` rows before truncation to ``top_k``.
         """
         collection = self._require_collection()
+        if top_k < 1:
+            raise ValueError("top_k must be at least 1")
+        if collection.count() == 0:
+            raise RuntimeError(
+                f"collection {collection.name!r} is empty: a rebuild is in progress or failed"
+            )
         n_results = top_k * max(self.settings.over_fetch_factor, 1)
+        available = self._available(where, n_results + 1)
         rows = self._fetch_rows(embedding, n_results, where)
-        _assert_min_rows(len(rows), top_k, self._available(where), collection.name)
+        _assert_min_rows(len(rows), top_k, available, collection.name)
         hits = [
             ScoredPayload(payload=payload_from_metadata(metadata, document), score=1.0 - distance)
             for (_chunk_id, document, metadata, distance) in rows

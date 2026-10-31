@@ -162,6 +162,45 @@ def test_query_raises_when_hnsw_under_returns(
         loaded.query([1.0, 0.0], top_k=5)
 
 
+def test_filtered_availability_probe_is_bounded(
+    store: ChromaStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    collection = store.bind(SNAP, "A")
+    payloads = [_payload(f"doc-{index}::A::1", (1 if index < 30 else 2,)) for index in range(2000)]
+    store.upsert_chunks(payloads, [[1.0, 0.0]] * len(payloads))
+    calls: list[dict[str, Any]] = []
+    original_get = type(collection).get
+
+    def observed_get(self, *args, **kwargs):
+        calls.append(kwargs)
+        return original_get(self, *args, **kwargs)
+
+    monkeypatch.setattr(type(collection), "get", observed_get)
+    assert len(store.query([1.0, 0.0], top_k=3, where=media_filter([1]))) == 3
+    assert len(calls) == 1
+    assert calls[0]["include"] == []
+    assert 0 < calls[0].get("limit", 2000) <= 3 * store.settings.over_fetch_factor + 1
+
+
+def test_empty_replacement_collection_is_an_error(loaded: ChromaStore) -> None:
+    loaded.drop_collection(SNAP, "A")
+    loaded.bind(SNAP, "A")
+    with pytest.raises(RuntimeError, match="empty"):
+        loaded.query([1.0, 0.0], top_k=1)
+    loaded.upsert_chunks(_two_chunks(), VECTORS)
+    assert len(loaded.query([1.0, 0.0], top_k=1)) == 1
+
+
+def test_no_filter_match_is_empty_success_on_a_populated_collection(loaded: ChromaStore) -> None:
+    assert loaded.query([1.0, 0.0], top_k=3, where=media_filter([9999])) == []
+
+
+@pytest.mark.parametrize("top_k", [0, -1])
+def test_query_rejects_nonpositive_result_count(loaded: ChromaStore, top_k: int) -> None:
+    with pytest.raises(ValueError, match="top_k"):
+        loaded.query([1.0, 0.0], top_k=top_k)
+
+
 def test_prune_keeps_newest_snapshots(store: ChromaStore) -> None:
     store.client.get_or_create_collection(name="unrelated")  # non-snap_* must never be pruned
     snapshots = ("20260101aaaa1111", "20260102bbbb2222", "20260103cccc3333")

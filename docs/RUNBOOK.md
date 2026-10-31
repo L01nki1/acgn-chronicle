@@ -97,6 +97,13 @@ distance, so the score is `1 - distance`.
 
 ### 3.2 Snapshot pointer and retention
 
+- Filtered queries probe at most `top_k * over_fetch_factor + 1` matching ids to check
+  HNSW under-return, rather than returning every matching id to Python. This bounds the
+  probe result size; it does not establish an engine latency target.
+- Querying an empty bound collection raises an explicit rebuild/failed-build error.
+  A nonempty collection with zero matches for a valid restrictive filter still returns `[]`.
+  Positive `top_k` is required. W2 still supplies completion/catalog/lease coordination.
+
 - New collections are named `snap_full_<full_snapshot_id>_<config_label>`. The store records the full
   snapshot id, configuration label and naming version in collection metadata; `A'` uses label
   `A-prime`. `identity.json` and `build.json` record the actual collection name.
