@@ -19,8 +19,10 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 QA_TYPES = ("A", "B", "C", "D")
 # the language a question is asked in; per-language metrics key on it (issue #14 P1)
@@ -72,6 +74,74 @@ def _urls(item: dict[str, Any]) -> list[str]:
         return []
     urls = evidence.get("urls")
     return [u for u in urls if isinstance(u, str)] if isinstance(urls, list) else []
+
+
+#: Base domains the frozen evaluation corpus is built from - `docs/SOURCES.md` §3 (W1), one entry
+#: per source family. A gold url on any other host cannot be in the snapshot, so the item leaves
+#: both denominators as `gold_unavailable` (EVAL_PROTOCOL §4): a 19 % denominator loss discovered
+#: on 11/09 is not a measurement, it is an accident. Promoting a source means adding its domain
+#: here in the same PR that edits §3; `tests/test_qa_rules.py` fails if §3 runs ahead of this list.
+W1_HOSTS: tuple[str, ...] = (
+    "toei-anim.co.jp",
+    "capcom.co.jp",
+    "mappa.co.jp",
+    "bones.co.jp",
+    "paworks.jp",
+    "prtimes.jp",
+    "animenewsnetwork.com",
+    "gcores.com",
+    "chuapp.com",
+    "yystv.cn",
+    "anilist.co",
+    "bgm.tv",
+    "bilibili.com",
+    "syosetu.com",
+)
+
+
+def host_of(url: str) -> str:
+    """Lowercased hostname of a url, without userinfo or port; "" when unparseable."""
+    try:
+        return (urlsplit(url).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def host_in_scope(host: str, allowed: Sequence[str] = W1_HOSTS) -> bool:
+    """True when `host` is one of `allowed` or a subdomain of one.
+
+    Subdomains matter: the corpus takes `corp.toei-anim.co.jp` press releases while
+    `docs/SOURCES.md` §3 lists the `www.` endpoint, and a citation must be able to point at the
+    page it actually came from.
+    """
+    return any(host == base or host.endswith("." + base) for base in allowed)
+
+
+def validate_hosts(
+    items: list[dict[str, Any]],
+    *,
+    allowed: Sequence[str] = W1_HOSTS,
+    label: str = "set",
+) -> list[str]:
+    """Flag every gold url whose host the corpus does not crawl.
+
+    Offline and deterministic: it reads the recorded urls only, so it can run on every draft. It
+    catches the class of defect that otherwise surfaces as a smaller denominator after the
+    snapshot exists, when nothing can be fixed any more.
+    """
+    problems: list[str] = []
+    for item in items:
+        where = str(item.get("qa_id") or "?")
+        for url in _urls(item):
+            host = host_of(url)
+            if not host:
+                problems.append(f"{label} {where}: unparseable gold url {url}")
+            elif not host_in_scope(host, allowed):
+                problems.append(
+                    f"{label} {where}: {host} is not a W1 source (docs/SOURCES.md §3) - the gold url "
+                    "cannot be in the snapshot and the item would silently become gold_unavailable"
+                )
+    return problems
 
 
 def _check_item(item: dict[str, Any], index: int) -> list[str]:
@@ -225,7 +295,11 @@ __all__ = [
     "QA_TYPES",
     "REQUIRED_FIELDS",
     "TYPE_QUOTAS",
+    "W1_HOSTS",
+    "host_in_scope",
+    "host_of",
     "load_jsonl",
     "summary",
     "validate",
+    "validate_hosts",
 ]
