@@ -278,7 +278,7 @@ function renderResponse(mode, payload, request, fromCache) {
   const stateName = viewState(mode, payload);
   dom.resultMeta.textContent = [
     mode === "ask" ? "带引用问答" : "片段检索",
-    `快照 ${request.snapshot_id}`,
+    `快照 ${request.body.snapshot_id}`,
     fromCache ? "缓存命中" : "本次响应",
   ].join(" · ");
 
@@ -385,7 +385,7 @@ function renderAnswer(payload, request) {
 
   const container = element("div");
   const meta = element("div", { className: "answer-meta" }, [
-    element("span", { text: `快照 ${request.snapshot_id}` }),
+    element("span", { text: `快照 ${request.body.snapshot_id}` }),
     element("span", { text: `cited_chunk_ids ${payload.cited_chunk_ids?.length ?? 0} 条` }),
     element("span", { text: "回答只展示，不在客户端补全引文" }),
   ]);
@@ -482,7 +482,7 @@ function renderEmpty(request, detail) {
         text: "空结果表示当前筛选下没有证据，不是系统拒答。页面会保持这两种状态的区别。",
       }),
       element("p", { className: "state-detail", text: `筛选：${filtersSummary(filters)}` }),
-      element("p", { className: "state-detail", text: `快照：${request.snapshot_id}` }),
+      element("p", { className: "state-detail", text: `快照：${request.body.snapshot_id}` }),
       element("div", { className: "state-actions" }, [clearFilters]),
     ]),
   );

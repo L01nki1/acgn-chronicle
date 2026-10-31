@@ -14,7 +14,18 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 TEST_FILE = ROOT / "tests" / "web" / "contract.test.mjs"
+APP_FILE = ROOT / "src" / "acgn_rag" / "web" / "static" / "app.mjs"
 NODE = shutil.which("node")
+
+
+def test_page_reads_the_snapshot_from_the_request_body() -> None:
+    """The render wrapper stores the wire body under `body`; `request.snapshot_id` is undefined.
+
+    A browser run rendered `快照 undefined` in the result meta while this test was missing.
+    """
+    source = APP_FILE.read_text(encoding="utf-8")
+    assert "request.snapshot_id" not in source
+    assert "request.body.snapshot_id" in source
 
 
 @pytest.mark.skipif(
