@@ -3,13 +3,22 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from acgn_rag.core.eval.qa import load_jsonl, summary, validate
+from acgn_rag.core.eval.qa import (
+    W1_HOSTS,
+    host_in_scope,
+    host_of,
+    load_jsonl,
+    summary,
+    validate,
+    validate_hosts,
+)
 
 
 def _item(
@@ -203,3 +212,55 @@ def test_cli_reports_and_exits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     from check_qa import main
 
     assert main() == 0
+
+
+def test_gold_url_outside_the_w1_sources_is_rejected() -> None:
+    """A url on a host the corpus never crawls becomes gold_unavailable, not a 0 score."""
+    items = _valid_set()
+    items[0]["gold_evidence"] = {
+        "urls": ["https://p-ch.jp/news/26745/"],
+        "publisher": "Bushiroad",
+        "spans": ["x"],
+    }
+    problems = validate_hosts(items)
+    assert any("p-ch.jp" in problem for problem in problems), problems
+
+
+def test_subdomain_of_a_w1_host_counts_as_in_scope() -> None:
+    """The corpus takes press releases from corp.* while SOURCES.md §3 lists the www. endpoint."""
+    assert host_in_scope("corp.toei-anim.co.jp")
+    assert host_in_scope("graphql.anilist.co")
+    assert host_in_scope("toei-anim.co.jp")
+    assert not host_in_scope("nottoei-anim.co.jp")
+    assert not host_in_scope("toei-anim.co.jp.evil.example")
+
+
+def test_every_source_listed_in_sources_md_is_in_the_allowlist() -> None:
+    """SOURCES.md §3 and W1_HOSTS must move together, or the checker silently lies.
+
+    One direction only: the allowlist may carry hosts §3 mentions without a url (BONES and
+    P.A.WORKS share a row with MAPPA), but a url §3 lists must never be missing from it.
+    """
+    doc = Path(__file__).resolve().parents[1] / "docs" / "SOURCES.md"
+    section = doc.read_text(encoding="utf-8").split("## 3. W1 sources")[1].split("## 4.")[0]
+    urls = re.findall(r"https?://[^\s`|)]+", section)
+    assert urls, "SOURCES.md §3 parsed as empty - the section heading moved"
+    missing = sorted({host_of(url) for url in urls if not host_in_scope(host_of(url))})
+    assert not missing, f"SOURCES.md §3 lists hosts missing from W1_HOSTS: {missing}"
+    assert "toei-anim.co.jp" in W1_HOSTS
+
+
+def test_published_stamp_reads_metadata_then_time_tag() -> None:
+    """The in-window check needs the page's own date; both markup shapes occur in the sources."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    from check_qa import published_stamp
+
+    assert (
+        published_stamp(
+            '<meta property="article:published_time" content="2026-10-29T13:30:00+09:00">'
+        )
+        == "2026-10-29T13:30:00+09:00"
+    )
+    assert published_stamp('<meta content="2026-10-28" name="datePublished">') == "2026-10-28"
+    assert published_stamp('<time datetime="2026-10-28">28 Oct</time>') == "2026-10-28"
+    assert published_stamp("<html><body>no date here</body></html>") is None

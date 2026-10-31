@@ -57,7 +57,8 @@ The freeze date exists because a set edited after seeing the results is not a me
 | `qa_id` | `<type>-<nnn>`, unique, never reused |
 | `type` | `A` time-sensitive · `B` detail · `C` cross-source synthesis · `D` out-of-scope / unanswerable |
 | `lang` | `en` or `zh` — the language the **question** is asked in, not the source's. Per-language metrics key on it; ≥8 of 30 must be `zh` (§3) |
-| `answerable` | `false` for items the corpus cannot answer. **Explicit, never inferred from `type`** |
+| `answerable` | `false` for items the corpus cannot answer. **Explicit, never inferred from `type`**: type D is "out-of-scope", which is not the same as unanswerable — a type-D item may be answerable, and `abstention_accuracy` counts only the `answerable: false` ones |
+| `answerable: false` | unanswerable items carry `gold_answer` `""` and `key_entities` `[]` |
 | `gold_answer` | the shortest string that is either right or wrong; no hedging |
 | `gold_evidence.urls` | **the authoritative field.** 1–3 canonical source urls |
 | `gold_evidence.spans` | optional quotes that let a human grader find the sentence quickly. Never used by the automatic hit rule |
@@ -101,6 +102,23 @@ rendered as "chess" instead of "Go"). Two consequences, registered before the fr
   On the GPU-candidate lanes it may prove unnecessary: in the pilot bake-off both candidates answered
   every zh query on JP sources directly (zh hit@5 = 1.00, `notebooks/embedding-bakeoff/`); n=16 is too
   small to retire a pre-registered lane, so the G1a bake-off reports it per lane instead.
+
+### 3.2 Source scope — a gold url the corpus cannot hold is not evidence
+
+`check_qa.py` also checks, offline, that every `gold_evidence.urls` host is one the frozen corpus is
+built from (`docs/SOURCES.md` §3). An out-of-scope url never fails loudly later: it resolves as
+`gold_unavailable`, leaves both denominators (§4), and the base the reported number was computed on
+shrinks without anything looking wrong. Six such items in the v1 draft would have cost ~19 % of the
+set at resolution time, on 11/09, when nothing could be fixed any more.
+
+- The allowlist is `acgn_rag.core.eval.qa.W1_HOSTS`, one base domain per source family; a subdomain
+  counts, because the corpus takes `corp.toei-anim.co.jp` press releases while §3 lists the `www.`
+  endpoint.
+- **Promoting a source means editing §3 and `W1_HOSTS` in the same PR.** A test fails if §3 lists a
+  url whose host the allowlist lacks, so the document cannot run ahead of the checker.
+- `--check-urls` (network, local only) additionally requires each url to answer 200 and to state a
+  publication time inside `window_end`. Run it before the freeze, not on every commit: a page dated
+  after the window is not evidence for that snapshot, however plausible the claim.
 
 ## 4. Retrieval quality — `retrieval_hit_rate`
 
