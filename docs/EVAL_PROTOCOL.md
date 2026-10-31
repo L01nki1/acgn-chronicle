@@ -58,6 +58,7 @@ The freeze date exists because a set edited after seeing the results is not a me
 | `type` | `A` time-sensitive · `B` detail · `C` cross-source synthesis · `D` out-of-scope / unanswerable |
 | `lang` | `en` or `zh` — the language the **question** is asked in, not the source's. Per-language metrics key on it; ≥8 of 30 must be `zh` (§3) |
 | `answerable` | `false` for items the corpus cannot answer. **Explicit, never inferred from `type`** |
+| `answerable: false` | unanswerable items carry `gold_answer` `""` and `key_entities` `[]` |
 | `gold_answer` | the shortest string that is either right or wrong; no hedging |
 | `gold_evidence.urls` | **the authoritative field.** 1–3 canonical source urls |
 | `gold_evidence.spans` | optional quotes that let a human grader find the sentence quickly. Never used by the automatic hit rule |
