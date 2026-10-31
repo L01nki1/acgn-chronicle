@@ -26,6 +26,8 @@ def test_contract_module_passes_its_node_suite() -> None:
         cwd=ROOT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
         timeout=60,
     )
@@ -41,6 +43,8 @@ def test_contract_module_exports_the_client_guardrails() -> None:
         cwd=ROOT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
         timeout=60,
     )

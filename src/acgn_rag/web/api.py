@@ -10,6 +10,7 @@ it talks to these routes (or an in-process implementation of the same port).
 
 from __future__ import annotations
 
+import mimetypes
 from pathlib import Path
 from typing import Annotated
 
@@ -31,6 +32,11 @@ from acgn_rag.web.mock_port import MockKnowledgePort
 
 STATIC_DIR = Path(__file__).with_name("static")
 _API_PATHS = frozenset({"/snapshots", "/snapshot", "/retrieve", "/ask", "/daily"})
+
+# A browser refuses to execute a module served as text/plain. Windows registries do not always
+# map .mjs, so pin the type here instead of inheriting the host's MIME database.
+mimetypes.add_type("text/javascript", ".mjs")
+mimetypes.add_type("text/javascript", ".js")
 
 
 def create_app(backend: KnowledgePortBackend | None = None) -> FastAPI:
