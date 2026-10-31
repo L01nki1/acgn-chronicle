@@ -47,12 +47,19 @@ The PM resolved runtime evidence timing in [Issue #4](https://github.com/L01nki1
 real curl/filter/refusal/retirement checks belong to W2's running service and no longer block the W1
 contract artifacts. E verified the answers at `c1949f1`, retaining E-owned implementation work for G1b/W2;
 D's compliance-scope review reported no blockers and its fixture-format suggestion is addressed.
-C's own consumer questions and WP4 cross-review, plus F's verification of the responses, remain outstanding.
+F verified `30f746d`, and D's WP5 check found no metric-input gap. F's interrupted-fresh-build caveat is
+now explicit in KnowledgePort §3.2: old sidecars cannot prove a replacement collection completed; unsafe
+transitions answer `503`. C's own consumer questions and WP4 cross-review remain outstanding.
 G1a remains **open**, and this contract work does not pass A's separate
 corpus/idempotency gate. A's canonical snapshot minting and F's short-name/full-id binding need the explicit
 handoff in G1aReview §6 before real multi-snapshot writes, `--fresh`, collection drops or read bindings.
 The alias guard is a write-safety prerequisite; the W2 host timing does not defer it. The #17 ingest-category
 conclusion stays unchanged.
+
+F's [PR #32](https://github.com/L01nki1/acgn-chronicle/pull/32) is the #31 storage candidate, not a merged
+fix. B's Windows / Python 3.13.5 isolation/store/build check passed 52 tests at `fbc609d`; E's requested
+no-create read API and regression remain open. F implements that change, then E/B recheck it. A's
+canonical minting confirmation and corpus evidence are still outstanding.
 
 ### G1b · 2026-11-09 — indexes and facts
 

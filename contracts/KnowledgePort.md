@@ -115,17 +115,24 @@ build is evidenced by the matching `<data-root>/index/<snapshot_id>/<label>/buil
 name the same full snapshot id, configuration, collection and encoder identity. `A'` uses label `A-prime`.
 These retained sidecars are the initial registry evidence; a future A-owned catalog may carry the same facts.
 
+Matching old sidecars do not prove that the **current physical collection instance** completed. A fresh
+replacement can leave the old records in place while its new collection is empty or partially written.
+The build/host lifecycle must expose an authoritative in-progress state before destructive replacement,
+or atomically publish an independently completed generation. Until that generation is proven complete,
+reads return `503`; neither a reused physical name nor matching old metadata proves readiness. A/C/F own
+that W2 publication/transition mechanism and its interruption tests, alongside pin/lease coordination.
+
 | Host state for the requested full id and configuration | Read result |
 |---|---|
 | Host has no served snapshot / inventory is not ready | `503` with `Retry-After` |
 | Ready host has no completed-build record for that id/configuration | `404` (never known to that serving context) |
 | Valid completed-build records remain, but the collection has been retired | `410` (known, no longer retained); include the current id in the error response |
-| Matching records and collection are present | Serve that retained snapshot, even if it is not current |
+| Matching records prove the present collection generation completed and is available | Serve that retained snapshot, even if it is not current |
 | Records are partial, corrupt, inconsistent, or a build/pin transition prevents a safe read | `503`; do not guess `404`/`410` from an incomplete record |
 
-Check this state **before** calling the store's build-side `bind`, which uses `get_or_create_collection`
-and would otherwise create an empty collection for an unknown id. A read must never create evidence of
-existence. Retention keeps completed-build records after pruning collections so retired ids remain known.
+Check this state **before** calling a store build-side binding operation, which may create a missing
+collection. A read must open only an existing verified collection and fail without creating anything if
+it is absent. Retention keeps completed-build records after pruning collections so retired ids remain known.
 This is the A/C/F host-lifecycle contract for W2, not a claim that a live endpoint already implements it.
 
 ### 3.3 `RetrievalFilters`

@@ -18,7 +18,7 @@ The agenda itself is not evidence that a consumer asked or accepted a question.
 | Consumer | Topics to check against the candidate | Actual questions and resolution |
 |---|---|---|
 | C — web / WP6 ([#5](https://github.com/L01nki1/acgn-chronicle/issues/5)) | (1) Can the refusal fixture render separately from `503`? (2) Are empty multi-selects sent as no filter, and is `410` shown without silently changing snapshots? (3) Can `ChunkExcerpt` render a clipped quote and attribution while the request's snapshot is carried in the view and cache key? | Pending C's own questions and reply |
-| F — KB / Isla consumer ([#8](https://github.com/L01nki1/acgn-chronicle/issues/8)) | (1) Can media-id membership and the index resolve against the same retained snapshot? (2) Does every retrieved chunk retain the citation provenance B needs? (3) Is the provisional `DailyDigest` isolated behind one consumer adapter, with no dependency on the removed `episode_table`? | Actual A1/A2/Q1–Q3 answered in §5; consumer verification of the revision requested |
+| F — KB / Isla consumer ([#8](https://github.com/L01nki1/acgn-chronicle/issues/8)) | (1) Can media-id membership and the index resolve against the same retained snapshot? (2) Does every retrieved chunk retain the citation provenance B needs? (3) Is the provisional `DailyDigest` isolated behind one consumer adapter, with no dependency on the removed `episode_table`? | F verified `30f746d`; its Q2 interruption caveat and Q3 storage candidate are recorded in §5.2/§6 |
 | E — retrieval / runner ([#7](https://github.com/L01nki1/acgn-chronicle/issues/7)) | (1) Are ANY-within-list / AND-between-families and empty-list defaults implementable? (2) Can UTC day/datetime bounds and a non-empty media selection with no matches remain restrictive? (3) Can the runner pin its snapshot and distinguish unknown `404` from retired `410`, including while a rebuild or retention cleanup occurs? | E verified the answers at `c1949f1`; E2 implementation deltas and E3 lifecycle work remain staged (§5.2) |
 
 C is WP4's cross-reviewer according to ROADMAP §4. AI checks and passing CI do not substitute for that
@@ -133,7 +133,7 @@ Optional-with-default addition and C/F notice. The conclusion is recorded in DEC
 KnowledgePort §3.8; the interface stays traceable while that record is reviewed and merged.
 
 This historical resolution is preserved separately from F's newer multi-question review above. C's own
-questions/cross-review and F's verification of this revision remain open; E's verification is recorded below.
+questions/cross-review remain open; F's and E's verification are recorded below.
 W2 live checks are separately scoped.
 
 ### 5.2 Follow-up verification (2026-10-31)
@@ -152,6 +152,17 @@ reported no blocking findings in that scope and 20 compliance tests, eight contr
 sync passing. Its fixture-format suggestion is addressed by using `20261028-abcdef012345` in the
 serializer compliance fixture. C4 wording changes must keep the policy constant, its snapshot test and
 the COMPLIANCE quote in sync. D's review does not cover contract semantics or replace C's cross-review.
+
+F [verified `30f746d`](https://github.com/L01nki1/acgn-chronicle/pull/26#issuecomment-6537520129),
+confirming A1/A2/Q1 and the fractional-second clarification. Its Q2 probe left old successful sidecars
+beside an empty replacement collection after an interrupted fresh build. KnowledgePort §3.2 now requires
+completion evidence for the present collection generation and `503` throughout an unsafe transition;
+the host must open existing collections without creating them. This is the W2 lifecycle contract, not
+a claim that its transition/pin mechanism exists. Q3's candidate implementation remains under review (§6).
+
+D's [WP5 consumer-computability check](https://github.com/L01nki1/acgn-chronicle/pull/26#issuecomment-6538104805)
+found no metric-input gap. Together with F/E's scoped verification, it leaves C's own questions and
+WP4 cross-review outstanding; none of these checks replaces C's review or passes the corpus gate.
 
 ## 6. Snapshot identity handoff to A/F
 
@@ -172,3 +183,12 @@ F-owned and is handed off explicitly in the PR response rather than edited here.
 Date-first makes the id readable but does not make its hash a clock. Retention's publication order must
 come from validated build/catalog timestamps, especially when several snapshots share a `window_end`
 day; a missing age record must not be replaced by an assumed ordering of those hashes.
+
+F published [PR #32](https://github.com/L01nki1/acgn-chronicle/pull/32) at `fbc609d` for #31. In an
+isolated copy on Windows / Python 3.13.5, B ran `test_snapshot_identity_safety.py`, `test_store_chroma.py`
+and `test_build_index.py`: **52 passed**. The candidate covers full-id isolation, pre-mutation ownership
+checks, verified legacy ownership, same-owner full/legacy ambiguity and publication-time pruning.
+It is not merged: E's [requested change](https://github.com/L01nki1/acgn-chronicle/pull/32#pullrequestreview-5720797378)
+still requires a no-create read binding and a missing-collection regression. The existing `bind` is a
+build operation and may create a collection. B's consumer check does not accept a read-path workaround
+or mark #31 resolved; F implements the missing API, then E/B recheck the candidate.
