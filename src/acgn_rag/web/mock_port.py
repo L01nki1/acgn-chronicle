@@ -205,18 +205,32 @@ def _bound(value: str, *, end_of_day: bool) -> datetime:
     return parsed
 
 
-def _time_bounds(filters: RetrievalFilters) -> tuple[datetime | None, datetime | None]:
-    """Validate the raw bounds first, then widen a date-only `until` to a half-open end.
+def _is_date_only(value: str) -> bool:
+    return len(value) == 10
 
-    Comparing the widened end against `since` would accept an inverted pair that happens to
-    share one calendar day (`since=10-05`, `until=10-04`), so the raw comparison is the gate.
+
+def _time_bounds(filters: RetrievalFilters) -> tuple[datetime | None, datetime | None]:
+    """Validate bounds, expanding a date-only `until` to the next midnight.
+
+    Two date-only bounds are compared as calendar dates *before* `until` expands, so an
+    inverted adjacent pair (`since=10-05`, `until=10-04`) is a `422`, not a one-day interval.
+    A mixed pair is compared after expansion, so `since=2026-09-25T12:00:00Z`,
+    `until=2026-09-25` is valid: its upper instant is 2026-09-26T00:00Z.
     """
-    since = _parse_timestamp(filters.since) if filters.since else None
-    raw_until = _parse_timestamp(filters.until) if filters.until else None
-    if since is not None and raw_until is not None and since > raw_until:
-        raise InvalidFilter("`since` must not be later than `until`.")
-    until = _bound(filters.until, end_of_day=True) if filters.until else None
-    return since, until
+    since_text = filters.since
+    until_text = filters.until
+    since = _parse_timestamp(since_text) if since_text else None
+    until = _parse_timestamp(until_text) if until_text else None
+    if until is None or until_text is None:
+        return since, None
+
+    widened_until = _bound(until_text, end_of_day=True)
+    if since is not None:
+        both_date_only = _is_date_only(since_text) and _is_date_only(until_text)
+        upper = until if both_date_only else widened_until
+        if since > upper:
+            raise InvalidFilter("`since` must not be later than `until`.")
+    return since, widened_until
 
 
 def _abstain(reason: str) -> GroundedAnswer:
@@ -259,18 +273,18 @@ class MockKnowledgePort:
 
     def retrieve(self, query: RetrievalQuery) -> list[ChunkExcerpt]:
         self.snapshot(query.snapshot_id)
-        _time_bounds(query.filters or RetrievalFilters())
+        since, until = _time_bounds(query.filters or RetrievalFilters())
         if not query.text.strip():
             return []
-        return self._select(query)
+        return self._select(query, since=since, until=until)
 
     def ask(self, query: RetrievalQuery) -> GroundedAnswer:
         self.snapshot(query.snapshot_id)
-        _time_bounds(query.filters or RetrievalFilters())
+        since, until = _time_bounds(query.filters or RetrievalFilters())
         text = query.text.strip()
         if not text:
             return _abstain("问题为空，没有可检索的文本。")
-        excerpts = self._select(query)
+        excerpts = self._select(query, since=since, until=until)
         if not excerpts:
             return _abstain("当前筛选条件下没有可用证据；系统拒绝在没有依据时作答。")
         if any(term in text for term in _PRIVATE_TERMS):
@@ -298,9 +312,14 @@ class MockKnowledgePort:
             abstain_reason=None,
         )
 
-    def _select(self, query: RetrievalQuery) -> list[ChunkExcerpt]:
+    def _select(
+        self,
+        query: RetrievalQuery,
+        *,
+        since: datetime | None,
+        until: datetime | None,
+    ) -> list[ChunkExcerpt]:
         filters = query.filters or RetrievalFilters()
-        since, until = _time_bounds(filters)
         source_types = set(filters.source_types or ())
         media_ids = set(filters.media_ids or ())
         selected: list[ChunkExcerpt] = []

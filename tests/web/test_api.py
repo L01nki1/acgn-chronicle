@@ -149,6 +149,34 @@ def test_same_day_range_keeps_that_day(client: TestClient) -> None:
     assert [item["citation"]["published_at"] for item in payload] == ["2026-09-25"]
 
 
+def test_mixed_datetime_since_with_date_only_until_is_not_an_inversion(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/retrieve",
+        json=_query(filters={"since": "2026-09-25T12:00:00Z", "until": "2026-09-25"}),
+    )
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_mixed_bounds_widen_until_to_the_end_of_the_day(client: TestClient) -> None:
+    payload = client.post(
+        "/retrieve",
+        json=_query(filters={"since": "2026-09-24T12:00:00Z", "until": "2026-09-25"}),
+    ).json()
+    assert [item["citation"]["published_at"] for item in payload] == ["2026-09-25"]
+
+
+def test_mixed_bounds_that_are_really_inverted_are_422(client: TestClient) -> None:
+    response = client.post(
+        "/retrieve",
+        json=_query(filters={"since": "2026-09-26T12:00:00Z", "until": "2026-09-25"}),
+    )
+    assert response.status_code == 422
+    assert "since" in response.json()["detail"]
+
+
 def test_invalid_date_is_422(client: TestClient) -> None:
     response = client.post("/retrieve", json=_query(filters={"since": "not-a-date"}))
     assert response.status_code == 422
