@@ -52,8 +52,8 @@ deliberately does *not* do.
 
 **The only layer nobody can bypass is server-side.** To block merging while a check is red, the repository
 owner sets it once: `Settings → Rules → New branch ruleset` → target `main` → **Require status checks to
-pass** → select `ubuntu-latest / py3.13` and `macos-latest / py3.13` (add `windows-latest / py3.13` once it
-has run at least once). Until that exists, a red PR can still be merged by whoever presses the button.
+pass** → select `ubuntu-latest / py3.13`, `macos-latest / py3.13` and `windows-latest / py3.13`. Until that
+exists, a red PR can still be merged by whoever presses the button.
 
 ## 3. PR checklist (the reviewer ticks each line)
 
