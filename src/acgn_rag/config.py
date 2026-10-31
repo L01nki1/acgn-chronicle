@@ -110,7 +110,7 @@ class HttpConfig:
 @dataclass(frozen=True)
 class StoreConfig:
     backend: str = field(default_factory=lambda: _env("ACGN_STORE_BACKEND", "chroma") or "chroma")
-    # Collection naming: snap_<snapshot_id[:12]>_<config>; keep only current and previous snapshot.
+    # Collection naming uses the complete snapshot id; retention defaults to two snapshots.
     keep_snapshots: int = field(default_factory=lambda: _env_int("ACGN_KEEP_SNAPSHOTS", 2))
     over_fetch_factor: int = field(default_factory=lambda: _env_int("ACGN_OVERFETCH", 5))
 
