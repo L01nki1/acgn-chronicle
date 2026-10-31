@@ -12,13 +12,14 @@ Gate status stays in [`docs/ROADMAP.md`](../docs/ROADMAP.md); member progress st
 The following agenda entries are **B-authored prompts for review**, not questions or approvals supplied by C/F/E.
 Issue #4 requires each of C, F and E to raise at least three consumer-side questions and for the actual
 questions and resolutions to be recorded in the PR. C's C1–C6, F's A1/A2/Q1–Q3 and E's E1–E3 now have
-actual source records and B's answers in §5. C approved 0.2.2 at `c8c3e88`; that approval does not
-cover this 0.2.3 semantic revision, which requires C's re-review.
+actual source records and B's answers in §5. C approved 0.2.2 at `c8c3e88` and separately
+[approved the 0.2.3 delta at `aac6598`](https://github.com/L01nki1/acgn-chronicle/pull/26#pullrequestreview-5724246386).
+This follow-up records that approval and the existing consumer notice; it changes no contract semantics.
 The agenda itself is not evidence that a consumer asked or accepted a question.
 
 | Consumer | Topics to check against the candidate | Actual questions and resolution |
 |---|---|---|
-| C — web / WP6 ([#5](https://github.com/L01nki1/acgn-chronicle/issues/5)) | (1) Can the refusal fixture render separately from `503`? (2) Are empty multi-selects sent as no filter, and is `410` shown without silently changing snapshots? (3) Can `ChunkExcerpt` render a clipped quote and attribution while the request's snapshot is carried in the view and cache key? | C1–C6 accepted and 0.2.2 approved at `c8c3e88` (§5.3); 0.2.3 needs C's re-review (§5.4) |
+| C — web / WP6 ([#5](https://github.com/L01nki1/acgn-chronicle/issues/5)) | (1) Can the refusal fixture render separately from `503`? (2) Are empty multi-selects sent as no filter, and is `410` shown without silently changing snapshots? (3) Can `ChunkExcerpt` render a clipped quote and attribution while the request's snapshot is carried in the view and cache key? | C1–C6 accepted and 0.2.2 approved at `c8c3e88` (§5.3); 0.2.3 delta separately approved at `aac6598` (§5.4) |
 | F — KB / Isla consumer ([#8](https://github.com/L01nki1/acgn-chronicle/issues/8)) | (1) Can media-id membership and the index resolve against the same retained snapshot? (2) Does every retrieved chunk retain the citation provenance B needs? (3) Is the provisional `DailyDigest` isolated behind one consumer adapter, with no dependency on the removed `episode_table`? | F verified `30f746d`; its Q2 interruption caveat and Q3 storage candidate are recorded in §5.2/§6 |
 | E — retrieval / runner ([#7](https://github.com/L01nki1/acgn-chronicle/issues/7)) | (1) Are ANY-within-list / AND-between-families and empty-list defaults implementable? (2) Can UTC day/datetime bounds and a non-empty media selection with no matches remain restrictive? (3) Can the runner pin its snapshot and distinguish unknown `404` from retired `410`, including while a rebuild or retention cleanup occurs? | E verified the answers at `c1949f1`; E2 implementation deltas and E3 lifecycle work remain staged (§5.2) |
 
@@ -138,7 +139,7 @@ remains open: content-category quotas are separate from source labels, and the d
 must be coordinated. This does not reopen the option-1 agreement or close #17.
 
 This historical resolution is preserved separately from F's newer multi-question review above. F's and
-E's verification and C's 0.2.2 approval are recorded below; the 0.2.3 revision requires re-review.
+E's verification and C's version-bound 0.2.2 and 0.2.3 approvals are recorded below.
 W2 live checks are separately scoped.
 
 ### 5.2 Follow-up verification (2026-10-31)
@@ -226,11 +227,19 @@ this contract-only correction has updated every project document.
 The 0.2.3 revision passed all four local gates on Windows / Python 3.13.5: **165 passed**, two opt-in
 real-e5 checks skipped. Five list-mismatch cases failed before the validator and pass after it.
 
-These changes form candidate 0.2.3 and require C's renewed review. C's earlier approval remains
-historical evidence for exact head `c8c3e88`, not approval of this candidate.
+These changes form candidate 0.2.3. C [approved that delta at exact `aac6598`](https://github.com/L01nki1/acgn-chronicle/pull/26#pullrequestreview-5724246386),
+after separately approving 0.2.2 at `c8c3e88`. The code/schema remain unchanged in this record-only
+follow-up; no approval is transferred to a new semantic change.
 
-B's W1 contribution entry is now applied in [PR #33 at `a086fc6`](https://github.com/L01nki1/acgn-chronicle/pull/33).
-It no longer awaits initial application by D; its old C-approval blocker needs B's current-state update.
+The [0.2.3 publication reply](https://github.com/L01nki1/acgn-chronicle/pull/26#issuecomment-6546162341)
+already notified C and F (`@inscripoem`) and described the validation/denominator/publisher decisions.
+That is evidence of the §7 notice being sent, not an acknowledgement or new approval from F; none has
+been received for the 0.2.3 delta. C's approval does not stand in for F's response.
+
+B's W1 entry and follow-up are applied in [PR #33 at `5f607aa`](https://github.com/L01nki1/acgn-chronicle/pull/33).
+C's record-quality review asks B to restore spaces and the word candidate; the old C-re-review blocker
+is also stale now. B [submitted a single-cell correction](https://github.com/L01nki1/acgn-chronicle/pull/33#discussion_r4433017516)
+for D to apply, leaving D's entry and sequencing with D; the corrected text is not reported as applied yet.
 
 ## 6. Snapshot identity handoff to A/F
 

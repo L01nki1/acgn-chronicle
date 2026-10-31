@@ -53,7 +53,10 @@ F verified `30f746d`, and D's WP5 check found no metric-input gap. F's interrupt
 now explicit in KnowledgePort §3.2: old sidecars cannot prove a replacement collection completed; unsafe
 transitions answer `503`. C supplied six questions and [approved 0.2.2 at `c8c3e88`](https://github.com/L01nki1/acgn-chronicle/pull/26#pullrequestreview-5723391766).
 Candidate 0.2.3 adds validation-time citation/id agreement and corrects the QA denominator/display-name
-descriptions; C's approval of that new semantic revision requires re-review. Actual retrieved-set and
+descriptions; C [approved that delta at `aac6598`](https://github.com/L01nki1/acgn-chronicle/pull/26#pullrequestreview-5724246386).
+This follow-up only records review/notice status; the approved code/schema are unchanged. The existing
+[0.2.3 publication reply](https://github.com/L01nki1/acgn-chronicle/pull/26#issuecomment-6546162341)
+notified C/F; F has not yet acknowledged the new delta. Actual retrieved-set and
 refusal enforcement remain B's G1b outbound guard, not this model-validation check. The proposed
 publisher_id is deferred pending A/F's stable registry/alias/propagation definition; no field is added.
 G1a remains **open**, and this contract work does not pass A's separate
@@ -68,8 +71,10 @@ fix. B's Windows / Python 3.13.5 isolation/store/build recheck passed 61 tests a
 pending; B's consumer evidence does not merge the candidate. A's canonical minting confirmation and
 corpus evidence are still outstanding. B's separate WP6 review of PR #35 found an in-flight example/mode
 action mismatch requiring C's correction; PR #36 must keep content-category balance separate from source mix.
-B's W1 contribution entry has been applied in PR #33 at `a086fc6`; its dated blocker text is maintained
-by B rather than treated as an unfiled contribution.
+B's W1 contribution entry and follow-up have been applied in PR #33 at `5f607aa`; B's [new single-cell
+suggestion](https://github.com/L01nki1/acgn-chronicle/pull/33#discussion_r4433017516) restores readable spacing
+and candidate status and removes the obsolete C-re-review blocker.
+Application of that text, D's own entry and merge preconditions remain D's responsibility.
 
 ### G1b · 2026-11-09 — indexes and facts
 

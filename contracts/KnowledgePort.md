@@ -444,7 +444,8 @@ Per the [PM resolution on Issue #4](https://github.com/L01nki1/acgn-chronicle/is
 the 2026-11-02 contract gate covers code types, the exported schema, this reference and green CI. Live
 curl and retirement checks gate W2's running service. Existing filter/refusal design artifacts remain useful
 G1a deliveries; their runtime checks move with the host. Actual C/F/E questions and answers are recorded
-in G1aReview §5; C approved 0.2.2 at `c8c3e88`. The 0.2.3 semantic revision requires renewed C review.
+in G1aReview §5; C approved 0.2.2 at `c8c3e88` and separately approved the 0.2.3 delta at `aac6598`.
+The current record-only follow-up changes no code/schema semantics and does not freeze the corpus gate.
 
 - [x] Decide `score`'s meaning — cosine similarity, higher is better, never comparable across configs (§3.6)
 - [x] `episode_table` — dropped from 0.2.0 rather than guessed (§3.8)
@@ -454,7 +455,8 @@ in G1aReview §5; C approved 0.2.2 at `c8c3e88`. The 0.2.3 semantic revision req
 - [x] Add one worked abstention response with a schema-validated synthetic example (§4.1)
 - [x] Store the C4 policy constant and snapshot its wording (`core/ground/policy.py`; runtime prompt inclusion is W2)
 - [x] C / F / E each raise at least three consumer questions, resolve them, and record the actual answers in the PR (G1aReview §5)
-- [ ] C re-reviews the 0.2.3 semantic revision; the `c8c3e88` approval remains version-bound
+- [x] C re-reviews the 0.2.3 delta at `aac6598` ([APPROVE](https://github.com/L01nki1/acgn-chronicle/pull/26#pullrequestreview-5724246386)); approvals remain version-bound
+- [x] Notify C and F of 0.2.3 ([publication reply](https://github.com/L01nki1/acgn-chronicle/pull/26#issuecomment-6546162341)); notice sent is not F acknowledgement
 
 ### 8.2 W2: verify the running contract
 
