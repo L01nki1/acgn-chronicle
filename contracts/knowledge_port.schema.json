@@ -273,6 +273,7 @@
           "type": "string"
         },
         "source_count": {
+          "description": "distinct contributing source_key values (feed/adapter keys) among accepted frozen manifest member rows; not publisher display names or organization count, and not registered-but-unused sources",
           "title": "Source Count",
           "type": "integer"
         },
@@ -875,6 +876,6 @@
       "type": "object"
     }
   },
-  "schema_version": "0.2.3",
+  "schema_version": "0.2.4",
   "source": "src/acgn_rag/core/ports.py"
 }

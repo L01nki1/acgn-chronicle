@@ -25,7 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SourceType = Literal["official", "media", "metadata"]
 
-SCHEMA_VERSION = "0.2.3"
+SCHEMA_VERSION = "0.2.4"
 
 # Shared by the wire constraint and the serializer; serialize.MAX_QUOTE_CHARS re-exports it.
 MAX_QUOTE_CHARS = 200
@@ -54,7 +54,12 @@ class CorpusSnapshot(BaseModel):
         description="corpus items after deduplication; run provenance, not a QA metric denominator. "
         "Each QA metric uses its own eligible item set and reports its n",
     )
-    source_count: int
+    source_count: int = Field(
+        ...,
+        description="distinct contributing source_key values (feed/adapter keys) among accepted "
+        "frozen manifest member rows; not publisher display names or organization count, and not "
+        "registered-but-unused sources",
+    )
     window_start: str = Field(
         ...,
         description="corpus time span; required for reproducible evaluation",
