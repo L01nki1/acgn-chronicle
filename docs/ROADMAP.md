@@ -3,7 +3,7 @@
 > This is the execution map. **Task-level detail lives in GitHub issues**; each issue links back to the gate
 > it belongs to. If an issue and this document disagree about dates or ownership, this document wins and we fix
 > the issue.
-> Today is 2026-10-31. W1 closes on 11/2 — the corpus gate is two days out.
+> W1 runs 2026-10-27–2026-11-02; the corpus and contract gate closes on 2026-11-02.
 
 ## 1. Three acceptance phases
 
