@@ -23,7 +23,7 @@ from acgn_rag.core.store.chroma_store import (  # noqa: E402
     collection_name,
     media_filter,
 )
-from acgn_rag.core.store.payload import ChunkPayload, payload_from_fields  # noqa: E402
+from acgn_rag.core.store.payload import ChunkPayload, payload_from_fields, to_payload  # noqa: E402
 
 SNAP = "20261028abcdef1234"
 VECTORS = [[1.0, 0.0], [0.0, 1.0]]
@@ -176,6 +176,13 @@ def test_filtered_availability_probe_is_bounded(
         return original_get(self, *args, **kwargs)
 
     monkeypatch.setattr(type(collection), "get", observed_get)
+    # This regression measures the real filtered probe, not approximate-neighbor recall.
+    # Equal vectors can make HNSW under-return nondeterministically; its guard has a separate test.
+    monkeypatch.setattr(
+        store,
+        "_fetch_rows",
+        lambda *_args: [(p.chunk_id, p.body, to_payload(p), 0.0) for p in payloads[:6]],
+    )
     assert len(store.query([1.0, 0.0], top_k=3, where=media_filter([1]))) == 3
     assert len(calls) == 1
     assert calls[0]["include"] == []
