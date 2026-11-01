@@ -6,6 +6,7 @@ import {
   sourceTypeLabel,
   viewState,
 } from "./contract.mjs";
+import { createQueryQueue } from "./queue.mjs";
 
 const ACTIVE_CONFIG = "A";
 const STRENGTH = { official: 3, media: 2, metadata: 1 };
@@ -48,12 +49,15 @@ const dom = {
 const state = {
   inventory: null,
   current: null,
-  busy: false,
   lastRequest: null,
+  lastRender: null,
+  stale: false,
   // One cache per endpoint: the contract cache tuple does not include the route, so sharing one
   // map between /retrieve and /ask would mix two response shapes under the same key.
   cache: { retrieve: new Map(), ask: new Map() },
 };
+
+const queryQueue = createQueryQueue();
 
 function element(tag, { className, text, attrs } = {}, children = []) {
   const node = document.createElement(tag);
@@ -91,9 +95,20 @@ function setFormNote(message, isError = false) {
 }
 
 function setBusy(isBusy) {
-  state.busy = isBusy;
   dom.submit.disabled = isBusy;
   dom.resultState.setAttribute("aria-busy", String(isBusy));
+}
+
+/**
+ * The form now describes something other than what the panel shows. Say so instead of leaving
+ * the previous response looking like the answer to the current controls.
+ */
+function markFormChanged() {
+  if (!state.lastRender || state.stale) {
+    return;
+  }
+  state.stale = true;
+  dom.resultMeta.textContent = `${dom.resultMeta.textContent} · 表单已修改，结果对应上一次请求`;
 }
 
 function updateModeCopy() {
@@ -234,24 +249,30 @@ async function loadInventory() {
 }
 
 async function runQuery() {
-  if (state.busy) {
+  if (!queryQueue.begin()) {
+    // The submit button is disabled while busy, but example buttons, mode radios and retry never
+    // are. Dropping them silently left the new question in the box next to the old response;
+    // queue the newest intent and run it when the current request settles instead.
+    queryQueue.queue(runQuery);
+    setFormNote("上一个请求尚未完成；这次操作已排队，完成后自动运行。");
     return;
   }
-  let request;
-  try {
-    request = buildRequest();
-  } catch (error) {
-    if (error instanceof FormError) {
-      setFormNote(error.message, true);
-      return;
-    }
-    throw error;
-  }
 
-  state.lastRequest = request;
   setBusy(true);
-  setFormNote("正在请求 mock 快照…");
+  let request = null;
   try {
+    try {
+      request = buildRequest();
+    } catch (error) {
+      if (error instanceof FormError) {
+        setFormNote(error.message, true);
+        return;
+      }
+      throw error;
+    }
+
+    state.lastRequest = request;
+    setFormNote("正在请求 mock 快照…");
     const cache = state.cache[request.mode];
     if (cache.has(request.key)) {
       renderResponse(request.mode, cache.get(request.key), request, true);
@@ -271,6 +292,10 @@ async function runQuery() {
     setFormNote("请求失败：原因见结果区。", true);
   } finally {
     setBusy(false);
+    const next = queryQueue.finish();
+    if (next) {
+      next();
+    }
   }
 }
 
@@ -281,6 +306,8 @@ function renderResponse(mode, payload, request, fromCache) {
     `快照 ${request.body.snapshot_id}`,
     fromCache ? "缓存命中" : "本次响应",
   ].join(" · ");
+  state.lastRender = true;
+  state.stale = false;
 
   if (mode === "retrieve") {
     renderRetrieve(payload, request, stateName);
@@ -692,12 +719,15 @@ function bindEvents() {
     event.preventDefault();
     runQuery();
   });
+  dom.form.addEventListener("input", markFormChanged);
+  dom.form.addEventListener("change", markFormChanged);
   dom.modeInputs.forEach((input) => {
     input.addEventListener("change", updateModeCopy);
   });
   dom.snapshotSelect.addEventListener("change", () => {
     state.current = dom.snapshotSelect.value;
     syncSnapshotDisplay();
+    markFormChanged();
     setFormNote("已切换快照；重新提交后才会得到该快照的结果。");
   });
   document.querySelectorAll("[data-example]").forEach((button) => {
