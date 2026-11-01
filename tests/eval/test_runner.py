@@ -139,6 +139,7 @@ def _spec(tmp_path: Path, **overrides: object) -> RunSpec:
             "lib_torch": "2.15.0",
         },
         "collection": "snap_20261028abc_A",
+        "counts": {"docs": 6402, "chunks": 6500, "stored": 9120},
         "llm": {"provider": "none", "model": "none"},
     }
     values.update(overrides)
@@ -168,6 +169,7 @@ def _write_build_records(
     build_identity: dict[str, Any] | None = None,
     chunks: int = 1,
     stored: int = 1,
+    docs: int = 1,
 ) -> Path:
     base = root / snapshot_id / label
     base.mkdir(parents=True)
@@ -187,6 +189,7 @@ def _write_build_records(
         json.dumps(
             {
                 **common,
+                "docs": docs,
                 "chunks": chunks,
                 "stored": stored,
                 "identity": build_identity,
@@ -235,9 +238,11 @@ def test_run_writes_complete_archive(tmp_path: Path) -> None:
     }
     assert meta["collection"] == "snap_20261028abc_A"
 
-    assert result.metrics["retrieval_hit_rate"]["all"] == 1.0
-    assert result.metrics["retrieval_hit_rate"]["en"] == 1.0
-    assert result.metrics["retrieval_hit_rate"]["zh"] is None
+    assert result.metrics["retrieval"]["hit"]["all"] == {"value": 1.0, "n": 1}
+    assert result.metrics["retrieval"]["hit"]["en"] == {"value": 1.0, "n": 1}
+    assert result.metrics["retrieval"]["hit"]["zh"] == {"value": None, "n": 0}
+    assert result.metrics["counts"]["deduped_count"] == 6402
+    assert result.metrics["counts"]["indexed_chunks"] == 9120
 
 
 def test_null_answerer_marks_not_run(tmp_path: Path) -> None:
@@ -253,8 +258,8 @@ def test_null_answerer_marks_not_run(tmp_path: Path) -> None:
     assert answer["status"] == "not_run"
     assert answer["answer"] is None
     assert answer["abstained"] is None
-    assert result.metrics["answer_correctness"]["labeled"] == 0
-    assert result.metrics["abstention_accuracy"]["false_refusal_rate"] is None
+    assert result.metrics["correctness"]["rates"]["all"] == {"value": None, "n": 0}
+    assert result.metrics["abstention"]["false_refusal_rate"] == {"value": None, "n": 0}
 
 
 def test_run_uses_item_window_as_filters(tmp_path: Path) -> None:
@@ -347,8 +352,8 @@ def test_evidence_resolver_marks_gold_unavailable(tmp_path: Path) -> None:
         qa_items=[_qa_item()],
         evidence_resolver=lambda urls: {GOLD: []},
     )
-    assert result.metrics["excluded"]["gold_unavailable"] == 1
-    assert result.metrics["retrieval_hit_rate"]["all"] is None
+    assert result.metrics["counts"]["gold_unavailable"] == 1
+    assert result.metrics["retrieval"]["hit"]["all"] == {"value": None, "n": 0}
     resolved = json.loads((result.out_dir / "resolved_evidence.json").read_text(encoding="utf-8"))
     assert resolved["status"] == "resolved"
     assert resolved["unresolved"] == [GOLD]
@@ -369,9 +374,12 @@ def test_run_requires_build_identity(tmp_path: Path) -> None:
 def test_load_build_records_reads_both(tmp_path: Path) -> None:
     root = tmp_path / "index"
     _write_build_records(root)
-    identity, collection = load_build_records(root, snapshot_id=SNAPSHOT, config="A", label="A")
+    identity, collection, counts = load_build_records(
+        root, snapshot_id=SNAPSHOT, config="A", label="A"
+    )
     assert identity["model"] == "fake"
     assert collection == "snap_20261028abc_A"
+    assert counts == {"docs": 1, "chunks": 1, "stored": 1}
 
 
 def test_load_build_records_requires_build_json(tmp_path: Path) -> None:

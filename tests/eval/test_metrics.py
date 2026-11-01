@@ -71,21 +71,50 @@ def test_retrieval_metrics_per_language_and_exclusions() -> None:
 
     metrics = retrieval_metrics(cases)
 
-    assert metrics["n"] == {"all": 2, "en": 1, "zh": 1}
-    assert metrics["retrieval_hit_rate"] == {"all": 0.5, "en": 1.0, "zh": 0.0}
-    assert metrics["evidence_recall"] == {"all": 0.5, "en": 1.0, "zh": 0.0}
-    assert metrics["mrr"] == {"all": 0.5, "en": 1.0, "zh": 0.0}
+    assert metrics["k"] == 5
+    assert metrics["hit"] == {
+        "all": {"value": 0.5, "n": 2},
+        "en": {"value": 1.0, "n": 1},
+        "zh": {"value": 0.0, "n": 1},
+    }
+    assert metrics["evidence_recall"]["all"] == {"value": 0.5, "n": 2}
+    assert metrics["mrr"]["all"] == {"value": 0.5, "n": 2}
     assert metrics["excluded"] == {
         "unanswerable": 1,
         "gold_unavailable": 1,
         "missing_gold": 1,
+        "dropped": 0,
     }
+
+
+def test_every_rate_carries_its_own_n() -> None:
+    empty = retrieval_metrics([_case(gold_unavailable=True)])
+    for family in ("hit", "mrr", "evidence_recall"):
+        assert empty[family]["all"] == {"value": None, "n": 0}
+
+    one = retrieval_metrics([_case()])
+    assert one["hit"]["all"] == {"value": 1.0, "n": 1}
+
+
+def test_dropped_and_calibration_items_leave_the_reporting_denominators() -> None:
+    cases = [
+        _case(qa_id="A-001"),
+        _case(qa_id="A-002", dropped=True),
+        _case(qa_id="C-001", calibration=True),
+    ]
+    metrics = retrieval_metrics(cases)
+    assert metrics["hit"]["all"] == {"value": 1.0, "n": 1}
+    assert metrics["excluded"]["dropped"] == 1
+
+    counts = aggregate(cases)["counts"]
+    assert counts["qa_total"] == 2
+    assert counts["dropped"] == 1
 
 
 def test_answer_correctness_aggregates_human_labels() -> None:
     cases = [
         _case(qa_id="A-001", answer_label="fully_correct"),
-        _case(qa_id="A-002", answer_label="partially_correct"),
+        _case(qa_id="A-002", lang="zh", answer_label="partially_correct"),
         _case(qa_id="A-003", answer_label="incorrect"),
         _case(qa_id="A-004", answer_label=None),
     ]
@@ -97,8 +126,20 @@ def test_answer_correctness_aggregates_human_labels() -> None:
         "partially_correct": 1,
         "incorrect": 1,
     }
-    assert metrics["labeled"] == 3
-    assert metrics["fully_correct_rate"] == pytest.approx(1 / 3)
+    assert metrics["rates"]["all"] == {"value": pytest.approx(1 / 3), "n": 3}
+    assert metrics["rates"]["en"] == {"value": 0.5, "n": 2}
+    assert metrics["rates"]["zh"] == {"value": 0.0, "n": 1}
+
+
+def test_answer_correctness_excludes_dropped_items_from_denominator() -> None:
+    metrics = answer_correctness(
+        [
+            _case(qa_id="A-001", answer_label="fully_correct"),
+            _case(qa_id="A-002", answer_label="incorrect", dropped=True),
+        ]
+    )
+    assert metrics["counts"]["incorrect"] == 0
+    assert metrics["rates"]["all"] == {"value": 1.0, "n": 1}
 
 
 def test_answer_correctness_rejects_unknown_label() -> None:
@@ -114,20 +155,33 @@ def test_abstention_accuracy_reports_both_rates() -> None:
         _case(qa_id="D-002", answerable=False, gold_urls=(), abstained=False),
     ]
 
-    metrics = abstention_accuracy(cases)
+    metrics = abstention_accuracy(cases, threshold=0.5)
 
-    assert metrics["answerable"] == 2
-    assert metrics["unanswerable"] == 2
-    assert metrics["false_refusals"] == 1
-    assert metrics["correct_refusals"] == 1
-    assert metrics["false_refusal_rate"] == 0.5
-    assert metrics["refusal_rate"] == 0.5
+    assert metrics["threshold"] == 0.5
+    assert metrics["false_refusal_rate"] == {"value": 0.5, "n": 2}
+    assert metrics["refusal_rate"] == {"value": 0.5, "n": 2}
+    assert metrics["calibration_in_sample"] == {"value": None, "n": 0}
 
 
 def test_abstention_accuracy_none_when_no_usable_items() -> None:
     metrics = abstention_accuracy([_case(abstained=None)])
-    assert metrics["false_refusal_rate"] is None
-    assert metrics["refusal_rate"] is None
+    assert metrics["false_refusal_rate"] == {"value": None, "n": 0}
+    assert metrics["refusal_rate"] == {"value": None, "n": 0}
+
+
+def test_calibration_set_is_labelled_in_sample_not_a_reporting_denominator() -> None:
+    metrics = abstention_accuracy(
+        [
+            _case(qa_id="D-001", answerable=False, gold_urls=(), abstained=True),
+            _case(qa_id="C-001", answerable=True, abstained=True, calibration=True),
+            _case(qa_id="C-002", answerable=False, gold_urls=(), abstained=False, calibration=True),
+        ]
+    )
+    # Reporting rates stay on the QA set only.
+    assert metrics["refusal_rate"] == {"value": 1.0, "n": 1}
+    assert metrics["false_refusal_rate"] == {"value": None, "n": 0}
+    # Calibration is quoted separately, with its own n.
+    assert metrics["calibration_in_sample"] == {"value": 0.0, "n": 2}
 
 
 def test_citation_containment_flags_outside_chunks() -> None:
@@ -145,18 +199,26 @@ def test_citation_containment_flags_outside_chunks() -> None:
             ),
         ]
     )
-    assert metrics == {"checked": 2, "violations": 1}
+    assert metrics == {"containment_rate": {"value": 0.5, "n": 2}, "violations": 1}
 
 
 def test_aggregate_contains_every_report_block() -> None:
-    metrics = aggregate([_case()])
-    assert set(metrics) == {
-        "retrieval_hit_rate",
-        "evidence_recall",
-        "mrr",
-        "n",
-        "excluded",
-        "answer_correctness",
-        "abstention_accuracy",
-        "citation_containment",
+    metrics = aggregate(
+        [_case()],
+        k=5,
+        deduped_count=6402,
+        indexed_chunks=9120,
+    )
+    assert set(metrics) == {"counts", "retrieval", "correctness", "abstention", "citation"}
+    assert metrics["counts"] == {
+        "qa_total": 1,
+        "answerable": 1,
+        "unanswerable": 0,
+        "gold_unavailable": 0,
+        "dropped": 0,
+        "deduped_count": 6402,
+        "indexed_chunks": 9120,
     }
+    assert metrics["retrieval"]["k"] == 5
+    assert metrics["retrieval"]["hit"]["all"] == {"value": 1.0, "n": 1}
+    assert metrics["citation"]["containment_rate"] == {"value": None, "n": 0}

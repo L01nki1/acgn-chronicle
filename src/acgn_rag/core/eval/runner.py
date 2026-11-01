@@ -65,6 +65,7 @@ class RunSpec:
     git_sha: str = "unknown"
     build_identity: Mapping[str, Any] = field(default_factory=dict)
     collection: str | None = None
+    counts: Mapping[str, int] = field(default_factory=dict)
     llm: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -100,12 +101,15 @@ def load_build_records(
     snapshot_id: str,
     config: str,
     label: str,
-) -> tuple[dict[str, Any], str]:
+) -> tuple[dict[str, Any], str, dict[str, int]]:
     """Read and cross-validate `identity.json` + `build.json` for one run.
 
     `build.json` is written last by `build_index.py`, so it is the build-success marker. Both
     records must name the same full snapshot id, config, label, collection and encoder identity;
     a partial build (identity only, zero chunks or zero stored rows) is rejected before `bind`.
+
+    The returned counts (`docs`, `chunks`, `stored`) are provenance for `metrics.json`: the
+    deduplicated documents the index covers and the chunks it holds. They are never divisors.
     """
     base = Path(index_dir) / snapshot_id / label
     identity_payload = _read_json(base / "identity.json")
@@ -141,12 +145,16 @@ def load_build_records(
 
     chunks = build_payload.get("chunks")
     stored = build_payload.get("stored")
+    docs = build_payload.get("docs")
     if not isinstance(chunks, int) or chunks <= 0:
         raise ValueError(f"build.json: no successful chunks (chunks={chunks!r})")
     if not isinstance(stored, int) or stored <= 0:
         raise ValueError(f"build.json: no stored rows (stored={stored!r})")
+    if not isinstance(docs, int) or docs <= 0:
+        raise ValueError(f"build.json: no indexed documents (docs={docs!r})")
 
-    return dict(identity), collection
+    counts = {"docs": docs, "chunks": chunks, "stored": stored}
+    return dict(identity), collection, counts
 
 
 def _embed_metadata(identity: Mapping[str, Any]) -> dict[str, Any]:
@@ -337,12 +345,19 @@ def run(
                 gold_unavailable=bool(gold_urls)
                 and evidence_resolver is not None
                 and all(not resolved.get(url) for url in gold_urls),
+                dropped=bool(item.get("dropped", False)),
+                calibration=bool(item.get("calibration", False)),
                 answer_label=None,
                 abstained=answer.abstained if answer else None,
             )
         )
 
-    metrics_payload = metrics.aggregate(cases)
+    metrics_payload = metrics.aggregate(
+        cases,
+        k=spec.top_k,
+        deduped_count=spec.counts.get("docs"),
+        indexed_chunks=spec.counts.get("stored"),
+    )
     meta = {
         "run_id": run_id,
         "snapshot_id": spec.snapshot_id,

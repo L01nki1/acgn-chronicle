@@ -95,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
     settings = load_settings()
     label = COLLECTION_LABELS.get(args.config, args.config)
     try:
-        build_identity, collection = load_build_records(
+        build_identity, collection, counts = load_build_records(
             settings.paths.index,
             snapshot_id=args.snapshot,
             config=args.config,
@@ -156,6 +156,7 @@ def main(argv: list[str] | None = None) -> int:
         git_sha=_git_sha(),
         build_identity=build_identity,
         collection=collection,
+        counts=counts,
         llm={
             "provider": settings.llm.base_url or "none",
             "model": settings.llm.model or "none",
@@ -173,8 +174,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"run_id: {result.run_id}")
     print(f"out:    {result.out_dir}")
-    print(f"hit@k:  {result.metrics['retrieval_hit_rate']}")
-    print(f"recall: {result.metrics['evidence_recall']}")
+    print(f"hit@k:  {result.metrics['retrieval']['hit']}")
+    print(f"mrr:    {result.metrics['retrieval']['mrr']}")
+    print(f"recall: {result.metrics['retrieval']['evidence_recall']}")
     return 0
 
 

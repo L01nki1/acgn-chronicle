@@ -1,17 +1,25 @@
 """Rule-based evaluation metrics (`docs/EVAL_PROTOCOL.md` §4-§8).
 
-Owner: E | Spec: `docs/EVAL_PROTOCOL.md` §4-§8, issue #7
+Owner: E | Spec: `docs/EVAL_PROTOCOL.md` §4-§8, issue #7, D's #30 ruling
 
 The runner supplies one `CaseResult` per QA item. These functions are pure: they never call a
 model, never touch the network and never decide an answer label — `answer_correctness` is a
 human label; code only aggregates it and computes the mechanical flags.
 
+Denominators (D's #30 ruling, 2026-10-31): `deduped_count` is provenance and the bound on what
+the index covers; it is **not** a divisor. Every rate is computed over its own eligible item set
+and prints that set's `n` beside the value:
+
+- retrieval: answerable items whose gold url resolves in this snapshot (`gold_unavailable`
+  items are excluded and counted);
+- correctness: answerable items actually graded (dropped items are excluded and counted);
+- abstention: the QA set only — unanswerable items for the refusal rate, answerable items for
+  the false-refusal rate; the calibration set is reported separately as in-sample.
+
 Rules encoded here:
 - retrieval hit = **any** returned `citation.url` is in `gold_evidence.urls`;
 - URL comparison normalises only the fragment, a trailing slash and host case;
-- `gold_unavailable` items are excluded from denominators and counted;
 - retrieval metrics are reported for `all` / `en` / `zh`;
-- abstention reports refusal rate (unanswerable) and false-refusal rate (answerable);
 - a cited chunk must be a subset of the retrieved chunk ids.
 """
 
@@ -23,6 +31,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 LANGS = ("en", "zh")
+BLOCKS = ("all", *LANGS)
 CORRECTNESS_LABELS = ("fully_correct", "partially_correct", "incorrect")
 
 
@@ -31,6 +40,8 @@ class CaseResult:
     """One QA item after retrieval and (optionally) generation.
 
     `gold_unavailable` is set by the runner when the gold URL is absent from the snapshot.
+    `dropped` is set when an item is excluded after adjudication (§5); it stays counted.
+    `calibration` marks an item from `eval/abstain_calibration.jsonl`, never a reporting item.
     `answer_label` and `abstained` stay `None` until a human labels the run.
     """
 
@@ -42,6 +53,8 @@ class CaseResult:
     retrieved_chunk_ids: tuple[str, ...] = ()
     cited_chunk_ids: tuple[str, ...] = ()
     gold_unavailable: bool = False
+    dropped: bool = False
+    calibration: bool = False
     answer_label: str | None = None
     abstained: bool | None = None
 
@@ -54,6 +67,16 @@ def normalize_url(url: str) -> str:
 
 def _gold_set(urls: Sequence[str]) -> set[str]:
     return {normalize_url(url) for url in urls}
+
+
+def _rate(value: float | None, n: int) -> dict[str, float | int | None]:
+    """A rate never travels without the size of the set it was computed on."""
+    return {"value": value, "n": n}
+
+
+def _mean(values: Sequence[float]) -> dict[str, float | int | None]:
+    n = len(values)
+    return _rate(sum(values) / n if n else None, n)
 
 
 def hit_at_k(case: CaseResult) -> int:
@@ -91,30 +114,34 @@ def mrr_at_k(case: CaseResult) -> float:
 
 
 def _retrieval_eligible(case: CaseResult) -> bool:
-    return case.answerable and not case.gold_unavailable and bool(case.gold_urls)
+    return (
+        case.answerable
+        and not case.gold_unavailable
+        and not case.dropped
+        and not case.calibration
+        and bool(case.gold_urls)
+    )
 
 
-def _retrieval_block(cases: Sequence[CaseResult]) -> dict[str, float | int | None]:
-    n = len(cases)
-    if n == 0:
-        return {"n": 0, "retrieval_hit_rate": None, "evidence_recall": None, "mrr": None}
+def _blocks(cases: Sequence[CaseResult]) -> dict[str, list[CaseResult]]:
     return {
-        "n": n,
-        "retrieval_hit_rate": sum(hit_at_k(case) for case in cases) / n,
-        "evidence_recall": sum(evidence_recall(case) for case in cases) / n,
-        "mrr": sum(mrr_at_k(case) for case in cases) / n,
+        "all": list(cases),
+        "en": [case for case in cases if case.lang == "en"],
+        "zh": [case for case in cases if case.lang == "zh"],
     }
 
 
-def retrieval_metrics(cases: Sequence[CaseResult]) -> dict[str, Any]:
-    """Per-language retrieval blocks plus the excluded-item counts."""
+def retrieval_metrics(cases: Sequence[CaseResult], *, k: int = 5) -> dict[str, Any]:
+    """Per-language retrieval rates (each with its own `n`) plus the exclusion counters."""
     eligible = [case for case in cases if _retrieval_eligible(case)]
-    blocks = {key: _retrieval_block(block) for key, block in _blocks(eligible)}
+    blocks = _blocks(eligible)
     return {
-        "retrieval_hit_rate": {key: block["retrieval_hit_rate"] for key, block in blocks.items()},
-        "evidence_recall": {key: block["evidence_recall"] for key, block in blocks.items()},
-        "mrr": {key: block["mrr"] for key, block in blocks.items()},
-        "n": {key: block["n"] for key, block in blocks.items()},
+        "k": k,
+        "hit": {key: _mean([hit_at_k(case) for case in block]) for key, block in blocks.items()},
+        "mrr": {key: _mean([mrr_at_k(case) for case in block]) for key, block in blocks.items()},
+        "evidence_recall": {
+            key: _mean([evidence_recall(case) for case in block]) for key, block in blocks.items()
+        },
         "excluded": {
             "unanswerable": sum(1 for case in cases if not case.answerable),
             "gold_unavailable": sum(1 for case in cases if case.gold_unavailable),
@@ -123,93 +150,118 @@ def retrieval_metrics(cases: Sequence[CaseResult]) -> dict[str, Any]:
                 for case in cases
                 if case.answerable and not case.gold_unavailable and not case.gold_urls
             ),
+            "dropped": sum(1 for case in cases if case.dropped),
         },
     }
 
 
-def _blocks(cases: Sequence[CaseResult]) -> list[tuple[str, list[CaseResult]]]:
-    return [
-        ("all", list(cases)),
-        ("en", [case for case in cases if case.lang == "en"]),
-        ("zh", [case for case in cases if case.lang == "zh"]),
-    ]
-
-
 def answer_correctness(cases: Sequence[CaseResult]) -> dict[str, Any]:
     """Aggregate the human labels; an unknown label is a bug, not a default."""
+    graded = [
+        case
+        for case in cases
+        if case.answer_label is not None and not case.dropped and not case.calibration
+    ]
     counts = dict.fromkeys(CORRECTNESS_LABELS, 0)
-    labeled = 0
-    for case in cases:
-        if case.answer_label is None:
-            continue
+    for case in graded:
         if case.answer_label not in CORRECTNESS_LABELS:
             raise ValueError(
                 f"{case.qa_id}: unknown answer_label {case.answer_label!r}; "
                 f"expected one of {CORRECTNESS_LABELS}"
             )
         counts[case.answer_label] += 1
-        labeled += 1
-    return {
-        "counts": counts,
-        "labeled": labeled,
-        "fully_correct_rate": counts["fully_correct"] / labeled if labeled else None,
+
+    rates = {
+        key: _mean([1.0 if case.answer_label == "fully_correct" else 0.0 for case in block])
+        for key, block in _blocks(graded).items()
     }
+    return {"counts": counts, "rates": rates}
 
 
-def abstention_accuracy(cases: Sequence[CaseResult]) -> dict[str, Any]:
-    """Refusal rate on unanswerable items and false-refusal rate on answerable items."""
-    usable = [case for case in cases if not case.gold_unavailable and case.abstained is not None]
-    answerable = [case for case in usable if case.answerable]
-    unanswerable = [case for case in usable if not case.answerable]
+def abstention_accuracy(
+    cases: Sequence[CaseResult], *, threshold: float | None = None
+) -> dict[str, Any]:
+    """Refusal rate on unanswerable items and false-refusal rate on answerable items.
+
+    Only QA-set items are reporting denominators. Calibration items are reported separately and
+    labelled in-sample so they can never be mistaken for the result (§6).
+    """
+    reporting = [
+        case
+        for case in cases
+        if not case.calibration
+        and not case.dropped
+        and not case.gold_unavailable
+        and case.abstained is not None
+    ]
+    answerable = [case for case in reporting if case.answerable]
+    unanswerable = [case for case in reporting if not case.answerable]
 
     false_refusals = sum(1 for case in answerable if case.abstained)
     correct_refusals = sum(1 for case in unanswerable if case.abstained)
 
+    calibration = [case for case in cases if case.calibration and case.abstained is not None]
+    calibration_correct = sum(
+        1 for case in calibration if bool(case.abstained) is not case.answerable
+    )
+
     return {
-        "answerable": len(answerable),
-        "unanswerable": len(unanswerable),
-        "false_refusals": false_refusals,
-        "correct_refusals": correct_refusals,
-        "false_refusal_rate": false_refusals / len(answerable) if answerable else None,
-        "refusal_rate": correct_refusals / len(unanswerable) if unanswerable else None,
+        "threshold": threshold,
+        "refusal_rate": _rate(
+            correct_refusals / len(unanswerable) if unanswerable else None, len(unanswerable)
+        ),
+        "false_refusal_rate": _rate(
+            false_refusals / len(answerable) if answerable else None, len(answerable)
+        ),
+        "calibration_in_sample": _rate(
+            calibration_correct / len(calibration) if calibration else None, len(calibration)
+        ),
     }
 
 
 def citation_containment(cases: Sequence[CaseResult]) -> dict[str, Any]:
     """Every cited chunk must have been retrieved for that query."""
-    checked = [case for case in cases if case.cited_chunk_ids and case.retrieved_chunk_ids]
+    checked = [
+        case
+        for case in cases
+        if case.cited_chunk_ids and case.retrieved_chunk_ids and not case.calibration
+    ]
     violations = sum(
         1 for case in checked if not set(case.cited_chunk_ids).issubset(case.retrieved_chunk_ids)
     )
-    return {"checked": len(checked), "violations": violations}
-
-
-def aggregate(cases: Sequence[CaseResult]) -> dict[str, Any]:
-    """Full metrics object for `eval/runs/<run_id>/metrics.json`."""
-    retrieval = retrieval_metrics(cases)
     return {
-        "retrieval_hit_rate": retrieval["retrieval_hit_rate"],
-        "evidence_recall": retrieval["evidence_recall"],
-        "mrr": retrieval["mrr"],
-        "n": retrieval["n"],
-        "excluded": retrieval["excluded"],
-        "answer_correctness": answer_correctness(cases),
-        "abstention_accuracy": abstention_accuracy(cases),
-        "citation_containment": citation_containment(cases),
+        "containment_rate": _rate(1 - violations / len(checked) if checked else None, len(checked)),
+        "violations": violations,
     }
 
 
-__all__ = [
-    "CORRECTNESS_LABELS",
-    "LANGS",
-    "CaseResult",
-    "abstention_accuracy",
-    "aggregate",
-    "answer_correctness",
-    "citation_containment",
-    "evidence_recall",
-    "hit_at_k",
-    "mrr_at_k",
-    "normalize_url",
-    "retrieval_metrics",
-]
+def aggregate(
+    cases: Sequence[CaseResult],
+    *,
+    k: int = 5,
+    deduped_count: int | None = None,
+    indexed_chunks: int | None = None,
+    threshold: float | None = None,
+) -> dict[str, Any]:
+    """Full metrics object for `eval/runs/<run_id>/metrics.json`.
+
+    `deduped_count` and `indexed_chunks` are provenance: they bound what the index covers and
+    are never used as a rate denominator. The counts block describes the QA set only; calibration
+    items are reported through `abstention.calibration_in_sample` and never inflate `qa_total`.
+    """
+    qa_cases = [case for case in cases if not case.calibration]
+    return {
+        "counts": {
+            "qa_total": len(qa_cases),
+            "answerable": sum(1 for case in qa_cases if case.answerable),
+            "unanswerable": sum(1 for case in qa_cases if not case.answerable),
+            "gold_unavailable": sum(1 for case in qa_cases if case.gold_unavailable),
+            "dropped": sum(1 for case in qa_cases if case.dropped),
+            "deduped_count": deduped_count,
+            "indexed_chunks": indexed_chunks,
+        },
+        "retrieval": retrieval_metrics(cases, k=k),
+        "correctness": answer_correctness(cases),
+        "abstention": abstention_accuracy(cases, threshold=threshold),
+        "citation": citation_containment(cases),
+    }
