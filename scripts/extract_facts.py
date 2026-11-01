@@ -18,11 +18,11 @@ Exit codes: 0 = done, 2 = missing input or unusable extraction config. Zero netw
 time: the vendor client is built only for a real (non-dry) run.
 
 Run-summary counters (the run report; units in parentheses): ``chunks`` (input chunks),
-``batches`` (BATCH_SIZE slices), ``calls`` (LLM API calls: initial attempts + retries),
+``batches`` (BATCH_SIZE slices), ``calls`` (client calls: batch attempts + single-item fallback),
 ``retries`` (whole-batch re-attempts beyond the first), ``extracted_chunks`` (candidate chunks
 with a parsed result, ``empty_extractions`` included), ``empty_extractions`` (parsed cleanly
 but stated no known value, so zero FactUpdate rows - not a failure), ``extracted_rows``
-(FactUpdate rows), ``degraded_batches`` / ``degraded`` (fully-degraded batches / degraded
+(FactUpdate rows), ``single_calls`` (per-item fallback calls), ``degraded_batches`` / ``degraded`` (batches with any degradation / degraded
 candidate chunks), ``ir_skipped`` (input chunks the pre-filter removed). Every input chunk
 lands in exactly one of extracted / degraded / ir_skipped, so
 ``extracted_chunks + degraded + ir_skipped == chunks`` always holds.
@@ -154,7 +154,7 @@ def main(argv: list[str] | None = None, *, client: LLMClient | None = None) -> i
             print(f"cannot build the extraction client: {exc}", file=sys.stderr)
             return 2
 
-    batches = calls = retries = 0
+    batches = calls = retries = single_calls = 0
     extracted_chunks = empty_extractions = degraded_batches = 0
     rows: list[FactUpdate] = []
     degraded: list[str] = []
@@ -165,9 +165,10 @@ def main(argv: list[str] | None = None, *, client: LLMClient | None = None) -> i
         batches += 1
         calls += batch.calls
         retries += batch.retries
+        single_calls += batch.single_calls
         extracted_chunks += len(batch.extracted)
         degraded.extend(batch.degraded_chunk_ids)
-        if batch.degraded_chunk_ids:  # retries exhausted: the WHOLE batch degraded
+        if batch.degraded_chunk_ids:
             degraded_batches += 1
         skipped_ids = set(batch.ir_skipped_chunk_ids)
         for chunk in batch_chunks:
@@ -182,7 +183,7 @@ def main(argv: list[str] | None = None, *, client: LLMClient | None = None) -> i
                 )
         dropped = skipped_ids | set(batch.degraded_chunk_ids)
         candidates = [chunk for chunk in batch_chunks if chunk.chunk_id not in dropped]
-        # extract_facts aligns extracted[i] with the i-th candidate chunk of the batch
+        # Facts carry producer-assigned ids, so a failed middle item cannot shift attribution.
         assert len(batch.extracted) == len(candidates)
         batch_rows = expand_to_fact_updates(batch.extracted, candidates)
         rows.extend(batch_rows)
@@ -191,15 +192,14 @@ def main(argv: list[str] | None = None, *, client: LLMClient | None = None) -> i
         yielding = {row.chunk_id for row in batch_rows}
         empty_extractions += len(candidates) - len(yielding)
 
-    # every input chunk lands in exactly one bucket (extraction is whole-batch: a batch
-    # either parses entirely or degrades entirely), so the counts must reconcile
+    # Partial batch recovery still accounts for every input exactly once.
     assert extracted_chunks + len(degraded) + len(ir_rows) == len(chunks)
 
     _atomic_write_jsonl(facts_path, [row.model_dump() for row in rows])
     _atomic_write_jsonl(ir_path, ir_rows)
     print(
         f"snapshot={args.snapshot} chunks={len(chunks)} batches={batches} calls={calls} "
-        f"retries={retries} extracted_chunks={extracted_chunks} "
+        f"retries={retries} single_calls={single_calls} extracted_chunks={extracted_chunks} "
         f"empty_extractions={empty_extractions} extracted_rows={len(rows)} "
         f"degraded_batches={degraded_batches} degraded={len(degraded)} "
         f"ir_skipped={len(ir_rows)}"

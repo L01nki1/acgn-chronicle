@@ -163,7 +163,8 @@ line what the threshold optimizes before it freezes.
 ### 3.4 Encoding lanes and encoder identity
 
 - **Encoder identity** = model + backend (`torch` / `openvino` / `onnx`) + device + precision + library
-  versions + batch size. Every index build records it in its metadata, every eval run record copies it
+  versions. Batch size is recorded separately as an execution setting and does not change the vector
+  identity/cache slug. Every build and evaluation run records both
   (`EVAL_PROTOCOL` §7) — a build whose metadata lacks the full identity is invalid. Vectors built under
   different identities are never mixed in one index and never compared as if they were the same.
 - **Cache key** = `hash(header_version + header + body) + model + prefix + encoder identity`. The
@@ -171,17 +172,19 @@ line what the threshold optimizes before it freezes.
   *together with* the body: bump `header_version` when the template changes or stale vectors are
   silently reused, and hash both because two syndicated copies with identical bodies must not serve
   each other's header.
-- **Content budget (truncation trap).** e5 models have `max_seq_length = 512`, and the chunker's
-  content budget must be
-  `min(config_tokens, max_seq_length − len(tokenizer(prefix).input_ids))`. The tokenizer call includes
-  the model's special tokens, so they are counted exactly once; the declared config binds and the model
-  only caps — an 8k-context lane must not turn config A into an 8k chunker, or the A/A′ comparison's
-  independent variable becomes encoder-dependent. Measured for e5-base + `passage: `:
-  `len(tokenizer("passage: ").input_ids) == 4` (2 prefix tokens + `<s>`/`</s>`), so the budget is
-  **508** content tokens — 508 encodes to exactly 512 ids on jp/zh/en text, while 512 content tokens
-  encode to 516 and silently lose their tail (nothing crashes; the A/A′ comparison quietly measures
-  truncated text). Chunk-PR acceptance asserts it: encode `prefix + one budget-sized chunk` per lane
-  and require `len(input_ids) == max_seq_length` with no truncation warning.
+- **Content budget (no silent truncation).** The starting budget is
+  `min(config_tokens, effective_max_seq_length - len(ids(prefix + header + "\n")))`, omitting
+  the header/newline when the header is empty. Special tokens count once. Named passage prompts
+  are resolved from the model's actual prompt text, and the effective context never exceeds its
+  `max_seq_length`. The chunker also checks every complete composed input and repacks if tokenizer
+  boundary effects exceed the estimate. The build rejects overflow before encoding/cache writes,
+  and the encoder rejects oversized final inputs before the model can truncate them.
+  The earlier 508-token e5 figure applies only to an empty header; production budgets vary with
+  each document's title/publisher/date. A/A'/A0 remain parameter variants of the same algorithm.
+  Both sidecars now record `chunker.version=composed-input-v2`, config, overlap, context and
+  `header_version`. Existing indexes require `--fresh` after this change; do not compare old and
+  new chunk counts. The vector-identity slug change invalidates old caches once. Subsequent
+  changes of batch size reuse cache entries while preserving the actual batch size in metadata.
 - **Throughput is reported in tokens/s, never bare items/s** — items/s varies ~3× with chunk length
   and reads as noise. Measured CPU baseline (i5-13400TEF, 16 threads, torch 2.15 CPU): e5-base ≈
   **1,661 tokens/s** on the pilot corpus (re-measured 1,644 inside the A380 run) ⇒ a 40k-chunk ×
@@ -258,8 +261,10 @@ this section is only the decision.
   calls, not 9,500.
 - **Flat schema, validate, retry**: one flat Pydantic model (title / release_date / platform list /
   event_type / relevance), no deep nesting or Union types (a known structured-output failure mode);
-  prefer the vendor's native JSON-schema `response_format` when available, else strict-parse + **2
-  retries** on validation failure; after retries degrade to a plain-text chunk (never drop the doc).
+  prefer the vendor's native JSON-schema `response_format` when available, else strict-parse, one whole-batch retry, then one independent call per candidate. A default
+  ten-item batch uses at most 12 client calls. Degrade only items whose single response is still
+  invalid; successful items carry their original chunk ids. Transport failures abort rather than
+  being relabelled as parse failures. Client-call counts exclude SDK-internal transport retries.
 - **Pre-filter before the LLM**: Capcom's feed mixes 決算/IR corporate releases with game content — a
   keyword classifier (決算｜株主｜IR｜決算短信 …) tags relevance *before* extraction so (a) the category
   balance at G1a counts what we intended and (b) ~30–40 % of the Capcom volume skips LLM calls
@@ -273,10 +278,11 @@ this section is only the decision.
 - `max_tokens ≥ 1024` per call (see the DSV4-flash quirk above), and the system prompt is identical
   across a batch — keep it stable so any provider-side prompt caching can act on it.
 - **Read the run summary before trusting a run**: `extract_facts.py` prints per-run counters —
-  `calls` (LLM calls, initial attempts included) vs `retries` (whole-batch re-attempts),
+  `calls` (client calls, initial attempts included), `retries` (whole-batch re-attempts) and
+  `single_calls` (fallback calls); `calls = batch_calls + single_calls`,
   `extracted_chunks` vs `extracted_rows` (a parsed result that states no known value is a valid
   empty extraction: it adds to `empty_extractions` and produces no rows — not a parse failure),
-  `degraded_batches`/`degraded`, `ir_skipped`. The buckets always reconcile:
+  `degraded_batches` (any failed items)/`degraded` (failed items), `ir_skipped`. The buckets always reconcile:
   `extracted_chunks + degraded + ir_skipped == chunks`.
 
 ## 4. Emergency degradation

@@ -195,7 +195,7 @@ def test_identity_slug_is_stable_and_filesystem_safe() -> None:
     slug = EncoderIdentity(**kwargs).slug()
     assert slug == EncoderIdentity(**kwargs).slug()  # sha256: stable across runs and processes
     assert re.fullmatch(r"[a-z0-9-]+", slug), slug
-    assert slug.startswith("multilingual-e5-base-torch-cpu-fp32-b32-")
+    assert slug.startswith("multilingual-e5-base-torch-cpu-fp32-")
     assert EncoderIdentity(**{**kwargs, "device": "cuda"}).slug() != slug
     assert EncoderIdentity(**{**kwargs, "lib_versions": ()}).slug() != slug
 

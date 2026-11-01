@@ -34,6 +34,7 @@ import build_index  # noqa: E402
 
 from acgn_rag.config import StoreConfig  # noqa: E402
 from acgn_rag.core.chunk import chunk_text  # noqa: E402
+from acgn_rag.core.embed import build_header  # noqa: E402
 from acgn_rag.core.store.chroma_store import ChromaStore, collection_name  # noqa: E402
 
 SNAP = "20261028abcdef1234"
@@ -154,7 +155,18 @@ def _rows() -> list[dict[str, Any]]:
 def _expected_chunks(config: str, rows: list[dict[str, Any]] | None = None) -> int:
     """Independent chunk count: run the chunker directly, never through the CLI."""
     rows = _rows() if rows is None else rows
-    return sum(len(chunk_text(row["doc_id"], row["body"], config, FakeTokenizer())) for row in rows)
+    return sum(
+        len(
+            chunk_text(
+                row["doc_id"],
+                row["body"],
+                config,
+                FakeTokenizer(),
+                header=build_header(row["title"], row["publisher"], row["published_at"]),
+            )
+        )
+        for row in rows
+    )
 
 
 def _write_docs(path: Path, rows: list[dict[str, Any]]) -> Path:
@@ -244,10 +256,11 @@ def test_end_to_end_builds_all_three_configs(
         )
         assert identity["snapshot_id"] == SNAP and identity["config"] == config
         assert identity["identity"] == build["identity"]
-    # the corpus separates all three configs: more chunks under the smaller budget, and the
-    # overlap variant needs one more than plain A0 on doc 1 (25+25 fits 508 twice, but A's
-    # 64-token heads consume capacity)
-    assert counts["A'"] > counts["A"] > counts["A0"]
+        assert identity["chunker"] == build["chunker"]
+        assert build["chunker"]["version"] == "composed-input-v2"
+    # The smaller budget produces more chunks. Header-dependent packing can leave the
+    # overlap and no-overlap variants with equal counts but different boundaries.
+    assert counts["A'"] > counts["A"] >= counts["A0"]
     # the first config on a cold cache encodes every chunk
     first = _summary(out, "A")
     assert first.group(3) == "0" and first.group(4) == first.group(2)
@@ -260,7 +273,17 @@ def test_encoded_texts_carry_prefix_and_context_header(data_root: Path, docs_pat
         model=model,
     )
     assert code == 0
-    first_body = chunk_text("doc01", _rows()[0]["body"], "A0", FakeTokenizer())[0].text
+    row = _rows()[0]
+    first_body = chunk_text(
+        "doc01",
+        row["body"],
+        "A0",
+        FakeTokenizer(),
+        header=build_header(row["title"], row["publisher"], row["published_at"]),
+    )[0].text
+    assert all(
+        len(FakeTokenizer().ids(text)) <= 512 for call in model.calls for text in call["texts"]
+    )
     # RUNBOOK §3.5: what is encoded is prefix + "title | publisher | date" + newline + body
     assert model.calls[0]["texts"][0] == (
         "passage: Title 1 | Example Publisher | 2026-10-28T00:00:00+00:00\n" + first_body
@@ -371,7 +394,13 @@ def test_fresh_rebuild_replaces_stale_rows_only_in_the_target_collection(
     expected_ids = [
         chunk.chunk_id
         for row in subset_rows
-        for chunk in chunk_text(row["doc_id"], row["body"], "A0", FakeTokenizer())
+        for chunk in chunk_text(
+            row["doc_id"],
+            row["body"],
+            "A0",
+            FakeTokenizer(),
+            header=build_header(row["title"], row["publisher"], row["published_at"]),
+        )
     ]
     assert _collection_ids(store, SNAP, "A0") == expected_ids
     assert _collection_ids(store, SNAP, "A") == sibling_a  # the sibling is untouched

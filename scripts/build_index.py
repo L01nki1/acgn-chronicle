@@ -63,6 +63,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from acgn_rag.config import Paths, Settings, load_settings
 from acgn_rag.core.chunk import CHUNK_VARIANTS, TokenCounter, chunk_text
 from acgn_rag.core.embed import (
+    HEADER_VERSION,
     EmbedCache,
     Embedder,
     EncoderIdentity,
@@ -232,10 +233,23 @@ def _build_config(ctx: _BuildContext, config: str, docs: Sequence[IndexDoc]) -> 
     keys: list[str] = []
     payloads: list[ChunkPayload] = []
     for doc in docs:
+        header = build_header(doc.title, doc.publisher, doc.published_at)
         for chunk in chunk_text(
-            doc.doc_id, doc.body, config, ctx.tokenizer, ctx.max_seq_length, ctx.passage_prefix
+            doc.doc_id,
+            doc.body,
+            config,
+            ctx.tokenizer,
+            ctx.max_seq_length,
+            ctx.passage_prefix,
+            header=header,
         ):
-            header = build_header(doc.title, doc.publisher, doc.published_at)
+            composed = ctx.passage_prefix + (header + "\n" if header else "") + chunk.text
+            encoded_length = len(ctx.tokenizer.ids(composed))
+            if encoded_length > ctx.max_seq_length:
+                raise BuildError(
+                    f"{chunk.chunk_id}: {encoded_length} ids exceed max_seq_length "
+                    f"{ctx.max_seq_length}; nothing was encoded, written or deleted"
+                )
             inputs.append(
                 PassageInput(
                     title=doc.title,
@@ -325,6 +339,14 @@ def _build_config(ctx: _BuildContext, config: str, docs: Sequence[IndexDoc]) -> 
         "encodes": len(misses),
         "stored": stored,
         "max_seq_length": ctx.max_seq_length,
+        "chunker": {
+            "version": "composed-input-v2",
+            "header_version": HEADER_VERSION,
+            "config": config,
+            "max_tokens": CHUNK_VARIANTS[config].max_tokens,
+            "overlap": CHUNK_VARIANTS[config].overlap,
+            "max_seq_length": ctx.max_seq_length,
+        },
         "passage_prefix": ctx.passage_prefix,
         "identity": ctx.identity.to_metadata(),
         "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -339,6 +361,7 @@ def _build_config(ctx: _BuildContext, config: str, docs: Sequence[IndexDoc]) -> 
             "label": label,
             "collection": record["collection"],
             "identity": ctx.identity.to_metadata(),
+            "chunker": record["chunker"],
         },
     )
     _atomic_write_json(out_dir / "build.json", record)
@@ -455,6 +478,12 @@ def main(
             return 2
 
     spec = model_spec(settings.embed.model_name)
+    try:
+        passage_context = embedder.passage_context()
+        effective_limit = embedder.context_limit(args.max_seq_length)
+    except ValueError as exc:
+        print(f"invalid encoder context: {exc}", file=sys.stderr)
+        return 2
     ctx = _BuildContext(
         snapshot_id=args.snapshot,
         settings=settings,
@@ -462,9 +491,9 @@ def main(
         tokenizer=tokenizer,
         identity=identity,
         # prompt names are not literal prefixes: only prefix-mode families see text here
-        passage_prefix=spec.passage if spec.mode == "prefix" else "",
+        passage_prefix=passage_context,
         passage_side=spec.passage,
-        max_seq_length=args.max_seq_length,
+        max_seq_length=effective_limit,
         cache=EmbedCache(
             Path(args.embed_cache_dir)
             if args.embed_cache_dir
