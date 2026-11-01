@@ -21,11 +21,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SourceType = Literal["official", "media", "metadata"]
 
-SCHEMA_VERSION = "0.2.0"
+SCHEMA_VERSION = "0.2.3"
+
+# Shared by the wire constraint and the serializer; serialize.MAX_QUOTE_CHARS re-exports it.
+MAX_QUOTE_CHARS = 200
 
 # One definition, reused by both the internal and the wire chunk type: a score whose meaning is
 # left implicit is worse than no score, because a client will average it with another config's.
@@ -41,13 +44,15 @@ class CorpusSnapshot(BaseModel):
 
     snapshot_id: str = Field(
         ...,
-        description="content hash + date; rebuilding the same corpus must match",
+        description="YYYYMMDD-<12 lowercase SHA-256 hex>; date is the frozen window_end UTC day, "
+        "not the rebuild day; hash is from A's canonical content manifest",
     )
     created_at: str
     item_count: int
     deduped_count: int = Field(
         ...,
-        description="items after deduplication - the denominator of every metric",
+        description="corpus items after deduplication; run provenance, not a QA metric denominator. "
+        "Each QA metric uses its own eligible item set and reports its n",
     )
     source_count: int
     window_start: str = Field(
@@ -66,27 +71,50 @@ class SnapshotInventory(BaseModel):
 
     current: str = Field(
         ...,
-        description="the snapshot the read path serves; flips atomically after a build succeeds",
+        description="the queryable snapshot the ready host serves; always included in retained; "
+        "flips atomically after a build succeeds",
     )
     retained: Sequence[str] = Field(
         ...,
-        description="ids still queryable, most recent first; a retired id answers 410",
+        description="full ids still queryable, including current, most recent first; a known completed snapshot "
+        "retired from service answers 410, a never-known id 404; absence alone does not prove retirement",
     )
 
 
 class RetrievalFilters(BaseModel):
-    source_types: Sequence[SourceType] | None = None
+    """AND between filter families, ANY within a list; absent/null/empty lists do not filter."""
+
+    source_types: Sequence[SourceType] | None = Field(
+        None,
+        description="match ANY listed source type; absent, null or [] means no source-type filter",
+    )
     since: str | None = Field(
         None,
-        description='daily views ("today only") also use this; never add a time-bucketed index',
+        description="inclusive lower bound: a YYYY-MM-DD date starts at UTC midnight; an ISO-8601 "
+        "datetime is converted to UTC (naive means UTC). Absent/null leaves the bound open",
     )
-    until: str | None = None
-    media_ids: Sequence[int] | None = None
+    until: str | None = Field(
+        None,
+        description="exclusive upper bound: a YYYY-MM-DD date includes that whole UTC day and "
+        "ends at next midnight; an ISO-8601 datetime ends at that UTC instant (naive means UTC). "
+        "Invalid or reversed bounds are 422 at the HTTP boundary; absent/null leaves it open",
+    )
+    media_ids: Sequence[int] | None = Field(
+        None,
+        description="match ANY listed canonical media id; absent, null or [] means no media filter. "
+        "Apply membership within the requested snapshot; a non-empty selection with no matching "
+        "documents matches nothing, never drops the filter. Combine filter families using AND",
+    )
 
 
 class RetrievalQuery(BaseModel):
     text: str
-    top_k: int = 5
+    top_k: int = Field(
+        5,
+        ge=1,
+        description="positive result count, minimum 1; invalid request shape/type/enum or a "
+        "non-positive count is 400 at the HTTP boundary, not an empty successful result",
+    )
     snapshot_id: str = Field(
         ...,
         description=(
@@ -104,7 +132,11 @@ class Citation(BaseModel):
         ...,
         description="drives display strength and compliance clipping",
     )
-    publisher: str = Field(..., description="'Capcom' | 'ANN' | 'AniList' ...")
+    publisher: str = Field(
+        ...,
+        description="publisher display name, for example Capcom, ANN or AniList; an open string, "
+        "not a closed enum or a stable registry identifier",
+    )
     title: str
     url: str = Field(
         ...,
@@ -140,12 +172,15 @@ class ChunkExcerpt(BaseModel):
     there is no second field carrying more of the article.
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     chunk_id: str
     score: float = Field(..., description=SCORE_SEMANTICS)
     quote: str = Field(
         ...,
-        description="at most 200 Unicode characters, clipped by ground/serialize; the client "
-        "must not re-expand it from the source page",
+        max_length=MAX_QUOTE_CHARS,
+        description="at most 200 Unicode code points, clipped by ground/serialize; JavaScript "
+        "UTF-16 length is not the unit; the client must not re-expand it from the source page",
     )
     citation: Citation = Field(
         ...,
@@ -154,14 +189,33 @@ class ChunkExcerpt(BaseModel):
 
 
 class GroundedAnswer(BaseModel):
-    answer: str
-    citations: Sequence[Citation]
+    answer: str = Field(
+        ..., description="supported answer text, or an explicit refusal explanation when abstained"
+    )
+    citations: Sequence[Citation] = Field(
+        ...,
+        description="deduplicated in first-use order; chunk ids match cited_chunk_ids at model "
+        "validation time; empty when abstained",
+    )
     cited_chunk_ids: Sequence[str] = Field(
         ...,
-        description="must be a subset of the chunks actually retrieved for this query",
+        description="matches citations' chunk ids, including multiplicity, at model validation time; "
+        "must also be a subset of the chunks actually retrieved for this query (G1b outbound guard); "
+        "empty when abstained",
     )
-    abstained: bool
-    abstain_reason: str | None = None
+    abstained: bool = Field(
+        ..., description="true when the selected snapshot and filters do not support an answer"
+    )
+    abstain_reason: str | None = Field(
+        None,
+        description="non-empty explanation of missing support when abstained; null otherwise",
+    )
+
+    @model_validator(mode="after")
+    def citations_match_cited_ids(self) -> GroundedAnswer:
+        if sorted(citation.chunk_id for citation in self.citations) != sorted(self.cited_chunk_ids):
+            raise ValueError("cited_chunk_ids must match the chunk ids of citations")
+        return self
 
 
 # ---- Secondary task ports (interface first; full logic lands later) ----
@@ -243,6 +297,7 @@ WIRE_MODELS: tuple[str, ...] = (
 )
 
 __all__ = [
+    "MAX_QUOTE_CHARS",
     "SCHEMA_VERSION",
     "SCORE_SEMANTICS",
     "WIRE_MODELS",

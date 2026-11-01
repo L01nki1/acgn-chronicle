@@ -6,7 +6,11 @@ This test is the CI contract gate itself - do not turn it into a skip.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
+import pytest
+
+from acgn_rag import contracts_export
 from acgn_rag.contracts_export import SCHEMA_PATH, build_schema, check
 from acgn_rag.core import ports
 
@@ -20,6 +24,15 @@ def test_schema_file_is_valid_json() -> None:
     payload = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     assert payload["schema_version"] == build_schema()["schema_version"]
     assert "CorpusSnapshot" in payload["models"]
+
+
+def test_export_writes_identical_lf_bytes_on_every_platform(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "knowledge_port.schema.json"
+    monkeypatch.setattr(contracts_export, "SCHEMA_PATH", output)
+    assert contracts_export.write() == output
+    assert output.read_bytes() == contracts_export.dump().encode("utf-8")
 
 
 def test_wire_models_are_exactly_what_is_exported() -> None:
@@ -41,6 +54,7 @@ def test_internal_types_never_reach_the_schema() -> None:
 def test_excerpt_model_exposes_quote_not_text() -> None:
     props = build_schema()["models"]["ChunkExcerpt"]["properties"]
     assert "quote" in props
+    assert props["quote"]["maxLength"] == ports.MAX_QUOTE_CHARS
     assert "text" not in props
     assert set(build_schema()["models"]["ChunkExcerpt"]["required"]) >= {"chunk_id", "quote"}
 
