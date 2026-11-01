@@ -14,6 +14,8 @@
 - [ ] `git status` shows nothing that must not be committed: `data/`, `.env`, model files
 - [ ] Files are in the directory the ownership map gives me (spec 02 §2)
 - [ ] If I touched an invariant (spec 02 §3), I added a test for it
+- [ ] Every limit I introduced or changed has a test asserting the **composed** production input against it
+      (not a subset of it), and no semantic rule lives only in a `Field(description=…)`
 
 ## Contract changes (only if `src/acgn_rag/core/ports.py` is touched)
 
