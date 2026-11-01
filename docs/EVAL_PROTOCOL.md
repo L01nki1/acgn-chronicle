@@ -117,8 +117,11 @@ set at resolution time, on 11/09, when nothing could be fixed any more.
 - **Promoting a source means editing §3 and `W1_HOSTS` in the same PR.** A test fails if §3 lists a
   url whose host the allowlist lacks, so the document cannot run ahead of the checker.
 - `--check-urls` (network, local only) additionally requires each url to answer 200 and to state a
-  publication time inside `window_end`. Run it before the freeze, not on every commit: a page dated
-  after the window is not evidence for that snapshot, however plausible the claim.
+  publication time inside the item's recorded `window`, compared as a UTC instant when the page
+  gives an offset; a naive stamp must sit inside under both a UTC and a JST reading. Pages that
+  state no readable time, or whose readings straddle a boundary, are listed for manual verification
+  instead of failing the run. Run it before the freeze, not on every commit: a page dated outside
+  the window is not evidence for that snapshot, however plausible the claim.
 
 ## 4. Retrieval quality — `retrieval_hit_rate`
 
