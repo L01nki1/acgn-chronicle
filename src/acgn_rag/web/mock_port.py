@@ -340,8 +340,8 @@ class MockKnowledgePort:
             selected.append(record.excerpt)
 
         selected.sort(key=lambda excerpt: (-excerpt.score, excerpt.chunk_id))
-        if query.top_k <= 0:
-            return []
+        # 0.2.3 makes top_k >= 1 a request-shape rule enforced by the model, so the host never
+        # receives a non-positive count here; a second guard would be a divergent copy of it.
         return selected[: query.top_k]
 
 

@@ -206,10 +206,13 @@ def test_top_k_truncates(client: TestClient) -> None:
     assert payload[0]["score"] == pytest.approx(0.93)
 
 
-def test_top_k_zero_returns_no_excerpts(client: TestClient) -> None:
-    response = client.post("/retrieve", json=_query(top_k=0))
-    assert response.status_code == 200
-    assert response.json() == []
+def test_top_k_below_one_is_a_400_request_shape_error(client: TestClient) -> None:
+    """0.2.3: `top_k` has minimum 1, so 0 is an invalid request rather than an empty result."""
+    for value in (0, -1):
+        response = client.post("/retrieve", json=_query(top_k=value))
+        assert response.status_code == 400
+        detail = response.json()["detail"]
+        assert isinstance(detail, str) and detail
 
 
 def test_empty_text_returns_no_excerpts(client: TestClient) -> None:
