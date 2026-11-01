@@ -307,7 +307,10 @@ class MockKnowledgePort:
         return GroundedAnswer(
             answer=answer,
             citations=citations,
-            cited_chunk_ids=[excerpt.chunk_id for excerpt in excerpts],
+            # Bridge 0.2.3: `cited_chunk_ids` mirrors the deduplicated citation list, including
+            # multiplicity. Sending every retrieved excerpt id would disagree with `citations`
+            # the moment a snapshot returns two excerpts for one chunk id.
+            cited_chunk_ids=[citation.chunk_id for citation in citations],
             abstained=False,
             abstain_reason=None,
         )
