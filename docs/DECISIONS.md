@@ -18,6 +18,8 @@
 
 | Date | Decision | Reason | Affects |
 |---|---|---|---|
+| 2026-11-01 | A's #23 producer commitment: nine requested NormalizedItem fields, optional ingest_category, explicit internal cluster_id/event_type/source_key; stable cluster IDs hash sorted member doc_ids; publisher stays display text, no publisher_id adopted | Unblocks F's input/cluster seam without inventing an organization registry or changing B's wire types; full semantics in INGEST_CONTRACT.md, implementation pending | A, F, B, E |
+| 2026-11-01 | A confirms #30/#31 minting target YYYYMMDD-12hex from frozen window_end UTC day and canonical content manifest; reject truncated physical-name identity; record E's 15 verdicts in INGEST_REVIEW.md | Same frozen input must preserve identity; corpus, live idempotency, catalog/pins and actual window remain pending; synthetic proof is format evidence only | A, E, F, B, C, D |
 | 2026-10-28 | Repository name is `acgn-daily` | Matches the product direction; the remote was renamed and the local remote updated | everyone |
 | 2026-10-28 | Repository renamed again to **`acgn-chronicle`** | Owner's naming call; local remote and the crawler user agent now point at the new location. The Python package (`acgn_rag`) and distribution name (`acgn-rag`) are unchanged | everyone |
 | 2026-10-28 | Planning notes (`PLAN.md`) removed from the workspace | Its content now lives in `docs/PROJECT.md` + `docs/ROADMAP.md`; keeping both invites two versions of the truth | everyone |
