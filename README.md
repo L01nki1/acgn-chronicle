@@ -62,6 +62,19 @@ cp .env.example .env                     # fill in keys only when you need the L
 > `uv sync --extra dev --extra embed --extra store` (on Linux `pyproject.toml` already resolves the CPU
 > torch wheel). Plain `pip install -e ".[dev]"` still works for the lightweight local setup.
 
+### G1a query page (mock)
+
+The WP6 page ships before retrieval and generation exist. It talks only to the contract routes and
+serves a fixed, clearly fictional mock (`example.com` URLs):
+
+```bash
+uv run python -m acgn_rag.web          # http://127.0.0.1:8000
+```
+
+The first screen runs a default query. Typing a question renders result cards; a citation without a
+URL is dropped whole, quotes are clipped again client-side to 200 code points, and an empty result is
+rendered differently from an explicit refusal. Details: [`src/acgn_rag/web/README.md`](src/acgn_rag/web/README.md).
+
 CI installs `dev`, `store` and `llm` with `uv sync --frozen --extra dev --extra store --extra llm`,
 so the Chroma tests run on all three platforms. It does not install the `embed` extra or torch;
 encoder tests use deterministic fakes and numpy from `dev`. Tests make no external requests,
