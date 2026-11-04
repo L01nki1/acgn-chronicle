@@ -1,8 +1,8 @@
 # Isla integration boundary
 
-Owner: F. This note defines the future Chronicle-to-Isla consumer boundary. It does not authorize
-changes to the Isla repository before December and does not claim that Chronicle's W2 HTTP host is
-already available. The normative wire shape remains
+Owner: F. This note defines the future Chronicle-to-Isla consumer boundary. This change does not
+modify the Isla repository and does not claim that Chronicle's W2 HTTP host is already available.
+The normative wire shape remains
 [`knowledge_port.schema.json`](knowledge_port.schema.json), with semantics in
 [`KnowledgePort.md`](KnowledgePort.md).
 
@@ -63,7 +63,7 @@ than attaching an answer to a different corpus.
 
 ## Deferred implementation
 
-Before December, this repository carries only the contract and this example. The later Isla change may
-add Chronicle output to its designated context/provenance adapters after the HTTP host has real W2
-captures and consumer tests. It must not copy Chronicle storage code, expose raw article bodies, create a
-second snapshot definition, or treat the conditional `/daily` endpoint as available before G3.
+This repository carries only the contract and this example. A later Isla change may add Chronicle
+output to its designated context/provenance adapters after the HTTP host has real W2 captures and
+consumer tests. It must not copy Chronicle storage code, expose raw article bodies, create a second
+snapshot definition, or treat the conditional `/daily` endpoint as available before G3.
