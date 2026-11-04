@@ -9,6 +9,7 @@ was exercised on which band.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -22,9 +23,9 @@ from acgn_rag.core.store.chroma_store import (  # noqa: E402
     collection_name,
     media_filter,
 )
-from acgn_rag.core.store.payload import ChunkPayload, payload_from_fields  # noqa: E402
+from acgn_rag.core.store.payload import ChunkPayload, payload_from_fields, to_payload  # noqa: E402
 
-SNAP = "20261028abcdef1234"  # longer than 12 chars, so naming truncation is observable
+SNAP = "20261028abcdef1234"
 VECTORS = [[1.0, 0.0], [0.0, 1.0]]
 
 
@@ -74,8 +75,8 @@ def test_chromadb_is_1x() -> None:
 
 
 def test_collection_name_format() -> None:
-    assert collection_name(SNAP, "A") == f"snap_{SNAP[:12]}_A"
-    assert collection_name("short", "A0") == "snap_short_A0"
+    assert collection_name(SNAP, "A") == f"snap_full_{SNAP}_A"
+    assert collection_name("short", "A0") == "snap_full_short_A0"
 
 
 def test_media_filter_shape() -> None:
@@ -161,22 +162,82 @@ def test_query_raises_when_hnsw_under_returns(
         loaded.query([1.0, 0.0], top_k=5)
 
 
+def test_filtered_availability_probe_is_bounded(
+    store: ChromaStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    collection = store.bind(SNAP, "A")
+    payloads = [_payload(f"doc-{index}::A::1", (1 if index < 30 else 2,)) for index in range(2000)]
+    store.upsert_chunks(payloads, [[1.0, 0.0]] * len(payloads))
+    calls: list[dict[str, Any]] = []
+    original_get = type(collection).get
+
+    def observed_get(self, *args, **kwargs):
+        calls.append(kwargs)
+        return original_get(self, *args, **kwargs)
+
+    monkeypatch.setattr(type(collection), "get", observed_get)
+    # This regression measures the real filtered probe, not approximate-neighbor recall.
+    # Equal vectors can make HNSW under-return nondeterministically; its guard has a separate test.
+    monkeypatch.setattr(
+        store,
+        "_fetch_rows",
+        lambda *_args: [(p.chunk_id, p.body, to_payload(p), 0.0) for p in payloads[:6]],
+    )
+    assert len(store.query([1.0, 0.0], top_k=3, where=media_filter([1]))) == 3
+    assert len(calls) == 1
+    assert calls[0]["include"] == []
+    assert 0 < calls[0].get("limit", 2000) <= 3 * store.settings.over_fetch_factor + 1
+
+
+def test_empty_replacement_collection_is_an_error(loaded: ChromaStore) -> None:
+    loaded.drop_collection(SNAP, "A")
+    loaded.bind(SNAP, "A")
+    with pytest.raises(RuntimeError, match="empty"):
+        loaded.query([1.0, 0.0], top_k=1)
+    loaded.upsert_chunks(_two_chunks(), VECTORS)
+    assert len(loaded.query([1.0, 0.0], top_k=1)) == 1
+
+
+def test_no_filter_match_is_empty_success_on_a_populated_collection(loaded: ChromaStore) -> None:
+    assert loaded.query([1.0, 0.0], top_k=3, where=media_filter([9999])) == []
+
+
+@pytest.mark.parametrize("top_k", [0, -1])
+def test_query_rejects_nonpositive_result_count(loaded: ChromaStore, top_k: int) -> None:
+    with pytest.raises(ValueError, match="top_k"):
+        loaded.query([1.0, 0.0], top_k=top_k)
+
+
 def test_prune_keeps_newest_snapshots(store: ChromaStore) -> None:
     store.client.get_or_create_collection(name="unrelated")  # non-snap_* must never be pruned
-    for snapshot_id in ("20260101aaaa1111", "20260102bbbb2222", "20260103cccc3333"):
+    snapshots = ("20260101aaaa1111", "20260102bbbb2222", "20260103cccc3333")
+    for snapshot_id in snapshots:
         store.bind(snapshot_id, "A")
-        store.upsert_chunks([_payload(f"{snapshot_id}::A::0", (1,))], [[1.0, 0.0]])
-    deleted = store.prune(keep=2)  # keep_n defaults to settings.keep_snapshots when omitted
-    assert deleted == ["snap_20260101aaaa_A"]
+        store.upsert_chunks(
+            [_payload(f"{snapshot_id}::A::0", (1,), snapshot_id=snapshot_id)], [[1.0, 0.0]]
+        )
+    publication_times = {
+        snapshot_id: datetime(2026, 1, index, tzinfo=UTC)
+        for index, snapshot_id in enumerate(snapshots, 1)
+    }
+    deleted = store.prune(keep=2, publication_times=publication_times)
+    assert deleted == [collection_name(snapshots[0], "A")]
     remaining = {
         col if isinstance(col, str) else col.name for col in store.client.list_collections()
     }
-    assert remaining == {"snap_20260102bbbb_A", "snap_20260103cccc_A", "unrelated"}
+    assert remaining == {
+        collection_name(snapshots[1], "A"),
+        collection_name(snapshots[2], "A"),
+        "unrelated",
+    }
 
 
 def test_prune_keeps_everything_within_retention(store: ChromaStore) -> None:
     store.bind("20260101aaaa1111", "A")
-    store.upsert_chunks([_payload("20260101aaaa1111::A::0", (1,))], [[1.0, 0.0]])
+    store.upsert_chunks(
+        [_payload("20260101aaaa1111::A::0", (1,), snapshot_id="20260101aaaa1111")],
+        [[1.0, 0.0]],
+    )
     assert store.prune(keep=2) == []
     assert store.count() == 1  # the bound collection survived
 
