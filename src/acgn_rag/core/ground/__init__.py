@@ -1,7 +1,35 @@
-"""WP4 grounded generation, citation alignment, abstention, compliance clipping.
+"""WP4 grounded generation, citation alignment, abstention and compliance clipping."""
 
-Owner: B | Spec: 04 §1.3 item 4
-Status: scaffold placeholder, to be implemented.
-"""
+from acgn_rag.core.ground.generate import (
+    ANSWER_MAX_TOKENS,
+    SYSTEM_PROMPT,
+    AnswerClient,
+    GroundedAnswerer,
+    build_grounding_prompt,
+    generate_grounded_answer,
+)
+from acgn_rag.core.ground.provider import make_openai_answer_client
+from acgn_rag.core.ground.validation import (
+    GroundingComponentError,
+    GroundingValidationError,
+    InvalidModelResponseError,
+    InvalidRetrievedEvidenceError,
+    ProviderResponseError,
+    validate_grounded_answer,
+)
 
-__all__: list[str] = []
+__all__ = [
+    "ANSWER_MAX_TOKENS",
+    "SYSTEM_PROMPT",
+    "AnswerClient",
+    "GroundedAnswerer",
+    "GroundingComponentError",
+    "GroundingValidationError",
+    "InvalidModelResponseError",
+    "InvalidRetrievedEvidenceError",
+    "ProviderResponseError",
+    "build_grounding_prompt",
+    "generate_grounded_answer",
+    "make_openai_answer_client",
+    "validate_grounded_answer",
+]
