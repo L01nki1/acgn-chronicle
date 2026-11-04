@@ -191,10 +191,11 @@ def test_outcome_counters_success_retry_degrade_ir_and_mixed(
     # --- exhausted retries degrade the whole batch (never drops a chunk) ---
     chunks_path = tmp_path / "degrade.jsonl"
     _write_chunks(chunks_path, [_row(i) for i in range(4)])
-    client = FakeLLMClient(["nope", "still nope", "```json\n{}\n```"])
+    client = FakeLLMClient(["nope", "still nope"] + ["```json\n{}\n```"] * 4)
     assert _main(["--snapshot", "snap-degrade", "--input", str(chunks_path)], client=client) == 0
     out = capsys.readouterr().out
-    assert _summary_field(out, "calls") == 3 and _summary_field(out, "retries") == 2
+    assert _summary_field(out, "calls") == 6 and _summary_field(out, "retries") == 1
+    assert _summary_field(out, "single_calls") == 4
     assert _summary_field(out, "extracted_chunks") == 0
     assert _summary_field(out, "degraded_batches") == 1 and _summary_field(out, "degraded") == 4
     assert _summary_field(out, "extracted_rows") == 0
@@ -226,8 +227,8 @@ def test_outcome_counters_success_retry_degrade_ir_and_mixed(
     out = capsys.readouterr().out
     assert _summary_field(out, "chunks") == 22
     assert _summary_field(out, "batches") == 3
-    assert _summary_field(out, "calls") == 6  # 1 + 2 + 3 attempts across the three batches
-    assert _summary_field(out, "retries") == 3  # 0 + 1 + 2: re-attempts, initial excluded
+    assert _summary_field(out, "calls") == 5  # 1 + 2 + 2 attempts across the three batches
+    assert _summary_field(out, "retries") == 2  # 0 + 1 + 1: re-attempts, initial excluded
     assert _summary_field(out, "extracted_chunks") == 19  # 10 + 9 + 0 (batch 3 degraded)
     assert _summary_field(out, "empty_extractions") == 1  # parsed but stated no known value
     assert _summary_field(out, "extracted_rows") == 72  # 40 + 32; the empty extraction: 0 rows
