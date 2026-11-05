@@ -100,7 +100,9 @@ their owners.
   `len(ids(prefix + header + "\n" + chunk)) <= max_seq_length` on every chunk
   (`test_encoded_length_never_exceeds_context`); a full-budget chunk that overflows raises at build time
 - encoding on the canonical **GPU** lane with an identity-keyed cache (model policy: RUNBOOK §3.5; CPU is
-  emergency-only per DECISIONS 2026-11-05 and its output is not reportable); compliance tests green (`pytest tests/compliance -q`)
+  emergency-only per DECISIONS 2026-11-05 and its output is not reportable); compliance tests green (`pytest tests/compliance -q`).
+  **The local CUDA lane is unavailable until the `[gpu]` extra lands in G2**, so every G1b build runs on
+  Colab (T4) and the session budget must account for it.
 - L0 fact extraction on a 30-item spot check ≥90% field accuracy, every row carries `chunkId` + `url`
 
 ### G2 · 2026-11-21 — Topic 5 complete (official brief, hard gate)
