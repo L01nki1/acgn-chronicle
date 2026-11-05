@@ -75,6 +75,7 @@ W2 priority follows the coverage gap: light novel and manga first (they are the 
 | Bandai Namco Filmworks, Studio Trigger | two retries, connection dies at TLS handshake — not solvable with `requests`, and should not be |
 | ufotable | homepage 200 but `/news/` 403; WPGraphQL headless app |
 | Dengeki Online | Next.js SPA, old feed 404 |
+| `api.bilibili.com/pgc/web/timeline` | `api.bilibili.com/robots.txt` serves `User-agent: * / Disallow: /` (measured 2026-11-05); skipped under C1 (`skipped_robots_disallow`) |
 
 ## 6. Acceptance thresholds (W1 hard gate, judged on 11/2)
 

@@ -77,14 +77,16 @@ of immutable cluster IDs across different snapshots is made.
 
 ## 3. Frozen snapshot format and canonical manifest
 
-Proposed internal files under `data/snapshots/<full_snapshot_id>/`:
+Proposed internal files under `data/snapshots/<full_snapshot_id>/` (and `data/snapshots_daily/<full_snapshot_id>/` for unmixed daily increments):
 
 - `items.jsonl`: all normalized member rows, sorted by doc_id; raw/internal only.
+- `representatives.jsonl`: one representative row per cluster, sorted by doc_id; consumed by ordinary single-article chunk configs (`A`, `A'`, `A0`).
 - `clusters.jsonl`: cluster_id, sorted member_doc_ids, representative_doc_id.
 - `entities.json` and `sources.json`: frozen versioned registries, including alias
-  mappings and source-key definitions actually used by that corpus.
+  mappings and source-key definitions actually used by that corpus. Seed entities use positive integer IDs `< 1,000`; dynamic external metadata refs (`anilist`, `bangumi`, `syosetu`) receive history-free SHA-256-derived positive IDs `>= 1,000,000`, verified against the append-only cross-build registry at `data/registry/entities.json`.
+- `quarantine.jsonl`: quarantined raw rows with failure reasons (`missing_tz`, `garbled_text`, `bad_url`, `conflicting_observation`).
 - `manifest.json`: canonical identity object below.
-- `snapshot.json`: CorpusSnapshot statistics and operational creation time.
+- `snapshot.json`: CorpusSnapshot statistics, `ingest_report` counters, `partial` flag, and operational creation time.
 
 Manifest v1 contains `manifest_version`, `window_start`, `window_end`,
 `normalization_version`, `entity_registry_sha256`, `source_registry_sha256`,

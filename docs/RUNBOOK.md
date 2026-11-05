@@ -26,8 +26,8 @@ pytest -q                                     # 4 tests
 | Contract consistency | `python scripts/export_schema.py --check` | ready |
 | All tests (zero network) | `pytest -q` | ready |
 | Network-marked tests | `pytest -m network -q` | ready (local only) |
-| Historical backfill | `python scripts/backfill.py --since ... --until ...` | pending A |
-| Daily increment | `python scripts/discover_daily.py` | pending A |
+| Historical backfill | `python scripts/backfill.py --since ... --until ...` | ready |
+| Daily increment | `python scripts/discover_daily.py` | ready |
 | Build index | `python scripts/build_index.py --snapshot <id> --input <docs.jsonl> [--config A] [--fresh]` | ready (`--input` until A's reader lands) |
 | Fact extraction | `python scripts/extract_facts.py --snapshot <id> --input <chunks.jsonl>` | ready |
 | Evaluation | `python scripts/run_eval.py --config A --snapshot <id>` | pending E |
