@@ -1,6 +1,8 @@
 # KnowledgePort — contract reference
 
-> **Status: 0.2.3 candidate (2026-11-01).** Examples are contract fixtures; real `curl` captures belong
+> **Status: 0.2.4 source-count clarification candidate (2026-11-01).** The 0.2.3 contract merged in
+> [PR #26](https://github.com/L01nki1/acgn-chronicle/pull/26); this candidate aligns its count unit with
+> A's merged producer handoff. Examples are contract fixtures; real `curl` captures belong
 > to W2 runtime verification, per the [PM's gate resolution](https://github.com/L01nki1/acgn-chronicle/issues/4#issuecomment-6502751345).
 > **Owner: B.** Frozen at **G1a (2026-11-02)**; after that, changes follow §7.
 
@@ -79,14 +81,23 @@ schema, the table is a bug. HTTP error envelopes and headers are specified separ
 | `created_at` | str | yes | ISO-8601 timestamp of the freeze |
 | `item_count` | int | yes | raw items in the snapshot |
 | `deduped_count` | int | yes | corpus items after deduplication; provenance, **not a QA metric denominator** |
-| `source_count` | int | yes | distinct publishers contributing |
+| `source_count` | int | yes | distinct contributing feed/adapter `source_key` values among accepted frozen manifest member rows; not publishers or organizations |
 | `window_start` / `window_end` | str | yes | corpus time span; required for reproducible evaluation |
 
 The order is **date first, hyphen, twelve hash digits**: for example, the illustrative id
 `20261028-abcdef012345`. Rebuilding the same frozen corpus on a later day must keep the same id:
 `created_at`, the wall-clock rebuild date and machine-specific paths do not enter its content identity.
-A owns the canonical manifest representation (stable ordering, UTF-8/LF, UTC timestamps and content
-identity); its implementation and two-rebuild evidence are still required on #9.
+A published the canonical manifest representation (stable ordering, UTF-8/LF, UTC timestamps and
+content identity) in [INGEST_CONTRACT.md](../docs/INGEST_CONTRACT.md), merged via PR #38. Its runtime
+implementation and real-source two-rebuild evidence are still required on #9.
+
+`source_count` counts distinct `source_key` values from accepted member rows in that frozen manifest,
+including members whose cluster representative is selected from another source. A registered source
+with no accepted rows contributes zero. One feed carrying several publisher display names still counts
+as one source; two feeds attributed to one organization count as two. The count is neither a publisher
+display-name cardinality nor a canonical organization count. Candidate 0.2.4 clarifies the old
+"distinct publishers" wording to match A's producer definition, without changing the integer field or
+adding `publisher_id`; C/E/F review this semantic change before adoption.
 
 QA metrics run over the deduplicated corpus but use their own eligible QA item sets as divisors, with
 `n` and exclusion counts reported beside the rates. `deduped_count` remains corpus provenance. This
@@ -213,8 +224,9 @@ negative value is an invalid request (`400`), not a valid request returning an e
 | `chunk_id` | str | yes | the citation must be able to locate its own chunk |
 
 Those publisher names are examples, not a closed set. Display strings do not establish canonical
-publisher identity or alias equivalence. D's proposed Optional `publisher_id` is not part of this revision:
-A/F must first define the stable source-registry key, alias policy and ingest/storage propagation.
+publisher identity or alias equivalence. A's merged handoff confirms that an ingest feed key is not an
+organization id. D's proposed Optional `publisher_id` is not part of this revision: a real organization
+registry, alias policy and ingest/storage propagation must be defined before such an addition.
 Once agreed, a separate Optional-with-default addition can expose that identity and notify C/D/E/F.
 Publisher-level canonical grouping must not be inferred from the examples in this display field.
 
@@ -444,8 +456,9 @@ Per the [PM resolution on Issue #4](https://github.com/L01nki1/acgn-chronicle/is
 the 2026-11-02 contract gate covers code types, the exported schema, this reference and green CI. Live
 curl and retirement checks gate W2's running service. Existing filter/refusal design artifacts remain useful
 G1a deliveries; their runtime checks move with the host. Actual C/F/E questions and answers are recorded
-in G1aReview §5; C approved 0.2.2 at `c8c3e88` and separately approved the 0.2.3 delta at `aac6598`.
-The current record-only follow-up changes no code/schema semantics and does not freeze the corpus gate.
+in G1aReview §5; C approved 0.2.2 at `c8c3e88` and the 0.2.3 delta at `aac6598`, now merged via #26.
+The source-count unit in candidate 0.2.4 is a new semantic clarification requiring consumer review;
+the earlier approvals do not cover it. The separate corpus gate remains open.
 
 - [x] Decide `score`'s meaning — cosine similarity, higher is better, never comparable across configs (§3.6)
 - [x] `episode_table` — dropped from 0.2.0 rather than guessed (§3.8)
@@ -457,6 +470,7 @@ The current record-only follow-up changes no code/schema semantics and does not 
 - [x] C / F / E each raise at least three consumer questions, resolve them, and record the actual answers in the PR (G1aReview §5)
 - [x] C re-reviews the 0.2.3 delta at `aac6598` ([APPROVE](https://github.com/L01nki1/acgn-chronicle/pull/26#pullrequestreview-5724246386)); approvals remain version-bound
 - [x] Notify C and F of 0.2.3 ([publication reply](https://github.com/L01nki1/acgn-chronicle/pull/26#issuecomment-6546162341)); notice sent is not F acknowledgement
+- [ ] C/E/F review the 0.2.4 source-count clarification against A's merged producer definition
 
 ### 8.2 W2: verify the running contract
 
