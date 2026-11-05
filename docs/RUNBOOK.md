@@ -230,9 +230,11 @@ this section is only the decision.
 - **GPU lane priority (2026-10-29, reaffirmed 2026-11-05): the canonical GPU runtime is Colab** (T4
   measured; every member can reproduce it). A local CUDA lane — currently the RTX 5060 on the
   development machine — is a cross-check recorded via encoder identity, not a canonical build lane:
-  members cannot reproduce that hardware, and its identity differs from T4's. Dependency consequence
-  to plan for: Blackwell-class cards (sm_120) need a CUDA 12.8 wheel (torch ≥ 2.7), so the local lane
-  cannot run on the `torch>=2.3` floor the CPU path is pinned to.
+  members cannot reproduce that hardware, and its identity differs from T4's. Dependency gap to be
+  aware of: `pyproject.toml` maps Linux to the `pytorch-cpu` index, treats the macOS/Windows PyPI
+  wheels as CPU/MPS builds, and declares no CUDA index — so `uv sync --extra embed` yields a CPU-only
+  torch on every platform and the local GPU lane cannot currently be exercised at all. How the CUDA
+  wheel is delivered is an open decision (separate issue), not something this document can settle.
 - Usage differences to respect: Qwen3 takes an **instruct-style query prompt** (`prompt_name="query"` in
   sentence-transformers), documents carry no prefix. **bge-m3 needs no prefixes** and mean-pools —
   with 8k context it is the named late-chunking-capable fallback for config B (the EmbeddingGemma
