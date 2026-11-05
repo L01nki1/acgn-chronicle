@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -429,6 +430,32 @@ def test_load_build_records_rejects_mismatched_identity(tmp_path: Path) -> None:
         load_build_records(root, snapshot_id=SNAPSHOT, config="A", label="A")
 
 
+def test_load_build_records_rejects_matching_but_incomplete_chunker(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "index"
+    _write_build_records(root, chunker={"version": "composed-input-v2"})
+    with pytest.raises(ValueError, match="chunker identity is missing"):
+        load_build_records(root, snapshot_id=SNAPSHOT, config="A", label="A")
+
+
+def test_load_build_records_rejects_a_chunker_for_another_config(tmp_path: Path) -> None:
+    root = tmp_path / "index"
+    _write_build_records(
+        root,
+        chunker={
+            "version": "composed-input-v2",
+            "header_version": "h1",
+            "config": "A0",
+            "max_tokens": 512,
+            "overlap": 64,
+            "max_seq_length": 512,
+        },
+    )
+    with pytest.raises(ValueError, match="!= selected config"):
+        load_build_records(root, snapshot_id=SNAPSHOT, config="A", label="A")
+
+
 def test_load_build_records_requires_identity_chunker(tmp_path: Path) -> None:
     root = tmp_path / "index"
     base = _write_build_records(root)
@@ -563,22 +590,87 @@ def test_bind_existing_collection_requires_no_create_api() -> None:
     assert not store.bind_called
 
 
-def test_resolve_window_uses_the_frozen_manifest(tmp_path: Path) -> None:
-    snap = tmp_path / "snapshots" / SNAPSHOT
+def _manifest(window_end: str = "2026-11-05") -> dict[str, Any]:
+    return {
+        "manifest_version": "1",
+        "window_start": "2021-01-01",
+        "window_end": window_end,
+        "items": [
+            {"doc_id": "doc_b", "title": "B"},
+            {"doc_id": "doc_a", "title": "A"},
+        ],
+    }
+
+
+def _manifest_id(manifest: dict[str, Any]) -> str:
+    payload = dict(manifest)
+    payload["items"] = sorted(payload["items"], key=lambda row: row["doc_id"])
+    data = (
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+    return manifest["window_end"].replace("-", "") + "-" + hashlib.sha256(data).hexdigest()[:12]
+
+
+def test_resolve_window_uses_and_verifies_the_manifest(tmp_path: Path) -> None:
+    manifest = _manifest()
+    snapshot_id = _manifest_id(manifest)
+    snap = tmp_path / "snapshots" / snapshot_id
+    snap.mkdir(parents=True)
+    (snap / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    assert resolve_window(snap, snapshot_id, None, None) == (
+        "2021-01-01",
+        "2026-11-05",
+        True,
+    )
+    assert resolve_window(snap, snapshot_id, "2021-01-01", "2026-11-05") == (
+        "2021-01-01",
+        "2026-11-05",
+        True,
+    )
+
+
+def test_resolve_window_rejects_a_manifest_under_another_id(tmp_path: Path) -> None:
+    manifest = _manifest()
+    correct = _manifest_id(manifest)
+    wrong = "20261105-" + "0" * 12
+    assert wrong != correct
+    snap = tmp_path / "snapshots" / wrong
+    snap.mkdir(parents=True)
+    (snap / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="content does not match snapshot"):
+        resolve_window(snap, wrong, None, None)
+
+
+def test_resolve_window_rejects_a_manifest_with_a_different_date(tmp_path: Path) -> None:
+    manifest = _manifest()
+    snapshot_id = _manifest_id(manifest)
+    wrong = "20200101-" + snapshot_id.split("-")[1]
+    snap = tmp_path / "snapshots" / wrong
+    snap.mkdir(parents=True)
+    (snap / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="does not match its date"):
+        resolve_window(snap, wrong, None, None)
+
+
+def test_resolve_window_leaves_an_unhashable_manifest_unverified(tmp_path: Path) -> None:
+    snapshot_id = "20261105-" + "a" * 12
+    snap = tmp_path / "snapshots" / snapshot_id
     snap.mkdir(parents=True)
     (snap / "manifest.json").write_text(
         json.dumps({"window_start": "2021-01-01", "window_end": "2026-11-05"}),
         encoding="utf-8",
     )
-    assert resolve_window(snap, SNAPSHOT, None, None) == (
+    assert resolve_window(snap, snapshot_id, None, None) == (
         "2021-01-01",
         "2026-11-05",
-        True,
-    )
-    assert resolve_window(snap, SNAPSHOT, "2021-01-01", "2026-11-05") == (
-        "2021-01-01",
-        "2026-11-05",
-        True,
+        False,
     )
 
 
@@ -680,3 +772,19 @@ def test_verify_build_identity_reports_a_current_library_missing_from_build() ->
     build = _build_identity()
     current = {**build, "lib_newdep": "1.0"}
     assert verify_build_identity(build, current) == ["build identity missing 'lib_newdep'"]
+
+
+def test_run_with_resolver_but_unverified_window_is_not_reportable(
+    tmp_path: Path,
+) -> None:
+    result = run(
+        _spec(tmp_path, window_verified=False),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["doc::A::1"] for url in urls},
+    )
+    assert result.metrics["provisional"] is False
+    meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
+    assert meta["window_verified"] is False
+    assert meta["reportable"] is False

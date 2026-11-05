@@ -9,7 +9,9 @@ answerer is a protocol. Until B's `/ask` lands, `NullAnswerer` records every ans
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -28,6 +30,8 @@ from acgn_rag.core.retrieve.vector import search
 CONFIG_TOKENS = {"A'": "A-prime"}
 BUILD_IDENTITY_KEYS = ("model", "backend", "device", "precision", "batch_size", "identity_slug")
 VECTOR_IDENTITY_KEYS = ("model", "backend", "device", "precision", "identity_slug")
+CHUNKER_FIELDS = ("version", "header_version", "config", "max_tokens", "overlap", "max_seq_length")
+_FULL_SNAPSHOT_ID = re.compile(r"(\d{8})-([0-9a-f]{12})")
 
 
 class Answerer(Protocol):
@@ -164,6 +168,7 @@ def load_build_records(
         raise ValueError("identity.json: missing or invalid `chunker` identity")
     if chunker != identity_chunker:
         raise ValueError("build.json: chunker identity does not match identity.json")
+    _validate_chunker(chunker, config)
 
     counts = {"docs": docs, "chunks": chunks, "stored": stored}
     return dict(identity), collection, counts, dict(chunker)
@@ -250,6 +255,57 @@ def bind_existing_collection(
     return bound
 
 
+def _validate_chunker(chunker: Mapping[str, Any], config: str) -> None:
+    """Reject a matching but incomplete chunker block, or one for another config."""
+    missing = [name for name in CHUNKER_FIELDS if name not in chunker]
+    if missing:
+        raise ValueError(f"build.json: chunker identity is missing {', '.join(missing)}")
+    for name in ("version", "header_version", "config"):
+        if not isinstance(chunker[name], str) or not chunker[name]:
+            raise ValueError(f"build.json: invalid chunker {name}")
+    for name in ("max_tokens", "max_seq_length"):
+        value = chunker[name]
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ValueError(f"build.json: invalid chunker {name}")
+    overlap = chunker["overlap"]
+    if not isinstance(overlap, int) or isinstance(overlap, bool) or overlap < 0:
+        raise ValueError("build.json: invalid chunker overlap")
+    if chunker["config"] != config:
+        raise ValueError(
+            f"build.json: chunker config {chunker['config']!r} != selected config {config!r}"
+        )
+
+
+def _canonical_manifest_digest(manifest: Mapping[str, Any]) -> str | None:
+    """A's canonical manifest hash, or None when the manifest has no item rows."""
+    items = manifest.get("items")
+    if not isinstance(items, list):
+        return None
+    if not items:
+        return None
+    rows: list[dict[str, Any]] = []
+    for row in items:
+        if not isinstance(row, dict) or not isinstance(row.get("doc_id"), str):
+            raise ValueError("manifest items are not hashable identity rows")
+        rows.append(row)
+    payload = dict(manifest)
+    payload["items"] = sorted(rows, key=lambda row: row["doc_id"])
+    try:
+        data = (
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+            + "\n"
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("manifest cannot be canonicalized for identity verification") from exc
+    return hashlib.sha256(data).hexdigest()
+
+
 def resolve_window(
     snapshot_dir: Path,
     snapshot_id: str,
@@ -275,6 +331,23 @@ def resolve_window(
             raise ValueError(f"--window-end {window_end!r} conflicts with manifest {end!r}")
         if start > end:
             raise ValueError(f"snapshot {snapshot_id!r} manifest window is reversed")
+
+        match = _FULL_SNAPSHOT_ID.fullmatch(snapshot_id)
+        if match is None:
+            return start, end, False
+        date, digest = match.groups()
+        if end.replace("-", "") != date:
+            raise ValueError(
+                f"snapshot {snapshot_id!r} manifest window_end {end!r} does not match its date"
+            )
+        recorded = manifest.get("snapshot_id")
+        if recorded is not None and recorded != snapshot_id:
+            raise ValueError(f"manifest snapshot_id {recorded!r} != requested {snapshot_id!r}")
+        computed = _canonical_manifest_digest(manifest)
+        if computed is None:
+            return start, end, False
+        if computed[:12] != digest:
+            raise ValueError(f"manifest content does not match snapshot {snapshot_id!r}")
         return start, end, True
 
     if window_start is None or window_end is None:
@@ -443,7 +516,7 @@ def run(
         "embed": _embed_metadata(spec.build_identity),
         "build_identity": dict(spec.build_identity),
         "chunker": dict(spec.chunker),
-        "reportable": evidence_resolver is not None,
+        "reportable": evidence_resolver is not None and spec.window_verified,
         "collection": spec.collection,
         "llm": dict(spec.llm),
         "git_sha": spec.git_sha,
