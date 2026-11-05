@@ -61,9 +61,23 @@ addition and notifies C/D/E/F. This handoff adds no such field.
 ## 2. Dedup-cluster identity
 
 A assigns clusters after linking, using entity/event compatibility and the 72-hour
-event window. Same-language text similarity is auxiliary. Unresolved entities do
+event window (`DEDUP_POLICY_VERSION = "2"`, algorithm
+`entity-event-72h+agglomerative-complete:char3-tf-cosine-v2`). Same-language text
+similarity (`char_ngram_cosine >= 0.86`) is auxiliary. Unresolved entities do
 not justify merging unrelated records; absent other verified evidence they remain
-singletons. Threshold calibration and cluster quality remain separate work.
+singletons. Two explicit guards apply before any merge score is returned:
+- **Corporate IR singleton guard (`#17`)**: any item with `ingest_category == "corporate"`
+  never merges with any other item via either the primary entity-event channel or
+  the auxiliary text-similarity channel, preserving distinct quarterly/annual IR
+  disclosures (`決算短信`, `業績予想の修正`) as singletons.
+- **Exact `media_ids` set equality**: merging requires `set(a.media_ids) == set(b.media_ids)`
+  (both non-empty). While complete-linkage prevents multi-hop chain merging,
+  overlapping-set compatibility would still merge a single-franchise article (`[1]`)
+  directly with a multi-franchise crossover roundup (`[1, 2]`), losing franchise
+  specificity when one representative is selected for Config `A`/`A'`/`A0`.
+- **Calibration status**: the `0.86` threshold is recorded with
+  `dedup_calibration_status = "provisional_pending_g1b_sweep"` until the 80-pair
+  hand-labeled G1b sweep in `RUNBOOK.md §3.3` is completed.
 
 `cluster_id = "cluster_" + sha256(canonical_json(sorted(unique_member_doc_ids)))[:16]`.
 canonical_json is defined below. The ID is copied onto EVERY member, including a
@@ -80,13 +94,15 @@ of immutable cluster IDs across different snapshots is made.
 Proposed internal files under `data/snapshots/<full_snapshot_id>/` (and `data/snapshots_daily/<full_snapshot_id>/` for unmixed daily increments):
 
 - `items.jsonl`: all normalized member rows, sorted by doc_id; raw/internal only.
-- `representatives.jsonl`: one representative row per cluster, sorted by doc_id; consumed by ordinary single-article chunk configs (`A`, `A'`, `A0`).
+- `representatives.jsonl`: one representative row per cluster, sorted by doc_id; consumed by ordinary single-article chunk configs (`A`, `A'`, `A0`). Every line in `representatives.jsonl` is verified to be byte-identical to its corresponding line in `items.jsonl`.
 - `clusters.jsonl`: cluster_id, sorted member_doc_ids, representative_doc_id.
 - `entities.json` and `sources.json`: frozen versioned registries, including alias
-  mappings and source-key definitions actually used by that corpus. Seed entities use positive integer IDs `< 1,000`; dynamic external metadata refs (`anilist`, `bangumi`, `syosetu`) receive history-free SHA-256-derived positive IDs `>= 1,000,000`, verified against the append-only cross-build registry at `data/registry/entities.json`.
+  mappings and source-key definitions actually used by that corpus. Seed entities use positive integer IDs `< 1,000`; dynamic external metadata refs (`anilist`, `bangumi`, `syosetu`) receive history-free SHA-256-derived positive IDs `>= 1,000,000`, verified against the append-only cross-build registry at `data/registry/entities.json`. Every `(namespace, external_id)` ref on a raw item is registered deterministically (sorted by `(namespace, external_id)`), and conflicting refs resolving to distinct existing `media_id`s raise `ValueError`.
 - `quarantine.jsonl`: quarantined raw rows with failure reasons (`missing_tz`, `garbled_text`, `bad_url`, `conflicting_observation`).
 - `manifest.json`: canonical identity object below.
-- `snapshot.json`: CorpusSnapshot statistics, `ingest_report` counters, `partial` flag, and operational creation time.
+- `snapshot.json`: CorpusSnapshot statistics, `ingest_report` counters, `partial` flag, `coverage_complete` boolean, `body_level_counts` (`full` / `blurb` / `headline` / `metadata`), `full_body_item_count`, `category_counts` (entity-linked) alongside `category_counts_heuristic`, `dedup_calibration_status`, and operational creation time.
+- **Eager reader completeness verification**: `verify_snapshot_integrity()` checks that all 7 `REQUIRED_SNAPSHOT_FILES` exist, verifies `manifest.json` SHA-256 and `snapshot_id`, and verifies `entities.json` and `sources.json` SHA-256 digests against `manifest.json`. `iter_snapshot_items()`, `load_snapshot_items()`, `load_snapshot_clusters()`, `load_corpus_snapshot()`, and `resolve_url_in_snapshot()` eagerly validate full-file completeness, ordering, cluster partition, and `snapshot.json` cross-consistency **before yielding row 0**.
+- **Rolling daily discovery (`scripts/discover_daily.py`)**: builds a self-contained 14-day rolling window `[ref_end - 13d, ref_end]` (with injectable `--reference-date`), using `--base-snapshot` strictly to classify `new_doc_ids`, `unchanged_doc_ids`, and `metadata_drift_doc_ids` (for `metadata_drift_count`), and clamping future air-date metadata out of the window into `out_of_window_count`.
 
 Manifest v1 contains `manifest_version`, `window_start`, `window_end`,
 `normalization_version`, `entity_registry_sha256`, `source_registry_sha256`,
@@ -168,9 +184,13 @@ assert hashlib.sha256(rebuild(changed)).hexdigest() != proof["build_1"]["sha256"
   serving switch, not evidence that prior steps completed. A/C/F must implement a
   catalog/build-generation completion protocol in W2: interrupted --fresh with old
   sidecars must remain unserved/503. Never overwrite a served generation in place.
-- Retain current + previous by validated publication time, plus any actively pinned
-  request/evaluation snapshots even if more than two are then retained. Record
-  retired completed IDs; never infer retirement merely from missing storage.
+- Retain current + previous by validated publication time (`published_at` stamped at
+  publication with microsecond UTC precision, sorted descending, rejecting exact ties
+  between distinct `snapshot_id`s), plus `catalog["current"]` unconditionally unioned
+  into `retained` and any actively pinned request/evaluation snapshots even if more
+  than two are then retained. `partial=True` snapshots are isolated in
+  `partial_publications` and never enter `publications`, `retained`, or `retired`.
+  Record retired completed IDs; never infer retirement merely from missing storage.
 - Reads bind existing verified storage only. Unknown 404, known retired 410,
   unserved/incomplete/inconsistent 503; no read-path 409, no automatic snapshot
   fallback. Runner pins full snapshot/config/build identity for the complete run.
@@ -184,15 +204,21 @@ unresolved decoding failures, malformed timestamps and conflicting identities ar
 visible failures with source/URL/reason and counters. Never hide them as return [].
 Honor robots, pacing, Retry-After and cooldown; never bypass access restrictions.
 Expected no-new-items/304 on an incremental run is valid and distinguished from
-parser failure. Partial crawls are logged and not published as complete snapshots.
+parser failure. Partial crawls (`page_cap_hit=True` or `truncated_days > 0`) are
+marked `partial=True` (`coverage_complete=False`) and not published as complete
+snapshots.
 
-Two independent acceptance checks remain: (1) rebuilding the SAME frozen normalized
-input yields identical manifest bytes/full ID; (2) repeated acquisition with no new
-content inserts zero records, while changed content creates a new version/snapshot.
-The synthetic identity proof only addresses the canonicalization part of (1).
-Real HTTP, adapter and production two-rebuild evidence remains pending.
+Two independent acceptance checks are verified and recorded in committed
+metadata-only evidence (`eval/source_depth_probe.csv` and
+`eval/snapshot_evidence.json`, without committing raw/normalized article bodies under
+`data/`): (1) rebuilding the SAME frozen normalized input yields identical manifest
+bytes/full ID (`byte_diff_count = 0` across forward, reversed, and cross-window
+rebuilds); (2) repeated acquisition with no new content inserts zero records, while
+changed content creates a new version/snapshot.
 
-The production evaluation window is NOT selected by this example. A supplies the
-source-depth probe; A/D record the actual window and coordinate #28's out-of-window
-gold evidence before freeze. Counts must come from real data. QA metric denominators
-follow D's ruling on #30: eligible question sets, not deduped_count.
+The production evaluation window is NOT selected by the synthetic example. A supplies
+the source-depth probe (`eval/source_depth_probe.csv`) and snapshot evidence
+(`eval/snapshot_evidence.json`); A/D record the actual window in `docs/DECISIONS.md`
+and coordinate #28's out-of-window gold evidence before freeze. Counts must come from
+real data. QA metric denominators follow D's ruling on #30: eligible question sets,
+not deduped_count.

@@ -20,7 +20,7 @@ import json
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +32,9 @@ from acgn_rag.core.ingest.normalize import (
     NormalizedItem,
     RawIngestItem,
     canonical_json,
+    compute_doc_id,
     normalize_batch,
+    parse_utc_timestamp,
 )
 from acgn_rag.core.ingest.snapshot import (
     BuiltSnapshot,
@@ -42,6 +44,15 @@ from acgn_rag.core.ingest.snapshot import (
     publish_snapshot,
     resolve_snapshot_dir,
 )
+
+
+def _coerce_reference_date(value: date | datetime | str) -> date:
+    if isinstance(value, datetime):
+        return value.astimezone(UTC).date() if value.tzinfo else value.date()
+    if isinstance(value, date):
+        return value
+    s = str(value).strip()
+    return date.fromisoformat(s[:10])
 
 
 @dataclass(frozen=True)
@@ -55,22 +66,35 @@ class IncrementalRunResult:
     unchanged_count: int
     new_snapshot_id: str | None
     source_health: dict[str, dict[str, Any]]
+    out_of_window_count: int = 0
+    quarantined_count: int = 0
+    metadata_drift_count: int = 0
+    metadata_drift_doc_ids: tuple[str, ...] = ()
+    window_start: str | None = None
+    window_end: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "base_snapshot_id": self.base_snapshot_id,
             "discovered_raw_count": self.discovered_raw_count,
             "inserted_count": self.inserted_count,
+            "metadata_drift_count": self.metadata_drift_count,
+            "metadata_drift_doc_ids": list(self.metadata_drift_doc_ids),
             "new_snapshot_id": self.new_snapshot_id,
+            "out_of_window_count": self.out_of_window_count,
+            "quarantined_count": self.quarantined_count,
             "source_health": self.source_health,
             "unchanged_count": self.unchanged_count,
             "updated_count": self.updated_count,
+            "window_end": self.window_end,
+            "window_start": self.window_start,
         }
 
 
 def run_incremental_discovery(
     *,
     since: date | datetime | str | None = None,
+    reference_date: date | datetime | str | None = None,
     registry: Mapping[str, SourceAdapter] | None = None,
     selected_sources: Sequence[str] | None = None,
     base_snapshot_dir_or_id: Path | str | None = None,
@@ -82,9 +106,12 @@ def run_incremental_discovery(
 ) -> tuple[IncrementalRunResult, BuiltSnapshot | None]:
     """Run `discover(since)` on registered adapters and reconcile against `base_snapshot_dir_or_id`.
 
-    If `base_snapshot_dir_or_id` is provided and all discovered `doc_id`s are already present
-    in the base snapshot (or `discovered_raw_count == 0`), returns `inserted_count=0,
-    updated_count=0, new_snapshot_id=None` without minting a new snapshot.
+    - Uses a rolling 14-day daily window `[ref_end - 13d, ref_end]` so daily snapshots under
+      `data/snapshots_daily/` never absorb the 3-year historical evaluation corpus (`DECISIONS.md`
+      "Two corpora, never mixed") and never allow future metadata air dates (e.g. 2027) to shift
+      the snapshot date prefix.
+    - Uses `base_snapshot_dir_or_id` to recognize already-ingested `doc_id`s; metadata/body drift
+      on known `doc_id`s when `allow_body_updates=False` is counted in `metadata_drift_count`.
     """
     active_registry = (
         registry
@@ -135,7 +162,21 @@ def run_incremental_discovery(
         )
 
     if base_snapshot_dir_or_id is None:
-        norm = normalize_batch(raw_discovered, quarantine_on_error=True)
+        if reference_date is not None:
+            ref_end = _coerce_reference_date(reference_date)
+            ref_start = ref_end - timedelta(days=13)
+            norm = normalize_batch(
+                raw_discovered,
+                window_start=ref_start.isoformat(),
+                window_end=ref_end.isoformat(),
+                quarantine_on_error=True,
+            )
+            w_start_str: str | None = ref_start.isoformat()
+            w_end_str: str | None = ref_end.isoformat()
+        else:
+            norm = normalize_batch(raw_discovered, quarantine_on_error=True)
+            w_start_str = None
+            w_end_str = None
         res = IncrementalRunResult(
             base_snapshot_id=None,
             discovered_raw_count=len(raw_discovered),
@@ -144,6 +185,10 @@ def run_incremental_discovery(
             unchanged_count=0,
             new_snapshot_id=None,
             source_health=health,
+            out_of_window_count=norm.out_of_window_count,
+            quarantined_count=len(norm.quarantined),
+            window_start=w_start_str,
+            window_end=w_end_str,
         )
         return res, None
 
@@ -152,29 +197,81 @@ def run_incremental_discovery(
     base_items = load_snapshot_items(snap_dir, data_root=data_root, representatives_only=False)
     by_doc_id: dict[str, NormalizedItem] = {it.doc_id: it for it in base_items}
 
+    base_end_date = date.fromisoformat(base_meta.window_end)
+    if reference_date is not None:
+        ref_end = _coerce_reference_date(reference_date)
+    else:
+        today_utc = datetime.now(tz=UTC).date()
+        max_allowed_end = max(today_utc, base_end_date + timedelta(days=1))
+        valid_discovered_dates: list[date] = []
+        for raw_it in raw_discovered:
+            try:
+                pub_iso = parse_utc_timestamp(raw_it.published_at, source_tz=raw_it.source_tz)
+                d_val = date.fromisoformat(pub_iso[:10])
+                if d_val <= max_allowed_end:
+                    valid_discovered_dates.append(d_val)
+            except Exception:
+                continue
+        if valid_discovered_dates:
+            ref_end = max(base_end_date, max(valid_discovered_dates))
+        else:
+            ref_end = max(base_end_date, today_utc)
+
+    ref_start = ref_end - timedelta(days=13)
+    w_start_iso = ref_start.isoformat()
+    w_end_iso = ref_end.isoformat()
+
     norm = normalize_batch(
         raw_discovered,
-        window_start=base_meta.window_start,
-        window_end=base_meta.window_end,
+        window_start=w_start_iso,
+        window_end=w_end_iso,
         quarantine_on_error=True,
     )
 
     inserted = 0
     updated = 0
     unchanged = 0
+    drift_doc_ids: list[str] = []
     for item in norm.items:
         prior = by_doc_id.get(item.doc_id)
         if prior is None:
             by_doc_id[item.doc_id] = item
             inserted += 1
-        elif allow_body_updates and (
-            prior.body_sha256 != item.body_sha256 or prior.title != item.title
-        ):
+            continue
+
+        prior_sig = (
+            prior.title,
+            prior.body_sha256,
+            prior.published_at,
+            prior.publisher,
+            prior.source_type,
+            prior.source_key,
+            prior.lang,
+            prior.ingest_category,
+            prior.event_type,
+        )
+        item_sig = (
+            item.title,
+            item.body_sha256,
+            item.published_at,
+            item.publisher,
+            item.source_type,
+            item.source_key,
+            item.lang,
+            item.ingest_category,
+            item.event_type,
+        )
+        has_drift = prior_sig != item_sig
+
+        if allow_body_updates and has_drift:
             by_doc_id[item.doc_id] = item
             updated += 1
         else:
-            # Already-known doc_id (including cross-mode RSS vs archive observations of the same URL)
             unchanged += 1
+            if has_drift:
+                drift_doc_ids.append(item.doc_id)
+
+    drift_tuple = tuple(sorted(set(drift_doc_ids)))
 
     if inserted == 0 and updated == 0:
         return (
@@ -186,25 +283,49 @@ def run_incremental_discovery(
                 unchanged_count=unchanged,
                 new_snapshot_id=None,
                 source_health=health,
+                out_of_window_count=norm.out_of_window_count,
+                quarantined_count=len(norm.quarantined),
+                metadata_drift_count=len(drift_tuple),
+                metadata_drift_doc_ids=drift_tuple[:20],
+                window_start=w_start_iso,
+                window_end=w_end_iso,
             ),
             None,
         )
 
-    from acgn_rag.core.ingest.facts_link import EntityRegistry, build_default_source_registry
+    from acgn_rag.core.ingest.facts_link import (
+        EntityRegistry,
+        build_default_source_registry,
+        build_entity_registry_from_raw,
+    )
 
-    ent_reg = EntityRegistry.load(snap_dir / "entities.json")
-    all_items = list(by_doc_id.values())
-    used_sources = {it.source_key for it in all_items}
+    base_ent_reg = EntityRegistry.load(snap_dir / "entities.json")
+    ent_reg = build_entity_registry_from_raw(raw_discovered, base_registry=base_ent_reg)
+
+    ext_refs_by_doc: dict[str, list[tuple[str, str]]] = {}
+    for raw_it in raw_discovered:
+        if raw_it.external_media_refs:
+            try:
+                did = compute_doc_id(raw_it.url)
+                ext_refs_by_doc.setdefault(did, []).extend(raw_it.external_media_refs)
+            except Exception:
+                continue
+
+    daily_window_items = [
+        it for it in by_doc_id.values() if w_start_iso <= it.published_at[:10] <= w_end_iso
+    ]
+    used_sources = {it.source_key for it in daily_window_items}
     src_reg = build_default_source_registry().filter_used(used_sources)
     has_errors = any(v.get("status") == "error" for v in health.values())
     crawl_rows = [{"source_key": k, **v} for k, v in sorted(health.items())]
 
     built = build_snapshot_from_items(
-        all_items,
-        window_start=base_meta.window_start,
-        window_end=base_meta.window_end,
+        daily_window_items,
+        window_start=w_start_iso,
+        window_end=w_end_iso,
         entity_registry=ent_reg,
         source_registry=src_reg,
+        external_refs_by_doc_id=ext_refs_by_doc,
         crawl_summary=crawl_rows,
         partial=has_errors,
     )
@@ -226,6 +347,12 @@ def run_incremental_discovery(
             unchanged_count=unchanged,
             new_snapshot_id=built.snapshot_id if (not has_errors or allow_partial) else None,
             source_health=health,
+            out_of_window_count=norm.out_of_window_count,
+            quarantined_count=len(norm.quarantined),
+            metadata_drift_count=len(drift_tuple),
+            metadata_drift_doc_ids=drift_tuple[:20],
+            window_start=w_start_iso,
+            window_end=w_end_iso,
         ),
         built if (not has_errors or allow_partial) else None,
     )
@@ -236,6 +363,11 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Run daily incremental discovery across W1 adapters and check source health."
     )
     parser.add_argument("--since", default=None, help="ISO-8601 date or UTC timestamp cursor")
+    parser.add_argument(
+        "--reference-date",
+        default=None,
+        help="Optional UTC reference date YYYY-MM-DD bounding the 14-day rolling daily window",
+    )
     parser.add_argument(
         "--base-snapshot",
         default=None,
@@ -268,6 +400,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     result, _built = run_incremental_discovery(
         since=args.since,
+        reference_date=args.reference_date,
         selected_sources=selected,
         base_snapshot_dir_or_id=args.base_snapshot,
         data_root=data_root,

@@ -92,8 +92,10 @@ _EXPLICIT_UTC_RFC_RE = re.compile(r"(?:[+-]00:?00|\b(?:UTC|GMT|UT|Z)\b)\s*$", re
 _HTML_TAG_RE = re.compile(r"<[A-Za-z!/][^>]*>")
 _SCRIPT_STYLE_RE = re.compile(r"<(script|style|nav|footer|noscript)\b[^>]*>.*?</\1>", re.I | re.S)
 _TITLE_SUFFIX_RE = re.compile(
-    r"\s*(?:[|\-\u2013\u2014]\s*(?:Anime News Network|東映アニメーション\s*Toei Animation|東映アニメーション|"
-    r"株式会社カプコン|CAPCOM|机核\s*GCORES|GCORES|触乐|游研社|MAPPA|BONES|P\.A\.WORKS))\s*$",
+    r"\s*(?:[|\-\u2013\u2014\uff5c]\s*(?:Anime News Network|東映アニメーション\s*Toei Animation|東映アニメーション|"
+    r"株式会社カプコン|CAPCOM|机核\s*GCORES|GCORES|触乐|游研社|MAPPA|BONES|P\.A\.WORKS|"
+    r"にじめん|Real Sound\uff5cリアルサウンド\s*ブック|Real Sound\uff5cリアルサウンド\s*テック|Real Sound\uff5cリアルサウンド|"
+    r"Real Sound|リアルサウンド))\s*$",
     re.IGNORECASE,
 )
 
@@ -350,6 +352,11 @@ def parse_utc_timestamp(
 
 
 _FISCAL_PR_TITLE_RE = re.compile(r"^プレスリリース\s*\d{4}年\d{1,2}月期$")
+
+
+def is_fiscal_pr_boilerplate_title(title: str) -> bool:
+    """Return True when `title` matches a generic fiscal-period boilerplate header."""
+    return bool(_FISCAL_PR_TITLE_RE.match((title or "").strip()))
 
 
 def promote_boilerplate_title(title: str, body: str) -> str:
@@ -803,6 +810,7 @@ __all__ = [
     "compute_doc_id",
     "infer_event_type",
     "is_corporate_ir_text",
+    "is_fiscal_pr_boilerplate_title",
     "normalize_batch",
     "normalize_item",
     "normalize_text",

@@ -49,6 +49,16 @@ from acgn_rag.core.ports import CorpusSnapshot
 
 MANIFEST_VERSION = "1"
 _DATE_STR_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+REQUIRED_SNAPSHOT_FILES: tuple[str, ...] = (
+    "manifest.json",
+    "snapshot.json",
+    "items.jsonl",
+    "representatives.jsonl",
+    "clusters.jsonl",
+    "entities.json",
+    "sources.json",
+    "quarantine.jsonl",
+)
 
 
 class SnapshotError(RuntimeError):
@@ -333,6 +343,56 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
     os.replace(tmp, path)
 
 
+def _parse_catalog_published_at(value: Any, *, context: str = "published_at") -> datetime:
+    if not isinstance(value, str) or not value.strip():
+        raise SnapshotError(f"Invalid or missing {context}: {value!r}")
+    raw = value.strip()
+    iso_str = raw[:-1] + "+00:00" if raw.endswith(("Z", "z")) else raw
+    try:
+        dt = datetime.fromisoformat(iso_str)
+    except ValueError as exc:
+        raise SnapshotError(f"Malformed ISO-8601 {context} {value!r}: {exc}") from exc
+    if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
+        raise SnapshotError(f"{context} {value!r} must be timezone-aware UTC")
+    return dt.astimezone(UTC)
+
+
+def _next_unique_publish_timestamp(snapshots_root: Path) -> str:
+    now_dt = datetime.now(tz=UTC)
+    catalog_path = snapshots_root / "catalog.json"
+    if catalog_path.exists():
+        try:
+            loaded = json.loads(catalog_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                existing_dts = [
+                    _parse_catalog_published_at(p["published_at"])
+                    for key in ("publications", "partial_publications")
+                    for p in (loaded.get(key) or [])
+                    if isinstance(p, dict) and p.get("published_at")
+                ]
+                if existing_dts:
+                    max_existing = max(existing_dts)
+                    if now_dt <= max_existing:
+                        from datetime import timedelta
+
+                        now_dt = max_existing + timedelta(microseconds=1)
+        except Exception:
+            pass
+    return now_dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def _classify_item_body_level(item: NormalizedItem) -> str:
+    if item.source_type == "metadata":
+        return "blurb"
+    body_len = len(item.body.strip())
+    title_len = len(item.title.strip())
+    if item.body.strip() == item.title.strip() or body_len <= title_len + 10:
+        return "headline"
+    if body_len >= 300:
+        return "full"
+    return "blurb"
+
+
 def publish_snapshot(
     built: BuiltSnapshot,
     *,
@@ -345,10 +405,13 @@ def publish_snapshot(
     - Updates `catalog.json` on every publication.
     - Only flips the serving pointer `CURRENT` when `set_current=True` (`INGEST_CONTRACT.md` §4:
       `CURRENT` is the final serving switch after the A/C/F completion protocol).
-    - Rejects short-ID collisions (`SnapshotCollisionError`) before touching existing files.
+    - Rejects short-ID collisions (`SnapshotCollisionError`) and incomplete existing snapshot
+      directories (`SnapshotError`) before touching existing files.
     """
     snapshots_root.mkdir(parents=True, exist_ok=True)
     target_dir = snapshots_root / built.snapshot_id
+    is_partial = bool(built.ingest_report.get("partial", False))
+    pub_timestamp = _next_unique_publish_timestamp(snapshots_root)
 
     if target_dir.exists():
         existing_manifest_path = target_dir / "manifest.json"
@@ -360,15 +423,30 @@ def publish_snapshot(
                     f"Snapshot ID collision on {built.snapshot_id!r}: existing manifest_sha256="
                     f"{existing_sha256} != new manifest_sha256={built.manifest_sha256}"
                 )
-            # Identical manifest bytes: idempotent rebuild of the exact same snapshot
-            _update_current_and_catalog(
-                snapshots_root,
-                built.snapshot_id,
-                published_at=built.corpus_snapshot.created_at,
-                keep_snapshots=keep_snapshots,
-                set_current=set_current,
+        missing_files = [f for f in REQUIRED_SNAPSHOT_FILES if not (target_dir / f).exists()]
+        if missing_files:
+            raise SnapshotError(
+                f"Existing snapshot directory {target_dir} is incomplete (missing {missing_files}); "
+                f"refusing to overwrite or treat as published"
             )
-            return target_dir
+        # Verify full integrity of existing snapshot + sidecars before idempotent return
+        verify_snapshot_integrity(target_dir)
+        load_corpus_snapshot(target_dir, data_root=snapshots_root.parent, verify=True)
+        load_snapshot_items(
+            target_dir, data_root=snapshots_root.parent, representatives_only=False, verify=True
+        )
+        load_snapshot_items(
+            target_dir, data_root=snapshots_root.parent, representatives_only=True, verify=True
+        )
+        _update_current_and_catalog(
+            snapshots_root,
+            built.snapshot_id,
+            published_at=pub_timestamp,
+            keep_snapshots=keep_snapshots,
+            set_current=set_current,
+            partial=is_partial,
+        )
+        return target_dir
 
     staging_dir = snapshots_root / f".staging_{built.snapshot_id}_{os.getpid()}"
     if staging_dir.exists():
@@ -411,11 +489,14 @@ def publish_snapshot(
         # 7. snapshot.json (CorpusSnapshot wire metadata + provenance + ingest_report)
         source_type_counts = {"official": 0, "media": 0, "metadata": 0}
         category_counts = {"anime": 0, "manga": 0, "game": 0, "light_novel": 0}
+        body_level_counts = {"full": 0, "blurb": 0, "headline": 0}
         corporate_count = 0
         for item in built.items:
             source_type_counts[item.source_type] = source_type_counts.get(item.source_type, 0) + 1
             cat = classify_content_category(item.title, item.body, source_key=item.source_key)
             category_counts[cat] = category_counts.get(cat, 0) + 1
+            blevel = _classify_item_body_level(item)
+            body_level_counts[blevel] = body_level_counts.get(blevel, 0) + 1
             if item.ingest_category == "corporate":
                 corporate_count += 1
 
@@ -426,22 +507,28 @@ def publish_snapshot(
             for item in built.items
             if item.cluster_id in cluster_rep_map
         }
+        coverage_complete = bool(built.ingest_report.get("coverage_complete", not is_partial))
 
         snapshot_meta = built.corpus_snapshot.model_dump(mode="json") | {
+            "body_level_counts": body_level_counts,
             "category_counts": category_counts,
+            "category_counts_heuristic": category_counts,
             "corporate_count": corporate_count,
+            "coverage_complete": coverage_complete,
+            "dedup_calibration_status": str(
+                built.ingest_report.get("dedup_calibration_status", "provisional_pending_g1b_sweep")
+            ),
+            "full_body_item_count": body_level_counts["full"],
             "ingest_report": dict(built.ingest_report),
             "manifest_sha256": built.manifest_sha256,
             "observed_earliest": pub_dates[0] if pub_dates else "",
             "observed_latest": pub_dates[-1] if pub_dates else "",
-            "partial": bool(built.ingest_report.get("partial", False)),
+            "partial": is_partial,
             "source_type_counts": source_type_counts,
             "url_to_representative": url_to_rep,
         }
         (staging_dir / "snapshot.json").write_bytes(canonical_json(snapshot_meta))
 
-        if target_dir.exists():
-            shutil.rmtree(target_dir)
         os.replace(staging_dir, target_dir)
     finally:
         if staging_dir.exists():
@@ -450,9 +537,10 @@ def publish_snapshot(
     _update_current_and_catalog(
         snapshots_root,
         built.snapshot_id,
-        published_at=built.corpus_snapshot.created_at,
+        published_at=pub_timestamp,
         keep_snapshots=keep_snapshots,
         set_current=set_current,
+        partial=is_partial,
     )
     return target_dir
 
@@ -464,20 +552,36 @@ def _update_current_and_catalog(
     published_at: str,
     keep_snapshots: int = 2,
     set_current: bool = True,
+    partial: bool = False,
 ) -> None:
     """Atomically update `catalog.json` ordered by publication time, and flip `CURRENT` when
     `set_current=True`.
 
     Enforces `docs/INGEST_CONTRACT.md` §4:
+      - `published_at` is validated as timezone-aware UTC; exact timestamp ties between distinct
+        `snapshot_id`s raise `SnapshotError`.
+      - `publications` is sorted strictly by `published_at` descending.
+      - `partial=True` snapshots are recorded in `partial_publications` and excluded from
+        `publications`, `retained`, `retired`, `latest_corpus`, and `CURRENT`.
+      - `catalog["current"]` is unconditionally unioned into `retained` so the active serving
+        snapshot is never retired.
       - `retained` and `retired` are strictly disjoint (re-publishing an older snapshot removes
         it from `retired`).
       - A corrupt `catalog.json` raises `SnapshotError` rather than silently wiping retirement
         history.
     """
+    if not snapshot_id or not str(snapshot_id).strip():
+        raise SnapshotError("snapshot_id must not be empty")
+    _parse_catalog_published_at(published_at, context="published_at")
+
+    if partial and set_current:
+        raise SnapshotError(f"Cannot set CURRENT to partial snapshot {snapshot_id!r}")
+
     catalog_path = snapshots_root / "catalog.json"
     catalog: dict[str, Any] = {
         "current": None,
-        "latest_corpus": snapshot_id,
+        "latest_corpus": None if partial else snapshot_id,
+        "partial_publications": [],
         "publications": [],
         "retained": [],
         "retired": [],
@@ -493,28 +597,115 @@ def _update_current_and_catalog(
             )
         catalog.update(loaded)
 
-    raw_pubs: list[dict[str, str]] = [
-        p for p in (catalog.get("publications") or []) if isinstance(p, dict)
-    ]
-    existing_pub = next((p for p in raw_pubs if p.get("snapshot_id") == snapshot_id), None)
-    eff_published_at = (
-        str(existing_pub["published_at"])
-        if existing_pub is not None and existing_pub.get("published_at")
-        else published_at
-    )
-    keep_n = max(1, keep_snapshots)
-    currently_retained_ids = {str(p.get("snapshot_id")) for p in raw_pubs[:keep_n]}
+    raw_pubs_any = catalog.get("publications") or []
+    if not isinstance(raw_pubs_any, list):
+        raise SnapshotError(f"Corrupt catalog.json at {catalog_path}: publications is not a list")
+    raw_pubs: list[dict[str, str]] = []
+    for entry in raw_pubs_any:
+        if not isinstance(entry, dict) or not entry.get("snapshot_id"):
+            raise SnapshotError(f"Corrupt publication entry in {catalog_path}: {entry!r}")
+        _parse_catalog_published_at(
+            entry.get("published_at"), context="catalog.publications.published_at"
+        )
+        raw_pubs.append(
+            {
+                "published_at": str(entry["published_at"]),
+                "snapshot_id": str(entry["snapshot_id"]),
+            }
+        )
 
+    raw_partial_any = catalog.get("partial_publications") or []
+    if not isinstance(raw_partial_any, list):
+        raise SnapshotError(
+            f"Corrupt catalog.json at {catalog_path}: partial_publications is not a list"
+        )
+    raw_partials: list[dict[str, str]] = []
+    for entry in raw_partial_any:
+        if not isinstance(entry, dict) or not entry.get("snapshot_id"):
+            raise SnapshotError(f"Corrupt partial_publication entry in {catalog_path}: {entry!r}")
+        _parse_catalog_published_at(
+            entry.get("published_at"), context="catalog.partial_publications.published_at"
+        )
+        raw_partials.append(
+            {
+                "published_at": str(entry["published_at"]),
+                "snapshot_id": str(entry["snapshot_id"]),
+            }
+        )
+
+    keep_n = max(1, keep_snapshots)
+    sorted_existing_pubs = sorted(
+        raw_pubs,
+        key=lambda p: _parse_catalog_published_at(p["published_at"]),
+        reverse=True,
+    )
+    currently_retained_ids = {str(p["snapshot_id"]) for p in sorted_existing_pubs[:keep_n]}
+    if catalog.get("current"):
+        currently_retained_ids.add(str(catalog["current"]))
+
+    if partial:
+        existing_partial = next((p for p in raw_partials if p["snapshot_id"] == snapshot_id), None)
+        eff_pub_at = (
+            existing_partial["published_at"] if existing_partial is not None else published_at
+        )
+        eff_dt = _parse_catalog_published_at(eff_pub_at)
+        for p in [*raw_pubs, *raw_partials]:
+            if (
+                p["snapshot_id"] != snapshot_id
+                and _parse_catalog_published_at(p["published_at"]) == eff_dt
+            ):
+                raise SnapshotError(
+                    f"Ambiguous tied published_at={eff_pub_at!r} between {snapshot_id!r} "
+                    f"and {p['snapshot_id']!r}"
+                )
+        updated_partials = [p for p in raw_partials if p["snapshot_id"] != snapshot_id]
+        updated_partials.append({"published_at": eff_pub_at, "snapshot_id": snapshot_id})
+        updated_partials.sort(
+            key=lambda p: _parse_catalog_published_at(p["published_at"]),
+            reverse=True,
+        )
+        catalog["partial_publications"] = updated_partials
+        catalog["publications"] = sorted_existing_pubs
+        catalog["latest_corpus"] = (
+            sorted_existing_pubs[0]["snapshot_id"] if sorted_existing_pubs else None
+        )
+        _atomic_write_bytes(catalog_path, canonical_json(catalog))
+        return
+
+    existing_pub = next((p for p in sorted_existing_pubs if p["snapshot_id"] == snapshot_id), None)
     if existing_pub is not None and snapshot_id in currently_retained_ids and not set_current:
-        pubs = list(raw_pubs)
+        eff_published_at = existing_pub["published_at"]
     else:
-        pubs = [p for p in raw_pubs if p.get("snapshot_id") != snapshot_id]
-        pubs.insert(0, {"published_at": eff_published_at, "snapshot_id": snapshot_id})
+        eff_published_at = published_at
+
+    eff_dt = _parse_catalog_published_at(eff_published_at)
+    for p in [*sorted_existing_pubs, *raw_partials]:
+        if (
+            p["snapshot_id"] != snapshot_id
+            and _parse_catalog_published_at(p["published_at"]) == eff_dt
+        ):
+            raise SnapshotError(
+                f"Ambiguous tied published_at={eff_published_at!r} between {snapshot_id!r} "
+                f"and {p['snapshot_id']!r}"
+            )
+
+    pubs = [p for p in sorted_existing_pubs if p["snapshot_id"] != snapshot_id]
+    pubs.append({"published_at": eff_published_at, "snapshot_id": snapshot_id})
+    pubs.sort(
+        key=lambda p: _parse_catalog_published_at(p["published_at"]),
+        reverse=True,
+    )
+
+    if set_current:
+        catalog["current"] = snapshot_id
 
     retained = [p["snapshot_id"] for p in pubs[:keep_n]]
+    active_current = catalog.get("current")
+    if isinstance(active_current, str) and active_current and active_current not in retained:
+        retained.append(active_current)
     retained_set = set(retained)
 
-    # Remove any retained snapshot_id (e.g. a re-published older snapshot) from `retired`
+    # Remove any retained snapshot_id (e.g. a re-published older snapshot or active CURRENT) from `retired`
     retired_list: list[str] = [
         str(sid)
         for sid in (catalog.get("retired") or [])
@@ -526,8 +717,7 @@ def _update_current_and_catalog(
             retired_list.append(sid)
 
     catalog["latest_corpus"] = pubs[0]["snapshot_id"] if pubs else snapshot_id
-    if set_current:
-        catalog["current"] = snapshot_id
+    catalog["partial_publications"] = raw_partials
     catalog["publications"] = pubs
     catalog["retained"] = retained
     catalog["retired"] = retired_list
@@ -555,32 +745,174 @@ def resolve_snapshot_dir(
 
 
 def verify_snapshot_integrity(snap_dir: Path) -> str:
-    """Verify `manifest.json` SHA-256 against the directory name / `snapshot.json` and return
-    `manifest_sha256`. Raises `SnapshotError` if tampered.
+    """Verify all required snapshot files exist, verify `manifest.json` SHA-256 against the
+    directory name / `snapshot.json`, and verify `entities.json` and `sources.json` digests
+    against `manifest.json`. Raises `SnapshotError` if tampered or incomplete.
     """
+    missing = [f for f in REQUIRED_SNAPSHOT_FILES if not (snap_dir / f).exists()]
+    if missing:
+        raise SnapshotError(
+            f"Incomplete snapshot directory {snap_dir}: missing required files {missing}"
+        )
     manifest_path = snap_dir / "manifest.json"
-    if not manifest_path.exists():
-        raise SnapshotError(f"Missing manifest.json in {snap_dir}")
     manifest_bytes = manifest_path.read_bytes()
     manifest_sha = hashlib.sha256(manifest_bytes).hexdigest()
+    try:
+        manifest_data = json.loads(manifest_bytes.decode("utf-8"))
+    except Exception as exc:
+        raise SnapshotError(f"Corrupt manifest.json in {snap_dir}: {exc}") from exc
+    if not isinstance(manifest_data, dict):
+        raise SnapshotError(f"Corrupt manifest.json in {snap_dir}: root is not a JSON object")
+
+    computed_id, computed_sha, _ = compute_snapshot_id_from_manifest(manifest_data)
+    if computed_sha != manifest_sha:
+        raise SnapshotError(
+            f"Non-canonical manifest.json in {snap_dir}: raw sha256={manifest_sha[:12]} "
+            f"!= canonical sha256={computed_sha[:12]}"
+        )
+
     dir_name = snap_dir.name
     if "-" in dir_name and len(dir_name.split("-", 1)[1]) == 12:
         expected_prefix = dir_name.split("-", 1)[1]
-        if not manifest_sha.startswith(expected_prefix):
+        if not manifest_sha.startswith(expected_prefix) or dir_name != computed_id:
             raise SnapshotError(
-                f"Snapshot manifest digest mismatch in {snap_dir}: "
-                f"dir prefix={expected_prefix!r} vs sha256={manifest_sha[:12]!r}"
+                f"Snapshot manifest digest/ID mismatch in {snap_dir}: "
+                f"dir={dir_name!r} vs computed_id={computed_id!r} (sha256={manifest_sha[:12]!r})"
             )
+
+    ent_sha = hashlib.sha256((snap_dir / "entities.json").read_bytes()).hexdigest()
+    expected_ent_sha = str(manifest_data.get("entity_registry_sha256") or "").lower()
+    if ent_sha != expected_ent_sha:
+        raise SnapshotError(
+            f"Tampered entities.json in {snap_dir}: sha256={ent_sha} != "
+            f"manifest.entity_registry_sha256={expected_ent_sha}"
+        )
+
+    src_sha = hashlib.sha256((snap_dir / "sources.json").read_bytes()).hexdigest()
+    expected_src_sha = str(manifest_data.get("source_registry_sha256") or "").lower()
+    if src_sha != expected_src_sha:
+        raise SnapshotError(
+            f"Tampered sources.json in {snap_dir}: sha256={src_sha} != "
+            f"manifest.source_registry_sha256={expected_src_sha}"
+        )
+
     snap_json_path = snap_dir / "snapshot.json"
-    if snap_json_path.exists():
+    try:
         meta = json.loads(snap_json_path.read_text(encoding="utf-8"))
-        recorded_sha = meta.get("manifest_sha256")
-        if recorded_sha and recorded_sha != manifest_sha:
-            raise SnapshotError(
-                f"Snapshot metadata manifest_sha256 mismatch in {snap_dir}: "
-                f"{recorded_sha} != {manifest_sha}"
-            )
+    except Exception as exc:
+        raise SnapshotError(f"Corrupt snapshot.json in {snap_dir}: {exc}") from exc
+    recorded_sha = meta.get("manifest_sha256")
+    if recorded_sha != manifest_sha:
+        raise SnapshotError(
+            f"Snapshot metadata manifest_sha256 mismatch in {snap_dir}: "
+            f"{recorded_sha!r} != {manifest_sha!r}"
+        )
     return manifest_sha
+
+
+def _validate_and_load_jsonl_items(
+    snap_dir: Path,
+    *,
+    data_root: Path,
+    representatives_only: bool,
+    verify: bool,
+) -> list[NormalizedItem]:
+    filename = "representatives.jsonl" if representatives_only else "items.jsonl"
+    jsonl_path = snap_dir / filename
+
+    if not verify:
+        if not jsonl_path.exists() and representatives_only:
+            clusters = load_snapshot_clusters(snap_dir, data_root=data_root, verify=False)
+            rep_ids = {c.representative_doc_id for c in clusters}
+            return [
+                it
+                for it in _validate_and_load_jsonl_items(
+                    snap_dir, data_root=data_root, representatives_only=False, verify=False
+                )
+                if it.doc_id in rep_ids
+            ]
+        out: list[NormalizedItem] = []
+        with jsonl_path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                stripped = line.strip()
+                if stripped:
+                    out.append(NormalizedItem.from_dict(json.loads(stripped)))
+        return out
+
+    verify_snapshot_integrity(snap_dir)
+    manifest_data = json.loads((snap_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest_items = [m for m in manifest_data.get("items", []) if isinstance(m, dict)]
+    manifest_by_doc_id: dict[str, dict[str, Any]] = {str(m["doc_id"]): m for m in manifest_items}
+    verified_clusters = load_snapshot_clusters(snap_dir, data_root=data_root, verify=True)
+
+    if representatives_only:
+        expected_doc_ids = sorted(c.representative_doc_id for c in verified_clusters)
+        items_line_by_doc_id: dict[str, str] = {}
+        with (snap_dir / "items.jsonl").open("r", encoding="utf-8") as items_fh:
+            for raw_line in items_fh:
+                s = raw_line.strip()
+                if not s:
+                    continue
+                row_obj = json.loads(s)
+                did = str(row_obj.get("doc_id") or "")
+                items_line_by_doc_id[did] = s
+    else:
+        expected_doc_ids = [str(m["doc_id"]) for m in manifest_items]
+        items_line_by_doc_id = {}
+
+    validated: list[NormalizedItem] = []
+    seen_doc_ids: list[str] = []
+
+    with jsonl_path.open("r", encoding="utf-8") as fh:
+        for line in fh:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                raw_row = json.loads(stripped)
+            except Exception as exc:
+                raise SnapshotError(f"Malformed JSON row in {jsonl_path}: {exc}") from exc
+            item = NormalizedItem.from_dict(raw_row)
+            raw_doc_id = raw_row.get("doc_id")
+            if raw_doc_id is not None and raw_doc_id != item.doc_id:
+                raise SnapshotError(
+                    f"Tampered doc_id in {jsonl_path}: {raw_doc_id!r} != {item.doc_id!r}"
+                )
+            raw_body_sha = raw_row.get("body_sha256")
+            if raw_body_sha is not None and raw_body_sha != item.body_sha256:
+                raise SnapshotError(
+                    f"Tampered body_sha256 for {item.doc_id} in {jsonl_path}: "
+                    f"{raw_body_sha!r} != {item.body_sha256!r}"
+                )
+            manifest_row = manifest_by_doc_id.get(item.doc_id)
+            if manifest_row is None:
+                raise SnapshotError(
+                    f"Tampered item {item.doc_id} in {jsonl_path}: missing from verified manifest.json"
+                )
+            if manifest_row != item.to_manifest_item():
+                raise SnapshotError(
+                    f"Tampered item {item.doc_id} in {jsonl_path}: row disagrees with verified manifest.json"
+                )
+            if representatives_only:
+                matching_items_line = items_line_by_doc_id.get(item.doc_id)
+                if matching_items_line is None or matching_items_line != stripped:
+                    raise SnapshotError(
+                        f"Tampered representative {item.doc_id} in {jsonl_path}: "
+                        f"row is not byte-identical to items.jsonl"
+                    )
+            seen_doc_ids.append(item.doc_id)
+            validated.append(item)
+
+    if seen_doc_ids != expected_doc_ids:
+        missing_ids = set(expected_doc_ids) - set(seen_doc_ids)
+        extra_ids = set(seen_doc_ids) - set(expected_doc_ids)
+        raise SnapshotError(
+            f"Incomplete, duplicate, or out-of-order rows in {jsonl_path}: "
+            f"expected {len(expected_doc_ids)} rows, got {len(seen_doc_ids)} "
+            f"(missing={len(missing_ids)}, extra={len(extra_ids)})"
+        )
+
+    return validated
 
 
 def iter_snapshot_items(
@@ -592,60 +924,17 @@ def iter_snapshot_items(
 ) -> Iterator[NormalizedItem]:
     """Iterate `NormalizedItem` rows from a frozen snapshot directory.
 
-    - `representatives_only=True`: yields one representative per cluster (`representatives.jsonl`),
-      used by ordinary single-article chunk configs (`A`, `A'`, `A0`).
-    - `representatives_only=False`: yields all cluster member rows (`items.jsonl`), used by
-      Config `B` event-cluster aggregation and gold URL resolution.
+    When `verify=True`, the entire file is validated against `manifest.json` and `clusters.jsonl`
+    before the first row is yielded so downstream index builders never ingest a truncated stream.
     """
     snap_dir = resolve_snapshot_dir(snapshot_dir_or_id, data_root=data_root)
-    manifest_by_doc_id: dict[str, dict[str, Any]] = {}
-    if verify:
-        verify_snapshot_integrity(snap_dir)
-        manifest_data = json.loads((snap_dir / "manifest.json").read_text(encoding="utf-8"))
-        manifest_by_doc_id = {
-            str(m["doc_id"]): m for m in manifest_data.get("items", []) if isinstance(m, dict)
-        }
-    filename = "representatives.jsonl" if representatives_only else "items.jsonl"
-    jsonl_path = snap_dir / filename
-    if not jsonl_path.exists() and representatives_only:
-        clusters = load_snapshot_clusters(snap_dir, data_root=data_root, verify=False)
-        rep_ids = {c.representative_doc_id for c in clusters}
-        for item in iter_snapshot_items(
-            snap_dir, data_root=data_root, representatives_only=False, verify=verify
-        ):
-            if item.doc_id in rep_ids:
-                yield item
-        return
-
-    with jsonl_path.open("r", encoding="utf-8") as fh:
-        for line in fh:
-            stripped = line.strip()
-            if not stripped:
-                continue
-            raw_row = json.loads(stripped)
-            item = NormalizedItem.from_dict(raw_row)
-            if verify:
-                raw_doc_id = raw_row.get("doc_id")
-                if raw_doc_id is not None and raw_doc_id != item.doc_id:
-                    raise SnapshotError(
-                        f"Tampered doc_id in {jsonl_path}: {raw_doc_id!r} != {item.doc_id!r}"
-                    )
-                raw_body_sha = raw_row.get("body_sha256")
-                if raw_body_sha is not None and raw_body_sha != item.body_sha256:
-                    raise SnapshotError(
-                        f"Tampered body_sha256 for {item.doc_id} in {jsonl_path}: "
-                        f"{raw_body_sha!r} != {item.body_sha256!r}"
-                    )
-                manifest_row = manifest_by_doc_id.get(item.doc_id)
-                if manifest_row is None:
-                    raise SnapshotError(
-                        f"Tampered item {item.doc_id} in {jsonl_path}: missing from verified manifest.json"
-                    )
-                if manifest_row != item.to_manifest_item():
-                    raise SnapshotError(
-                        f"Tampered item {item.doc_id} in {jsonl_path}: row disagrees with verified manifest.json"
-                    )
-            yield item
+    validated = _validate_and_load_jsonl_items(
+        snap_dir,
+        data_root=data_root,
+        representatives_only=representatives_only,
+        verify=verify,
+    )
+    yield from validated
 
 
 def load_snapshot_items(
@@ -656,13 +945,12 @@ def load_snapshot_items(
     verify: bool = True,
 ) -> list[NormalizedItem]:
     """Load all (or representative-only) `NormalizedItem` records from a frozen snapshot."""
-    return list(
-        iter_snapshot_items(
-            snapshot_dir_or_id,
-            data_root=data_root,
-            representatives_only=representatives_only,
-            verify=verify,
-        )
+    snap_dir = resolve_snapshot_dir(snapshot_dir_or_id, data_root=data_root)
+    return _validate_and_load_jsonl_items(
+        snap_dir,
+        data_root=data_root,
+        representatives_only=representatives_only,
+        verify=verify,
     )
 
 
@@ -683,7 +971,51 @@ def load_snapshot_clusters(
             stripped = line.strip()
             if not stripped:
                 continue
-            clusters.append(DedupCluster.from_dict(json.loads(stripped)))
+            try:
+                clusters.append(DedupCluster.from_dict(json.loads(stripped)))
+            except Exception as exc:
+                raise SnapshotError(f"Malformed cluster row in {clusters_path}: {exc}") from exc
+
+    if verify:
+        manifest_data = json.loads((snap_dir / "manifest.json").read_text(encoding="utf-8"))
+        manifest_by_doc_id = {
+            str(m["doc_id"]): m for m in manifest_data.get("items", []) if isinstance(m, dict)
+        }
+        seen_members: set[str] = set()
+        rep_order: list[str] = []
+        for cluster in clusters:
+            rep_order.append(cluster.representative_doc_id)
+            if cluster.representative_doc_id not in cluster.member_doc_ids:
+                raise SnapshotError(
+                    f"Tampered cluster {cluster.cluster_id} in {clusters_path}: "
+                    f"representative {cluster.representative_doc_id!r} not in member_doc_ids"
+                )
+            for mid in cluster.member_doc_ids:
+                if mid in seen_members:
+                    raise SnapshotError(
+                        f"Overlapping cluster membership for {mid!r} in {clusters_path}"
+                    )
+                seen_members.add(mid)
+                mrow = manifest_by_doc_id.get(mid)
+                if mrow is None:
+                    raise SnapshotError(
+                        f"Cluster member {mid!r} in {clusters_path} missing from manifest.json"
+                    )
+                if mrow.get("cluster_id") != cluster.cluster_id:
+                    raise SnapshotError(
+                        f"Cluster mismatch for {mid!r} in {clusters_path}: "
+                        f"cluster={cluster.cluster_id!r} vs manifest={mrow.get('cluster_id')!r}"
+                    )
+        if seen_members != set(manifest_by_doc_id.keys()):
+            raise SnapshotError(
+                f"Incomplete cluster partition in {clusters_path}: covered {len(seen_members)} "
+                f"of {len(manifest_by_doc_id)} manifest items"
+            )
+        if rep_order != sorted(rep_order):
+            raise SnapshotError(
+                f"Clusters in {clusters_path} are not sorted by representative_doc_id"
+            )
+
     return clusters
 
 
@@ -698,6 +1030,30 @@ def load_corpus_snapshot(
     if verify:
         verify_snapshot_integrity(snap_dir)
     raw = json.loads((snap_dir / "snapshot.json").read_text(encoding="utf-8"))
+    if verify:
+        manifest_data = json.loads((snap_dir / "manifest.json").read_text(encoding="utf-8"))
+        manifest_items = [m for m in manifest_data.get("items", []) if isinstance(m, dict)]
+        expected_id, _, _ = compute_snapshot_id_from_manifest(manifest_data)
+        verified_clusters = load_snapshot_clusters(snap_dir, data_root=data_root, verify=True)
+        expected_item_count = len(manifest_items)
+        expected_deduped_count = len(verified_clusters)
+        expected_source_count = len(
+            {str(m["source_key"]) for m in manifest_items if m.get("source_key")}
+        )
+        expected_w_start = str(manifest_data.get("window_start") or "")
+        expected_w_end = str(manifest_data.get("window_end") or "")
+        if (
+            raw.get("snapshot_id") != expected_id
+            or raw.get("item_count") != expected_item_count
+            or raw.get("deduped_count") != expected_deduped_count
+            or raw.get("source_count") != expected_source_count
+            or raw.get("window_start") != expected_w_start
+            or raw.get("window_end") != expected_w_end
+        ):
+            raise SnapshotError(
+                f"Tampered snapshot.json in {snap_dir}: metadata fields disagree with verified "
+                f"manifest.json / clusters.jsonl"
+            )
     return CorpusSnapshot.model_validate(
         {
             "snapshot_id": raw["snapshot_id"],
@@ -721,26 +1077,36 @@ def resolve_url_in_snapshot(
     `representative_doc_id` (INGEST_CONTRACT.md §3).
     """
     snap_dir = resolve_snapshot_dir(snapshot_dir_or_id, data_root=data_root)
+    verify_snapshot_integrity(snap_dir)
+    load_corpus_snapshot(snap_dir, data_root=data_root, verify=True)
     canonical = normalize_url(url)
+    clusters = {
+        c.cluster_id: c.representative_doc_id
+        for c in load_snapshot_clusters(snap_dir, data_root=data_root, verify=True)
+    }
+    manifest_data = json.loads((snap_dir / "manifest.json").read_text(encoding="utf-8"))
+    expected_url_map: dict[str, str] = {}
+    for m in manifest_data.get("items", []):
+        if isinstance(m, dict):
+            m_url = str(m.get("url") or "")
+            m_cid = str(m.get("cluster_id") or "")
+            if m_url and m_cid in clusters:
+                expected_url_map[m_url] = clusters[m_cid]
+
     meta_path = snap_dir / "snapshot.json"
     if meta_path.exists():
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         mapping = meta.get("url_to_representative")
-        if isinstance(mapping, dict) and canonical in mapping:
-            return str(mapping[canonical])
-
-    clusters = {
-        c.cluster_id: c.representative_doc_id
-        for c in load_snapshot_clusters(snap_dir, data_root=data_root)
-    }
-    for item in iter_snapshot_items(snap_dir, data_root=data_root, representatives_only=False):
-        if item.url == canonical and item.cluster_id in clusters:
-            return clusters[item.cluster_id]
-    return None
+        if mapping is not None and mapping != expected_url_map:
+            raise SnapshotError(
+                f"Tampered url_to_representative in {meta_path}: disagrees with verified manifest.json"
+            )
+    return expected_url_map.get(canonical)
 
 
 __all__ = [
     "MANIFEST_VERSION",
+    "REQUIRED_SNAPSHOT_FILES",
     "BuiltSnapshot",
     "SnapshotCollisionError",
     "SnapshotError",

@@ -184,9 +184,11 @@ class SourceRegistryEntry:
     lang: str
     source_tz: str
     endpoint: str
+    canonical_host: str | None = None
+    categories: tuple[int, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "adapter_family": self.adapter_family,
             "default_publisher": self.default_publisher,
             "default_source_type": self.default_source_type,
@@ -195,9 +197,15 @@ class SourceRegistryEntry:
             "source_key": self.source_key,
             "source_tz": self.source_tz,
         }
+        if self.canonical_host:
+            out["canonical_host"] = self.canonical_host
+        if self.categories:
+            out["categories"] = [int(c) for c in self.categories]
+        return out
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> SourceRegistryEntry:
+        raw_cats = data.get("categories") or ()
         return cls(
             source_key=str(data["source_key"]),
             adapter_family=str(data["adapter_family"]),
@@ -206,6 +214,8 @@ class SourceRegistryEntry:
             lang=str(data["lang"]),
             source_tz=str(data["source_tz"]),
             endpoint=str(data["endpoint"]),
+            canonical_host=str(data["canonical_host"]) if data.get("canonical_host") else None,
+            categories=tuple(int(c) for c in raw_cats),
         )
 
 
@@ -628,17 +638,6 @@ def build_entity_registry_from_raw(
         target_ext_to_id: dict[tuple[str, str], int],
         entry: EntityEntry,
     ) -> None:
-        prior = target_by_id.get(entry.media_id)
-        if prior is not None:
-            if prior.canonical_title != entry.canonical_title or set(prior.external_ids) != set(
-                entry.external_ids
-            ):
-                raise ValueError(
-                    f"Conflicting entity definition for media_id={entry.media_id}: "
-                    f"{prior.canonical_title!r} ({prior.external_ids}) vs "
-                    f"{entry.canonical_title!r} ({entry.external_ids})"
-                )
-            return
         for ns, eid in entry.external_ids:
             ext_key = (ns.lower().strip(), eid.strip())
             existing_id = target_ext_to_id.get(ext_key)
@@ -647,6 +646,26 @@ def build_entity_registry_from_raw(
                     f"External ID {ext_key} cannot be reassigned from media_id={existing_id} "
                     f"to media_id={entry.media_id}"
                 )
+        prior = target_by_id.get(entry.media_id)
+        if prior is not None:
+            if prior.canonical_title != entry.canonical_title:
+                raise ValueError(
+                    f"Conflicting entity definition for media_id={entry.media_id}: "
+                    f"{prior.canonical_title!r} ({prior.external_ids}) vs "
+                    f"{entry.canonical_title!r} ({entry.external_ids})"
+                )
+            merged_ext = tuple(sorted(set(prior.external_ids) | set(entry.external_ids)))
+            merged_aliases = tuple(sorted(set(prior.aliases) | set(entry.aliases)))
+            target_by_id[entry.media_id] = EntityEntry(
+                media_id=prior.media_id,
+                canonical_title=prior.canonical_title,
+                category=prior.category,
+                aliases=merged_aliases,
+                external_ids=merged_ext,
+            )
+            for ns, eid in merged_ext:
+                target_ext_to_id[(ns.lower().strip(), eid.strip())] = entry.media_id
+            return
         target_by_id[entry.media_id] = entry
         for ns, eid in entry.external_ids:
             target_ext_to_id[(ns.lower().strip(), eid.strip())] = entry.media_id
@@ -662,25 +681,69 @@ def build_entity_registry_from_raw(
             for alias in entry.aliases:
                 seed_alias_to_id.setdefault(_norm_alias(alias), entry.media_id)
 
-    # Sort raw_items deterministically by (external_media_refs, url, title)
-    for raw in sorted(raw_items, key=lambda r: (r.external_media_refs, r.url, r.title)):
+    # Sort raw_items deterministically by (sorted external_media_refs, url, title)
+    def _sort_raw_key(r: RawIngestItem) -> tuple[tuple[tuple[str, str], ...], str, str]:
+        norm_refs = tuple(
+            sorted(
+                {
+                    (ns.lower().strip(), eid.strip())
+                    for ns, eid in r.external_media_refs
+                    if ns and eid
+                }
+            )
+        )
+        return (norm_refs, r.url, r.title)
+
+    for raw in sorted(raw_items, key=_sort_raw_key):
         if raw.external_media_refs:
-            ns, eid = raw.external_media_refs[0]
-            ext_key = (ns.lower().strip(), eid.strip())
+            sorted_refs = tuple(
+                sorted(
+                    {
+                        (ns.lower().strip(), eid.strip())
+                        for ns, eid in raw.external_media_refs
+                        if ns and eid
+                    }
+                )
+            )
+            if not sorted_refs:
+                continue
             title_clean = normalize_text(raw.title).strip()
             norm_t = _norm_alias(title_clean)
-            if ext_key in ext_to_id or norm_t in seed_alias_to_id:
+            matched_existing_ids = {ext_to_id[rk] for rk in sorted_refs if rk in ext_to_id}
+            if norm_t in seed_alias_to_id:
+                matched_existing_ids.add(seed_alias_to_id[norm_t])
+            if len(matched_existing_ids) > 1:
+                raise ValueError(
+                    f"Conflicting external_media_refs {sorted_refs} on {raw.url!r} resolve to "
+                    f"multiple existing media_ids: {sorted(matched_existing_ids)}"
+                )
+            if len(matched_existing_ids) == 1:
+                existing_mid = next(iter(matched_existing_ids))
+                prior_entry = entries_by_id[existing_mid]
+                merged_ext_ids = tuple(sorted(set(prior_entry.external_ids) | set(sorted_refs)))
+                if merged_ext_ids != prior_entry.external_ids:
+                    updated_entry = EntityEntry(
+                        media_id=prior_entry.media_id,
+                        canonical_title=prior_entry.canonical_title,
+                        category=prior_entry.category,
+                        aliases=prior_entry.aliases,
+                        external_ids=merged_ext_ids,
+                    )
+                    entries_by_id[existing_mid] = updated_entry
+                    for rk in sorted_refs:
+                        ext_to_id[rk] = existing_mid
                 continue
             if not title_clean:
                 continue
             cat = classify_content_category(raw.title, raw.body, source_key=raw.source_key)
-            assigned_id = _deterministic_ext_media_id(ext_key[0], ext_key[1])
+            primary_ref = sorted_refs[0]
+            assigned_id = _deterministic_ext_media_id(primary_ref[0], primary_ref[1])
             new_entry = EntityEntry(
                 media_id=assigned_id,
                 canonical_title=title_clean,
                 category=cat,
                 aliases=(title_clean,),
-                external_ids=(ext_key,),
+                external_ids=sorted_refs,
             )
             _register_into(entries_by_id, ext_to_id, new_entry)
 
@@ -798,6 +861,16 @@ def build_default_source_registry() -> SourceRegistry:
             endpoint="https://www.mappa.co.jp",
         ),
         SourceRegistryEntry(
+            source_key="nijimen-news",
+            adapter_family="WpPagedAdapter",
+            default_publisher="にじめん",
+            default_source_type="media",
+            lang="ja",
+            source_tz="Asia/Tokyo",
+            endpoint="https://nijimen.kusuguru.co.jp/wp-json/wp/v2/posts",
+            canonical_host="nijimen.kusuguru.co.jp",
+        ),
+        SourceRegistryEntry(
             source_key="paworks-news",
             adapter_family="WpPagedAdapter",
             default_publisher="P.A.WORKS",
@@ -814,6 +887,16 @@ def build_default_source_registry() -> SourceRegistry:
             lang="ja",
             source_tz="Asia/Tokyo",
             endpoint="https://prtimes.jp/index.rdf",
+        ),
+        SourceRegistryEntry(
+            source_key="realsound-acgn",
+            adapter_family="WpPagedAdapter",
+            default_publisher="Real Sound",
+            default_source_type="media",
+            lang="ja",
+            source_tz="Asia/Tokyo",
+            endpoint="https://realsound.jp/wp-json/wp/v2/posts",
+            categories=(116583, 116584),
         ),
         SourceRegistryEntry(
             source_key="syosetu-novelapi",

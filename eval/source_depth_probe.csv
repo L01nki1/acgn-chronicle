@@ -2,70 +2,80 @@ source,adapter,depth,since,items,earliest,latest,official,media,metadata,note
 toei-news,HtmlListAdapter,90d,2026-08-07,7,2026-08-23,2026-11-02,7,0,0,
 toei-news,HtmlListAdapter,1y,2025-11-05,19,2025-11-06,2026-11-02,19,0,0,
 toei-news,HtmlListAdapter,2y,2024-11-05,32,2024-11-12,2026-11-02,32,0,0,
-toei-news,HtmlListAdapter,3y,2023-11-06,48,2023-11-30,2026-11-02,48,0,0,
+toei-news,HtmlListAdapter,3y,2023-11-05,48,2023-11-30,2026-11-02,48,0,0,
 toei-news,HtmlListAdapter,all,2005-01-01,296,2015-01-28,2026-11-02,296,0,0,
-ann-news,AnnArchiveAdapter,90d,2026-08-07,1650,2026-08-07,2026-11-05,0,1650,0,
-ann-news,AnnArchiveAdapter,1y,2025-11-05,6593,2025-11-05,2026-11-05,0,6593,0,
-ann-news,AnnArchiveAdapter,2y,2024-11-05,12977,2024-11-05,2026-11-05,0,12977,0,
-ann-news,AnnArchiveAdapter,3y,2023-11-06,18854,2023-11-06,2026-11-05,0,18854,0,
-ann-news,AnnArchiveAdapter,all,2005-01-01,18854,2023-11-06,2026-11-05,0,18854,0,3y already >= 8000 target (1096/1096 days); pre-2023 archive not needed
+ann-news,AnnArchiveAdapter,90d,2026-08-07,1659,2026-08-07,2026-11-05,0,1659,0,"days_with_items=91, empty_days=0"
+ann-news,AnnArchiveAdapter,1y,2025-11-05,6602,2025-11-05,2026-11-05,0,6602,0,"days_with_items=366, empty_days=0"
+ann-news,AnnArchiveAdapter,2y,2024-11-05,12986,2024-11-05,2026-11-05,0,12986,0,"days_with_items=731, empty_days=0"
+ann-news,AnnArchiveAdapter,3y,2023-11-05,18870,2023-11-05,2026-11-05,0,18870,0,"days_with_items=1097, empty_days=0"
+ann-news,AnnArchiveAdapter,all,2005-01-01,18870,2023-11-05,2026-11-05,0,18870,0,"3y already >= 8000 target (1097/1097 days); pre-2023 archive not needed; days_with_items=1097, empty_days=0"
+nijimen-news,WpPagedAdapter,90d,2026-08-07,1386,2026-08-07,2026-11-05,0,1386,0,full_window_archive (pages_fetched=134)
+nijimen-news,WpPagedAdapter,1y,2025-11-05,4333,2025-11-05,2026-11-05,0,4333,0,full_window_archive (pages_fetched=134)
+nijimen-news,WpPagedAdapter,2y,2024-11-05,9140,2024-11-05,2026-11-05,0,9140,0,full_window_archive (pages_fetched=134)
+nijimen-news,WpPagedAdapter,3y,2023-11-05,13243,2023-11-05,2026-11-05,0,13243,0,full_window_archive (pages_fetched=134)
+nijimen-news,WpPagedAdapter,all,2005-01-01,13243,2023-11-05,2026-11-05,0,13243,0,3y already >= 8000 target (1097/1097 days); pre-2023 archive not needed; full_window_archive (pages_fetched=134)
+realsound-acgn,WpPagedAdapter,90d,2026-08-07,107,2026-08-08,2026-11-04,0,107,0,full_window_archive (pages_fetched=43)
+realsound-acgn,WpPagedAdapter,1y,2025-11-05,524,2025-11-05,2026-11-04,0,524,0,full_window_archive (pages_fetched=43)
+realsound-acgn,WpPagedAdapter,2y,2024-11-05,1121,2024-11-06,2026-11-04,0,1121,0,full_window_archive (pages_fetched=43)
+realsound-acgn,WpPagedAdapter,3y,2023-11-05,1549,2023-11-05,2026-11-04,0,1549,0,full_window_archive (pages_fetched=43)
+realsound-acgn,WpPagedAdapter,all,2005-01-01,4268,2013-12-25,2026-11-04,0,4268,0,rolling_tail_only (pages_fetched=43)
 capcom-news,RssAdapter,90d,2026-08-07,26,2026-08-07,2026-11-02,26,0,0,"feed_total=7299, dup_urls_collapsed=5880, skipped=2"
 capcom-news,RssAdapter,1y,2025-11-05,77,2025-11-07,2026-11-02,77,0,0,"feed_total=7299, dup_urls_collapsed=5880, skipped=2"
 capcom-news,RssAdapter,2y,2024-11-05,131,2024-11-12,2026-11-02,131,0,0,"feed_total=7299, dup_urls_collapsed=5880, skipped=2"
-capcom-news,RssAdapter,3y,2023-11-06,215,2023-11-13,2026-11-02,215,0,0,"feed_total=7299, dup_urls_collapsed=5880, skipped=2"
+capcom-news,RssAdapter,3y,2023-11-05,215,2023-11-13,2026-11-02,215,0,0,"feed_total=7299, dup_urls_collapsed=5880, skipped=2"
 capcom-news,RssAdapter,all,2005-01-01,1417,2014-03-14,2026-11-02,1417,0,0,"feed_total=7299, dup_urls_collapsed=5880, skipped=2"
-mappa-news,WpPagedAdapter,90d,2026-08-07,4,2026-09-09,2026-11-02,4,0,0,
-mappa-news,WpPagedAdapter,1y,2025-11-05,24,2025-11-25,2026-11-02,24,0,0,
-mappa-news,WpPagedAdapter,2y,2024-11-05,54,2024-11-10,2026-11-02,54,0,0,
-mappa-news,WpPagedAdapter,3y,2023-11-06,74,2023-11-24,2026-11-02,74,0,0,
-mappa-news,WpPagedAdapter,all,2005-01-01,117,2021-12-23,2026-11-02,117,0,0,
-bones-news,WpPagedAdapter,90d,2026-08-07,1,2026-10-06,2026-10-06,1,0,0,
-bones-news,WpPagedAdapter,1y,2025-11-05,10,2025-12-16,2026-10-06,10,0,0,
-bones-news,WpPagedAdapter,2y,2024-11-05,27,2024-11-05,2026-10-06,27,0,0,
-bones-news,WpPagedAdapter,3y,2023-11-06,62,2023-11-20,2026-10-06,62,0,0,
-bones-news,WpPagedAdapter,all,2005-01-01,250,2014-03-06,2026-10-06,250,0,0,
-paworks-news,WpPagedAdapter,90d,2026-08-07,1,2026-09-01,2026-09-01,1,0,0,
-paworks-news,WpPagedAdapter,1y,2025-11-05,9,2025-11-14,2026-09-01,9,0,0,
-paworks-news,WpPagedAdapter,2y,2024-11-05,23,2024-11-13,2026-09-01,23,0,0,
-paworks-news,WpPagedAdapter,3y,2023-11-06,72,2023-11-13,2026-09-01,72,0,0,
-paworks-news,WpPagedAdapter,all,2005-01-01,250,2014-08-29,2026-09-01,250,0,0,
-prtimes-acgn,RssAdapter,90d,2026-08-07,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=16 items (2026-11-05..2026-11-05)
-prtimes-acgn,RssAdapter,1y,2025-11-05,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=16 items (2026-11-05..2026-11-05)
-prtimes-acgn,RssAdapter,2y,2024-11-05,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=16 items (2026-11-05..2026-11-05)
-prtimes-acgn,RssAdapter,3y,2023-11-06,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=16 items (2026-11-05..2026-11-05)
-prtimes-acgn,RssAdapter,all,2005-01-01,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=16 items (2026-11-05..2026-11-05)
+mappa-news,WpPagedAdapter,90d,2026-08-07,4,2026-09-09,2026-11-02,4,0,0,full_window_archive (pages_fetched=2)
+mappa-news,WpPagedAdapter,1y,2025-11-05,24,2025-11-25,2026-11-02,24,0,0,full_window_archive (pages_fetched=2)
+mappa-news,WpPagedAdapter,2y,2024-11-05,54,2024-11-10,2026-11-02,54,0,0,full_window_archive (pages_fetched=2)
+mappa-news,WpPagedAdapter,3y,2023-11-05,74,2023-11-24,2026-11-02,74,0,0,full_window_archive (pages_fetched=2)
+mappa-news,WpPagedAdapter,all,2005-01-01,117,2021-12-23,2026-11-02,117,0,0,rolling_tail_only (pages_fetched=2)
+bones-news,WpPagedAdapter,90d,2026-08-07,1,2026-10-06,2026-10-06,1,0,0,full_window_archive (pages_fetched=4)
+bones-news,WpPagedAdapter,1y,2025-11-05,10,2025-12-16,2026-10-06,10,0,0,full_window_archive (pages_fetched=4)
+bones-news,WpPagedAdapter,2y,2024-11-05,27,2024-11-05,2026-10-06,27,0,0,full_window_archive (pages_fetched=4)
+bones-news,WpPagedAdapter,3y,2023-11-05,62,2023-11-20,2026-10-06,62,0,0,full_window_archive (pages_fetched=4)
+bones-news,WpPagedAdapter,all,2005-01-01,380,2006-06-12,2026-10-06,380,0,0,rolling_tail_only (pages_fetched=4)
+paworks-news,WpPagedAdapter,90d,2026-08-07,1,2026-09-01,2026-09-01,1,0,0,full_window_archive (pages_fetched=3)
+paworks-news,WpPagedAdapter,1y,2025-11-05,9,2025-11-14,2026-09-01,9,0,0,full_window_archive (pages_fetched=3)
+paworks-news,WpPagedAdapter,2y,2024-11-05,23,2024-11-13,2026-09-01,23,0,0,full_window_archive (pages_fetched=3)
+paworks-news,WpPagedAdapter,3y,2023-11-05,72,2023-11-13,2026-09-01,72,0,0,full_window_archive (pages_fetched=3)
+paworks-news,WpPagedAdapter,all,2005-01-01,297,2005-03-01,2026-09-01,297,0,0,rolling_tail_only (pages_fetched=3)
+prtimes-acgn,RssAdapter,90d,2026-08-07,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=4 items (2026-11-06..2026-11-06)
+prtimes-acgn,RssAdapter,1y,2025-11-05,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=4 items (2026-11-06..2026-11-06)
+prtimes-acgn,RssAdapter,2y,2024-11-05,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=4 items (2026-11-06..2026-11-06)
+prtimes-acgn,RssAdapter,3y,2023-11-05,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=4 items (2026-11-06..2026-11-06)
+prtimes-acgn,RssAdapter,all,2005-01-01,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=4 items (2026-11-06..2026-11-06)
 gcores-news,RssAdapter,90d,2026-08-07,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=20 items (2026-11-04..2026-11-05)
 gcores-news,RssAdapter,1y,2025-11-05,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=20 items (2026-11-04..2026-11-05)
 gcores-news,RssAdapter,2y,2024-11-05,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=20 items (2026-11-04..2026-11-05)
-gcores-news,RssAdapter,3y,2023-11-06,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=20 items (2026-11-04..2026-11-05)
+gcores-news,RssAdapter,3y,2023-11-05,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=20 items (2026-11-04..2026-11-05)
 gcores-news,RssAdapter,all,2005-01-01,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=20 items (2026-11-04..2026-11-05)
-chuapp-news,RssAdapter,90d,2026-08-07,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=30 items (2026-10-21..2026-11-05)
-chuapp-news,RssAdapter,1y,2025-11-05,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=30 items (2026-10-21..2026-11-05)
-chuapp-news,RssAdapter,2y,2024-11-05,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=30 items (2026-10-21..2026-11-05)
-chuapp-news,RssAdapter,3y,2023-11-06,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=30 items (2026-10-21..2026-11-05)
-chuapp-news,RssAdapter,all,2005-01-01,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=30 items (2026-10-21..2026-11-05)
+chuapp-news,RssAdapter,90d,2026-08-07,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=30 items (2026-10-22..2026-11-05)
+chuapp-news,RssAdapter,1y,2025-11-05,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=30 items (2026-10-22..2026-11-05)
+chuapp-news,RssAdapter,2y,2024-11-05,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=30 items (2026-10-22..2026-11-05)
+chuapp-news,RssAdapter,3y,2023-11-05,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=30 items (2026-10-22..2026-11-05)
+chuapp-news,RssAdapter,all,2005-01-01,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=30 items (2026-10-22..2026-11-05)
 yystv-news,RssAdapter,90d,2026-08-07,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=12 items (2026-10-30..2026-11-05)
 yystv-news,RssAdapter,1y,2025-11-05,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=12 items (2026-10-30..2026-11-05)
 yystv-news,RssAdapter,2y,2024-11-05,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=12 items (2026-10-30..2026-11-05)
-yystv-news,RssAdapter,3y,2023-11-06,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=12 items (2026-10-30..2026-11-05)
+yystv-news,RssAdapter,3y,2023-11-05,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=12 items (2026-10-30..2026-11-05)
 yystv-news,RssAdapter,all,2005-01-01,0,,,0,0,0,BackfillNotSupportedError: rolling feed; discover() tail=12 items (2026-10-30..2026-11-05)
-anilist-graphql,StructuredApiAdapter,90d,2026-08-07,150,2026-08-07,2026-11-02,0,0,150,
-anilist-graphql,StructuredApiAdapter,1y,2025-11-05,150,2025-12-10,2026-10-23,0,0,150,
-anilist-graphql,StructuredApiAdapter,2y,2024-11-05,150,2025-01-01,2026-10-23,0,0,150,
-anilist-graphql,StructuredApiAdapter,3y,2023-11-06,150,2023-12-01,2026-10-20,0,0,150,
-anilist-graphql,StructuredApiAdapter,all,2005-01-01,150,2006-04-04,2025-01-05,0,0,150,
-bangumi-api,StructuredApiAdapter,90d,2026-08-07,112,2026-10-01,2026-10-31,0,0,112,
-bangumi-api,StructuredApiAdapter,1y,2025-11-05,112,2026-10-01,2026-10-31,0,0,112,
-bangumi-api,StructuredApiAdapter,2y,2024-11-05,112,2026-10-01,2026-10-31,0,0,112,
-bangumi-api,StructuredApiAdapter,3y,2023-11-06,112,2026-10-01,2026-10-31,0,0,112,
-bangumi-api,StructuredApiAdapter,all,2005-01-01,288,2005-01-06,2026-10-31,0,0,288,
+anilist-graphql,StructuredApiAdapter,90d,2026-08-07,150,2026-08-07,2026-11-02,0,0,150,catalog_top_n (ranked query cap max_pages=3x50)
+anilist-graphql,StructuredApiAdapter,1y,2025-11-05,150,2025-12-10,2026-10-23,0,0,150,catalog_top_n (ranked query cap max_pages=3x50)
+anilist-graphql,StructuredApiAdapter,2y,2024-11-05,150,2025-01-01,2026-10-23,0,0,150,catalog_top_n (ranked query cap max_pages=3x50)
+anilist-graphql,StructuredApiAdapter,3y,2023-11-05,150,2023-11-05,2026-10-20,0,0,150,catalog_top_n (ranked query cap max_pages=3x50)
+anilist-graphql,StructuredApiAdapter,all,2005-01-01,150,2006-04-04,2025-01-05,0,0,150,catalog_top_n (ranked query cap max_pages=3x50)
+bangumi-api,StructuredApiAdapter,90d,2026-08-07,112,2026-10-01,2026-10-31,0,0,112,catalog_top_n (ranked query cap max_pages=2x50)
+bangumi-api,StructuredApiAdapter,1y,2025-11-05,112,2026-10-01,2026-10-31,0,0,112,catalog_top_n (ranked query cap max_pages=2x50)
+bangumi-api,StructuredApiAdapter,2y,2024-11-05,112,2026-10-01,2026-10-31,0,0,112,catalog_top_n (ranked query cap max_pages=2x50)
+bangumi-api,StructuredApiAdapter,3y,2023-11-05,112,2026-10-01,2026-10-31,0,0,112,catalog_top_n (ranked query cap max_pages=2x50)
+bangumi-api,StructuredApiAdapter,all,2005-01-01,288,2005-01-06,2026-10-31,0,0,288,catalog_top_n (ranked query cap max_pages=2x50)
 bilibili-timeline,StructuredApiAdapter,90d,2026-08-07,0,,,0,0,0,BackfillNotSupportedError: [bilibili-timeline] Bilibili timeline is a rolling ±7d endpoint and cannot backfill historical window 2026-08-07..2026-11-05
 bilibili-timeline,StructuredApiAdapter,1y,2025-11-05,0,,,0,0,0,BackfillNotSupportedError: [bilibili-timeline] Bilibili timeline is a rolling ±7d endpoint and cannot backfill historical window 2025-11-05..2026-11-05
 bilibili-timeline,StructuredApiAdapter,2y,2024-11-05,0,,,0,0,0,BackfillNotSupportedError: [bilibili-timeline] Bilibili timeline is a rolling ±7d endpoint and cannot backfill historical window 2024-11-05..2026-11-05
-bilibili-timeline,StructuredApiAdapter,3y,2023-11-06,0,,,0,0,0,BackfillNotSupportedError: [bilibili-timeline] Bilibili timeline is a rolling ±7d endpoint and cannot backfill historical window 2023-11-06..2026-11-05
+bilibili-timeline,StructuredApiAdapter,3y,2023-11-05,0,,,0,0,0,BackfillNotSupportedError: [bilibili-timeline] Bilibili timeline is a rolling ±7d endpoint and cannot backfill historical window 2023-11-05..2026-11-05
 bilibili-timeline,StructuredApiAdapter,all,2005-01-01,0,,,0,0,0,BackfillNotSupportedError: [bilibili-timeline] Bilibili timeline is a rolling ±7d endpoint and cannot backfill historical window 2005-01-01..2026-11-05
-syosetu-novelapi,StructuredApiAdapter,90d,2026-08-07,182,2026-08-10,2026-10-29,0,0,182,
-syosetu-novelapi,StructuredApiAdapter,1y,2025-11-05,230,2025-11-11,2026-10-29,0,0,230,
-syosetu-novelapi,StructuredApiAdapter,2y,2024-11-05,257,2024-11-18,2026-10-29,0,0,257,
-syosetu-novelapi,StructuredApiAdapter,3y,2023-11-06,287,2023-11-11,2026-10-29,0,0,287,
-syosetu-novelapi,StructuredApiAdapter,all,2005-01-01,500,2011-03-05,2026-10-29,0,0,500,
+syosetu-novelapi,StructuredApiAdapter,90d,2026-08-07,182,2026-08-10,2026-10-29,0,0,182,catalog_top_n (ranked query cap max_pages=3x50)
+syosetu-novelapi,StructuredApiAdapter,1y,2025-11-05,230,2025-11-11,2026-10-29,0,0,230,catalog_top_n (ranked query cap max_pages=3x50)
+syosetu-novelapi,StructuredApiAdapter,2y,2024-11-05,257,2024-11-18,2026-10-29,0,0,257,catalog_top_n (ranked query cap max_pages=3x50)
+syosetu-novelapi,StructuredApiAdapter,3y,2023-11-05,287,2023-11-11,2026-10-29,0,0,287,catalog_top_n (ranked query cap max_pages=3x50)
+syosetu-novelapi,StructuredApiAdapter,all,2005-01-01,500,2011-03-05,2026-10-29,0,0,500,catalog_top_n (ranked query cap max_pages=3x50)

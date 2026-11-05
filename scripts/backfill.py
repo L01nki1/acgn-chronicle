@@ -16,10 +16,12 @@ Owner: A (WP1) | Spec: docs/INGEST_CONTRACT.md §3-§5, docs/RUNBOOK.md §2, Iss
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import statistics
 import sys
 from collections.abc import Mapping, Sequence
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -97,8 +99,22 @@ def save_raw_jsonl(
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = b"".join(canonical_json(serialize_raw_item(it)) for it in items)
     path.write_bytes(payload)
-    if crawl_summary is not None:
-        _summary_sidecar_path(path).write_bytes(canonical_json(dict(crawl_summary)))
+    raw_sha256 = hashlib.sha256(payload).hexdigest()
+    raw_bytes = len(payload)
+    sidecar_dict: dict[str, Any] = (
+        dict(crawl_summary)
+        if crawl_summary is not None
+        else {
+            "errored_sources": [],
+            "partial": False,
+            "sampled_sources": [],
+            "sources": {},
+            "total_raw_items": len(items),
+        }
+    )
+    sidecar_dict["raw_bytes"] = raw_bytes
+    sidecar_dict["raw_sha256"] = raw_sha256
+    _summary_sidecar_path(path).write_bytes(canonical_json(sidecar_dict))
 
 
 def load_raw_jsonl(path: Path) -> list[RawIngestItem]:
@@ -132,11 +148,69 @@ def _adapter_diagnostics(adapter: object) -> dict[str, Any]:
         ("last_keyword_filtered_entries", "keyword_filtered_entries"),
         ("last_requested_days", "requested_days"),
         ("last_sampled_days", "sampled_days"),
+        ("last_days_with_items", "days_with_items"),
+        ("last_empty_days", "empty_days"),
+        ("last_total_pages_fetched", "total_pages_fetched"),
+        ("last_truncated_days", "truncated_days"),
+        ("last_pages_fetched", "pages_fetched"),
     ):
         val = getattr(adapter, attr, None)
         if isinstance(val, int) and val > 0:
             diag[key] = val
+    if bool(getattr(adapter, "last_page_cap_hit", False)):
+        diag["page_cap_hit"] = True
+    earliest_obs = getattr(adapter, "last_earliest_observed_date", None)
+    if isinstance(earliest_obs, str) and earliest_obs:
+        diag["earliest_observed_date"] = earliest_obs
     return diag
+
+
+def _infer_source_body_level(adapter: object, items: Sequence[RawIngestItem]) -> str:
+    if (
+        getattr(adapter, "source_type", "") == "metadata"
+        or type(adapter).__name__ == "StructuredApiAdapter"
+    ):
+        return "blurb"
+    if not items:
+        return "none"
+    body_lens = [len(it.body.strip()) for it in items]
+    extra_lens = [max(0, len(it.body.strip()) - len(it.title.strip())) for it in items]
+    med_body = statistics.median(body_lens)
+    med_extra = statistics.median(extra_lens)
+    if med_extra <= 10:
+        return "headline"
+    if med_body >= 300:
+        return "full"
+    return "blurb"
+
+
+def _infer_source_coverage_mode(
+    adapter: object,
+    *,
+    name: str,
+    mode: str,
+    start_d: date,
+    items: Sequence[RawIngestItem],
+    is_sampled_src: bool,
+    page_cap_hit: bool,
+) -> tuple[str, bool]:
+    if is_sampled_src:
+        return "sampled_partial", False
+    if page_cap_hit:
+        return "page_cap_partial", False
+    if type(adapter).__name__ == "StructuredApiAdapter":
+        return "catalog_top_n", False
+    if mode != "backfill":
+        return "rolling_tail_only", False
+    earliest_obs = getattr(adapter, "last_earliest_observed_date", None)
+    if not earliest_obs and items:
+        earliest_obs = min(it.published_at[:10] for it in items)
+    reached = bool(getattr(adapter, "last_reached_window_start", False))
+    if not reached and isinstance(earliest_obs, str) and earliest_obs:
+        reached = earliest_obs <= (start_d + timedelta(days=14)).isoformat()
+    if name == "ann-news" and not is_sampled_src and not page_cap_hit:
+        reached = True
+    return ("full_window_archive" if reached else "rolling_tail_only"), reached
 
 
 def crawl_backfill_window(
@@ -150,6 +224,7 @@ def crawl_backfill_window(
     ann_sample_days: int | None = None,
     conditional_cache_path: Path | None = None,
     ann_cache_dir: Path | None = None,
+    wp_cache_dir: Path | None = None,
 ) -> tuple[list[RawIngestItem], dict[str, Any]]:
     """Run `backfill((start_date, end_date))` across adapters in `registry`.
 
@@ -163,6 +238,7 @@ def crawl_backfill_window(
             ann_max_days_per_call=ann_sample_days,
             conditional_cache_path=conditional_cache_path,
             ann_cache_dir=ann_cache_dir,
+            wp_cache_dir=wp_cache_dir,
         )
     )
     source_names = list(selected_sources) if selected_sources else list(active_registry.keys())
@@ -174,6 +250,7 @@ def crawl_backfill_window(
     per_source: dict[str, dict[str, Any]] = {}
     errored_sources: list[str] = []
     sampled_sources: list[str] = []
+    capped_sources: list[str] = []
 
     for name in source_names:
         adapter = active_registry.get(name)
@@ -188,12 +265,35 @@ def crawl_backfill_window(
             is_sampled_src = (
                 isinstance(sampled, int) and isinstance(requested, int) and 0 < sampled < requested
             )
+            page_cap_hit = (
+                bool(diag.get("page_cap_hit")) or int(diag.get("truncated_days") or 0) > 0
+            )
             if is_sampled_src:
                 sampled_sources.append(name)
+            if page_cap_hit:
+                capped_sources.append(name)
+            cov_mode, reached_start = _infer_source_coverage_mode(
+                adapter,
+                name=name,
+                mode="backfill",
+                start_d=start_d,
+                items=items,
+                is_sampled_src=is_sampled_src,
+                page_cap_hit=page_cap_hit,
+            )
+            body_level = _infer_source_body_level(adapter, items)
+            status_str = (
+                "sampled_partial"
+                if is_sampled_src
+                else ("page_cap_partial" if page_cap_hit else "ok")
+            )
             per_source[name] = {
+                "body_level": body_level,
                 "count": len(items),
+                "coverage_mode": cov_mode,
                 "mode": "backfill",
-                "status": "sampled_partial" if is_sampled_src else "ok",
+                "reached_window_start": reached_start,
+                "status": status_str,
                 **diag,
             }
         except BackfillNotSupportedError as exc:
@@ -206,9 +306,12 @@ def crawl_backfill_window(
                     collected.extend(tail_items)
                     not_mod = bool(getattr(adapter, "last_not_modified", False))
                     per_source[name] = {
+                        "body_level": _infer_source_body_level(adapter, tail_items),
                         "count": len(tail_items),
+                        "coverage_mode": "rolling_tail_only",
                         "mode": "discover_tail",
                         "note": str(exc),
+                        "reached_window_start": False,
                         "status": (
                             "not_modified"
                             if not_mod
@@ -222,16 +325,22 @@ def crawl_backfill_window(
                         getattr(disc_exc, "explicit_disallow", False)
                     ):
                         per_source[name] = {
+                            "body_level": "none",
                             "count": 0,
+                            "coverage_mode": "skipped_robots_disallow",
                             "mode": "discover_tail",
                             "note": str(exc),
+                            "reached_window_start": False,
                             "reason": f"{type(disc_exc).__name__}: {disc_exc}",
                             "status": "skipped_robots_disallow",
                         }
                         continue
                     per_source[name] = {
+                        "body_level": "none",
                         "count": 0,
+                        "coverage_mode": "error",
                         "mode": "discover_tail",
+                        "reached_window_start": False,
                         "reason": f"{type(disc_exc).__name__}: {disc_exc}",
                         "status": "error",
                     }
@@ -240,7 +349,10 @@ def crawl_backfill_window(
                         raise
                     continue
             per_source[name] = {
+                "body_level": "none",
                 "count": 0,
+                "coverage_mode": "rolling_tail_only",
+                "reached_window_start": False,
                 "reason": str(exc),
                 "status": "unsupported_or_empty_window",
             }
@@ -248,7 +360,10 @@ def crawl_backfill_window(
                 raise
         except EmptyBackfillWindowError as exc:
             per_source[name] = {
+                "body_level": "none",
                 "count": 0,
+                "coverage_mode": "empty_window",
+                "reached_window_start": False,
                 "reason": str(exc),
                 "status": "unsupported_or_empty_window",
                 **_adapter_diagnostics(adapter),
@@ -260,8 +375,11 @@ def crawl_backfill_window(
                 getattr(exc, "explicit_disallow", False)
             ):
                 per_source[name] = {
+                    "body_level": "none",
                     "count": 0,
+                    "coverage_mode": "skipped_robots_disallow",
                     "mode": "backfill",
+                    "reached_window_start": False,
                     "reason": f"{type(exc).__name__}: {exc}",
                     "status": "skipped_robots_disallow",
                     **_adapter_diagnostics(adapter),
@@ -270,7 +388,11 @@ def crawl_backfill_window(
                     raise
                 continue
             per_source[name] = {
+                "body_level": "none",
                 "count": 0,
+                "coverage_mode": "error",
+                "mode": "backfill",
+                "reached_window_start": False,
                 "reason": f"{type(exc).__name__}: {exc}",
                 "status": "error",
                 **_adapter_diagnostics(adapter),
@@ -284,9 +406,21 @@ def crawl_backfill_window(
             f"Backfill for window {start_iso}..{end_iso} collected 0 items across all sources"
         )
 
+    is_partial = bool(errored_sources or sampled_sources or capped_sources)
+    coverage_gaps = [
+        f"{k}:{v.get('coverage_mode')}"
+        for k, v in sorted(per_source.items())
+        if v.get("coverage_mode") != "full_window_archive"
+    ]
+    all_full_archive = len(coverage_gaps) == 0 and not is_partial
+
     summary = {
+        "all_sources_full_window_archive": all_full_archive,
+        "capped_sources": capped_sources,
+        "coverage_complete": not is_partial,
+        "coverage_gaps": coverage_gaps,
         "errored_sources": errored_sources,
-        "partial": bool(errored_sources or sampled_sources),
+        "partial": is_partial,
         "sampled_sources": sampled_sources,
         "sources": per_source,
         "total_raw_items": len(collected),
@@ -471,19 +605,62 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not raw_path.exists():
             print(f"ERROR: raw input file {raw_path} does not exist", file=sys.stderr)
             return 2
+        raw_bytes_data = raw_path.read_bytes()
+        actual_sha256 = hashlib.sha256(raw_bytes_data).hexdigest()
+        actual_bytes = len(raw_bytes_data)
         raw_items = load_raw_jsonl(raw_path)
         saved_summary = load_raw_summary(raw_path)
-        if saved_summary is not None:
+        if saved_summary is None:
+            is_partial = True
+            crawl_rows = [
+                {
+                    "count": len(raw_items),
+                    "coverage_mode": "unknown_unverified_raw",
+                    "source_key": "raw_input",
+                    "status": "missing_summary_sidecar",
+                }
+            ]
+            if not args.allow_partial:
+                print(
+                    f"ERROR: Missing summary sidecar {_summary_sidecar_path(raw_path)} for --from-raw "
+                    "(INGEST_CONTRACT §5). Pass --allow-partial to record a non-current partial snapshot.",
+                    file=sys.stderr,
+                )
+                return 1
+        elif "raw_sha256" in saved_summary and (
+            saved_summary.get("raw_sha256") != actual_sha256
+            or int(saved_summary.get("raw_bytes") or -1) != actual_bytes
+        ):
+            is_partial = True
+            crawl_rows = [
+                {
+                    "count": len(raw_items),
+                    "coverage_mode": "unknown_unverified_raw",
+                    "source_key": "raw_input",
+                    "status": "mismatched_summary_sidecar",
+                }
+            ]
+            if not args.allow_partial:
+                print(
+                    f"ERROR: Stale/mismatched summary sidecar {_summary_sidecar_path(raw_path)} for --from-raw "
+                    f"(expected sha256={saved_summary.get('raw_sha256')}, actual={actual_sha256}). "
+                    "Pass --allow-partial to record a non-current partial snapshot.",
+                    file=sys.stderr,
+                )
+                return 1
+        else:
             crawl_rows = [
                 {"source_key": k, **v}
                 for k, v in sorted((saved_summary.get("sources") or {}).items())
             ]
             errored = saved_summary.get("errored_sources") or []
             sampled = saved_summary.get("sampled_sources") or []
-            is_partial = bool(saved_summary.get("partial") or errored or sampled)
+            capped = saved_summary.get("capped_sources") or []
+            is_partial = bool(saved_summary.get("partial") or errored or sampled or capped)
             if is_partial and not args.allow_partial:
                 print(
-                    f"ERROR: Partial raw input refused (INGEST_CONTRACT §5): errored={errored}, sampled={sampled}. "
+                    f"ERROR: Partial raw input refused (INGEST_CONTRACT §5): "
+                    f"errored={errored}, sampled={sampled}, capped={capped}. "
                     "Pass --allow-partial to record a non-current partial snapshot.",
                     file=sys.stderr,
                 )
@@ -499,6 +676,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ann_sample_days=args.ann_sample_days,
             conditional_cache_path=data_root / "raw" / "http_conditional_cache.json",
             ann_cache_dir=data_root / "raw" / "ann_day_cache",
+            wp_cache_dir=data_root / "raw" / "wp_cache",
         )
         default_raw_out = (
             Path(args.save_raw)
@@ -514,10 +692,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         ]
         errored = crawl_summary.get("errored_sources") or []
         sampled = crawl_summary.get("sampled_sources") or []
-        is_partial = bool(crawl_summary.get("partial") or errored or sampled)
+        capped = crawl_summary.get("capped_sources") or []
+        is_partial = bool(crawl_summary.get("partial") or errored or sampled or capped)
         if is_partial and not args.allow_partial:
             print(
-                f"ERROR: Partial crawl refused (INGEST_CONTRACT §5): errored={errored}, sampled={sampled}. "
+                f"ERROR: Partial crawl refused (INGEST_CONTRACT §5): "
+                f"errored={errored}, sampled={sampled}, capped={capped}. "
                 "Re-run full healthy sources or pass --allow-partial to record a non-current partial snapshot.",
                 file=sys.stderr,
             )

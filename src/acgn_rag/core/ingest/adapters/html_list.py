@@ -226,6 +226,7 @@ class HtmlListAdapter:
     supports_backfill: bool = True
     cache_pages: bool = True
     last_not_modified: bool = field(init=False, default=False, repr=False)
+    last_earliest_observed_date: str | None = field(init=False, default=None, repr=False)
     _cached_items: list[RawIngestItem] | None = field(init=False, default=None, repr=False)
 
     def _page_url(self, page: int) -> str:
@@ -243,6 +244,7 @@ class HtmlListAdapter:
         if self.cache_pages and not use_conditional_first_page and self._cached_items is not None:
             return list(self._cached_items)
 
+        self.last_earliest_observed_date = None
         collected: dict[str, RawIngestItem] = {}
         seen_fingerprints: set[str] = set()
 
@@ -278,6 +280,12 @@ class HtmlListAdapter:
             seen_fingerprints.add(fp)
             new_on_page = 0
             for item in page_items:
+                item_date = item.published_at[:10]
+                if (
+                    self.last_earliest_observed_date is None
+                    or item_date < self.last_earliest_observed_date
+                ):
+                    self.last_earliest_observed_date = item_date
                 if item.url not in collected:
                     collected[item.url] = item
                     new_on_page += 1

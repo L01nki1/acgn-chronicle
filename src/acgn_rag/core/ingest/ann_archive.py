@@ -335,10 +335,16 @@ class AnnArchiveAdapter:
     max_pages_per_day: int = 5
     max_days_per_call: int | None = None
     cache_dir: Path | None = None
+    cache_recent_days: bool = False
     empty_days_count: int = field(init=False, default=0)
     dropped_other_day_links: int = field(init=False, default=0)
     last_requested_days: int = field(init=False, default=0)
     last_sampled_days: int = field(init=False, default=0)
+    last_days_with_items: int = field(init=False, default=0)
+    last_empty_days: int = field(init=False, default=0)
+    last_total_pages_fetched: int = field(init=False, default=0)
+    last_truncated_days: int = field(init=False, default=0)
+    last_earliest_observed_date: str | None = field(init=False, default=None)
     last_not_modified: bool = field(init=False, default=False)
     _day_cache: dict[date, list[RawIngestItem]] = field(
         init=False, default_factory=dict, repr=False
@@ -468,17 +474,22 @@ class AnnArchiveAdapter:
     def fetch_day(self, target_date: date) -> list[RawIngestItem]:
         """Fetch and parse one ANN day archive page (plus any verified pagination pages)."""
         if target_date in self._day_cache:
-            return list(self._day_cache[target_date])
+            cached_mem = list(self._day_cache[target_date])
+            self.last_total_pages_fetched += 1
+            return cached_mem
 
         today_utc = datetime.now(tz=UTC).date()
-        if target_date < today_utc:
+        disk_cache_cutoff = today_utc if self.cache_recent_days else (today_utc - timedelta(days=1))
+        if target_date < disk_cache_cutoff:
             disk_cached = self._load_disk_cached_day(target_date)
             if disk_cached is not None:
                 self._day_cache[target_date] = disk_cached
+                self.last_total_pages_fetched += 1
                 return list(disk_cached)
 
         first_url = ann_day_url(target_date, base_url=self.base_url, page=1)
         res = self.http.get(first_url, use_conditional=False)
+        self.last_total_pages_fetched += 1
         page1 = parse_ann_day_html(
             res.text,
             target_date,
@@ -499,9 +510,13 @@ class AnnArchiveAdapter:
         collected: dict[str, RawIngestItem] = {item.url: item for item in page1.items}
         seen_fingerprints: set[str] = {page1.fingerprint}
 
+        if len(page1.next_page_urls) > max(0, self.max_pages_per_day - 1):
+            self.last_truncated_days += 1
+
         queue: Sequence[str] = page1.next_page_urls[: self.max_pages_per_day - 1]
         for next_url in queue:
             next_res = self.http.get(next_url, use_conditional=False)
+            self.last_total_pages_fetched += 1
             parsed_next = parse_ann_day_html(
                 next_res.text,
                 target_date,
@@ -520,7 +535,7 @@ class AnnArchiveAdapter:
 
         day_items = list(collected.values())
         self._day_cache[target_date] = day_items
-        if target_date < today_utc:
+        if target_date < disk_cache_cutoff:
             self._save_disk_cached_day(target_date, day_items)
         return list(day_items)
 
@@ -533,12 +548,27 @@ class AnnArchiveAdapter:
         days = _iter_selected_days(start_d, end_d, self.max_days_per_call)
         self.last_requested_days = (end_d - start_d).days + 1
         self.last_sampled_days = len(days)
+        self.last_days_with_items = 0
+        self.last_empty_days = 0
+        self.last_total_pages_fetched = 0
+        self.last_truncated_days = 0
+        self.last_earliest_observed_date = None
 
         collected: dict[str, RawIngestItem] = {}
         total_days = len(days)
         for idx, day in enumerate(days, start=1):
             day_items = self.fetch_day(day)
+            if day_items:
+                self.last_days_with_items += 1
+            else:
+                self.last_empty_days += 1
             for item in day_items:
+                item_d = item.published_at[:10]
+                if (
+                    self.last_earliest_observed_date is None
+                    or item_d < self.last_earliest_observed_date
+                ):
+                    self.last_earliest_observed_date = item_d
                 collected.setdefault(item.url, item)
             if total_days > 100 and (idx % 50 == 0 or idx == total_days):
                 import sys

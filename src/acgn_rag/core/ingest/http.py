@@ -422,6 +422,10 @@ class PoliteHttpClient:
         conditional_cache_path: Path | None = None,
     ) -> None:
         resolved_cfg = config if config is not None else load_settings().http
+        if getattr(resolved_cfg, "respect_robots", True) is False:
+            raise ValueError(
+                "Disabling robots.txt (respect_robots=False) is forbidden under docs/COMPLIANCE.md C1"
+            )
         self.user_agent = validate_user_agent(resolved_cfg.user_agent)
         self.timeout_s = float(resolved_cfg.timeout_s)
         self.default_min_interval_s = max(0.0, float(resolved_cfg.min_interval_s))
@@ -502,6 +506,7 @@ class PoliteHttpClient:
         target.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             url: {
+                "body_text": entry.body_text,
                 "encoding": entry.encoding,
                 "etag": entry.etag,
                 "headers": entry.headers,
@@ -892,7 +897,7 @@ class PoliteHttpClient:
 
 
 __all__ = [
-    " DEFAULT_BACKOFF_SCHEDULE".strip(),
+    "DEFAULT_BACKOFF_SCHEDULE",
     "BreakerEvent",
     "CircuitBreakerOpenError",
     "ConditionalCacheEntry",

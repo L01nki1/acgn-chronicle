@@ -893,3 +893,596 @@ def test_backfill_and_discover_daily_scripts_offline(tmp_path: Path) -> None:
     assert len(partial_snaps) == 1
     partial_meta = json.loads((partial_snaps[0] / "snapshot.json").read_text(encoding="utf-8"))
     assert partial_meta["partial"] is True
+
+
+def test_corporate_ir_never_merges_via_auxiliary_text_similarity_with_positive_control() -> None:
+    """E P0-2, D P1-3, Claude A5: corporate/IR items must never merge via either the primary
+    entity-event channel OR the auxiliary same-language text similarity channel, even when
+    char-3-gram cosine similarity exceeds 0.86 (or similarity_fn returns 1.0); a non-corporate
+    control pair with identical text DOES merge.
+    """
+    from dataclasses import replace
+
+    from acgn_rag.core.ingest.dedup import char_ngram_cosine
+
+    corp_a = normalize_item(
+        RawIngestItem(
+            url="https://www.toei-anim.co.jp/ir/20261028_q2.html",
+            title="2027年3月期 第2四半期決算短信[日本基準](連結)の開示に関するお知らせ",
+            body="当社は本日開催の取締役会において、2027年3月期第2四半期決算短信(連結)を開示いたしました。",
+            published_at="2026-10-28T06:00:00Z",
+            publisher="Toei Animation",
+            source_key="toei-news",
+            source_type="official",
+            lang="ja",
+            ingest_category="corporate",
+            event_type="corporate",
+            media_ids=(10,),
+        )
+    )
+    corp_b = normalize_item(
+        RawIngestItem(
+            url="https://www.toei-anim.co.jp/ir/20261029_q2_rev.html",
+            title="2027年3月期 第2四半期決算短信[日本基準](連結)の開示に関するお知らせ(追報)",
+            body="当社は本日開催の取締役会において、2027年3月期第2四半期決算短信(連結)を開示いたしました。",
+            published_at="2026-10-29T06:00:00Z",
+            publisher="Toei Animation",
+            source_key="toei-news",
+            source_type="official",
+            lang="ja",
+            ingest_category="corporate",
+            event_type="corporate",
+            media_ids=(10,),
+        )
+    )
+    # Prove the test pair genuinely exceeds the 0.86 threshold on the default similarity function
+    assert (
+        char_ngram_cosine(
+            f"{corp_a.title}\n{corp_a.body[:240]}",
+            f"{corp_b.title}\n{corp_b.body[:240]}",
+        )
+        >= 0.90
+    )
+
+    res_corp = cluster_items([corp_a, corp_b])
+    assert len(res_corp.clusters) == 2
+
+    res_corp_forced = cluster_items([corp_a, corp_b], similarity_fn=lambda _a, _b: 1.0)
+    assert len(res_corp_forced.clusters) == 2
+
+    # Positive control: identical non-corporate pair merges into 1 cluster
+    ctrl_a = replace(corp_a, ingest_category=None, event_type="release")
+    ctrl_b = replace(corp_b, ingest_category=None, event_type="release")
+    res_ctrl = cluster_items([ctrl_a, ctrl_b])
+    assert len(res_ctrl.clusters) == 1
+    assert len(res_ctrl.clusters[0].member_doc_ids) == 2
+
+
+def test_entity_registry_multi_ref_order_invariance_and_conflict_detection() -> None:
+    """E P2-4 & Claude A8: build_entity_registry_from_raw registers all external_media_refs
+    deterministically (independent of tuple ordering) and raises ValueError if two refs on
+    one item resolve to conflicting existing entities.
+    """
+    from acgn_rag.core.ingest.facts_link import build_entity_registry_from_raw
+
+    item_ab = RawIngestItem(
+        url="https://anilist.co/anime/154587",
+        title="Frieren: Beyond Journey's End",
+        body="Aliases: 葬送のフリーレン",
+        published_at="2023-09-29T00:00:00Z",
+        publisher="AniList",
+        source_key="anilist-graphql",
+        source_type="metadata",
+        lang="en",
+        external_media_refs=(("anilist", "154587"), ("bangumi", "400602")),
+    )
+    item_ba = RawIngestItem(
+        url="https://anilist.co/anime/154587",
+        title="Frieren: Beyond Journey's End",
+        body="Aliases: 葬送のフリーレン",
+        published_at="2023-09-29T00:00:00Z",
+        publisher="AniList",
+        source_key="anilist-graphql",
+        source_type="metadata",
+        lang="en",
+        external_media_refs=(("bangumi", "400602"), ("anilist", "154587")),
+    )
+    reg_ab = build_entity_registry_from_raw([item_ab], seed_entries=())
+    reg_ba = build_entity_registry_from_raw([item_ba], seed_entries=())
+    assert reg_ab.sha256 == reg_ba.sha256
+    assert len(reg_ab.entries) == 1
+    assert set(reg_ab.entries[0].external_ids) == {
+        ("anilist", "154587"),
+        ("bangumi", "400602"),
+    }
+
+    # Conflict: anilist:1 and bangumi:2 already belong to two distinct entities
+    separate_1 = RawIngestItem(
+        url="https://anilist.co/anime/1",
+        title="Cowboy Bebop",
+        body="Aliases: カウボーイビバップ",
+        published_at="1998-04-03T00:00:00Z",
+        publisher="AniList",
+        source_key="anilist-graphql",
+        source_type="metadata",
+        lang="en",
+        external_media_refs=(("anilist", "1"),),
+    )
+    separate_2 = RawIngestItem(
+        url="https://bgm.tv/subject/2",
+        title="全く別の作品",
+        body="Summary: unrelated",
+        published_at="2020-01-01T00:00:00Z",
+        publisher="Bangumi",
+        source_key="bangumi-api",
+        source_type="metadata",
+        lang="zh",
+        external_media_refs=(("bangumi", "2"),),
+    )
+    base_reg = build_entity_registry_from_raw([separate_1, separate_2])
+    conflicting_item = RawIngestItem(
+        url="https://anilist.co/anime/999999",
+        title="Conflicting Cross-Ref Item",
+        body="Body",
+        published_at="2025-01-01T00:00:00Z",
+        publisher="AniList",
+        source_key="anilist-graphql",
+        source_type="metadata",
+        lang="en",
+        external_media_refs=(("anilist", "1"), ("bangumi", "2")),
+    )
+    with pytest.raises(ValueError, match="Conflicting external_media_refs"):
+        build_entity_registry_from_raw([conflicting_item], base_registry=base_reg)
+
+
+def test_snapshot_reader_eager_completeness_and_tamper_detection(tmp_path: Path) -> None:
+    """E P1-3, F #6659994806, D P2-5, Claude A3:
+    iter_snapshot_items / load_snapshot_items / load_corpus_snapshot / load_snapshot_clusters /
+    resolve_url_in_snapshot / publish_snapshot must eagerly reject truncated files, duplicated rows,
+    extra rows, byte-divergent representatives, tampered entities/sources/snapshot/clusters, and
+    missing sidecars BEFORE yielding row 0.
+    """
+    raw_items = [
+        RawIngestItem(
+            url="https://natalie.mu/comic/news/600001",
+            title="『葬送のフリーレン』第2期が2026年1月放送決定",
+            body="TVアニメ『葬送のフリーレン』第2期が2026年1月より放送されることが決定した。",
+            published_at="2026-10-28T09:00:00Z",
+            publisher="Comic Natalie",
+            source_key="toei-news",
+            source_type="official",
+            lang="ja",
+            event_type="broadcast",
+        ),
+        RawIngestItem(
+            url="https://natalie.mu/comic/news/600002",
+            title="『葬送のフリーレン』第2期が2026年1月放送決定",
+            body="TVアニメ『葬送のフリーレン』第2期が2026年1月より放送されることが決定した。",
+            published_at="2026-10-28T10:00:00Z",
+            publisher="Comic Natalie",
+            source_key="toei-news",
+            source_type="official",
+            lang="ja",
+            event_type="broadcast",
+        ),
+        RawIngestItem(
+            url="https://www.gcores.com/articles/199999",
+            title="《怪物猎人荒野》最新更新配信",
+            body="Capcom宣布《怪物猎人荒野》新活动任务上线。",
+            published_at="2026-10-27T04:00:00Z",
+            publisher="Gcores",
+            source_key="gcores-news",
+            source_type="media",
+            lang="zh",
+            event_type="update",
+        ),
+    ]
+    built = build_snapshot_from_raw(
+        raw_items,
+        window_start=date(2023, 10, 28),
+        window_end=date(2026, 10, 28),
+    )
+    snap_dir = publish_snapshot(built, snapshots_root=tmp_path)
+
+    # Save pristine bytes of all files
+    pristine = {
+        fname: (snap_dir / fname).read_bytes()
+        for fname in (
+            "manifest.json",
+            "snapshot.json",
+            "items.jsonl",
+            "representatives.jsonl",
+            "clusters.jsonl",
+            "entities.json",
+            "sources.json",
+            "quarantine.jsonl",
+        )
+    }
+
+    def _restore() -> None:
+        for fname, data in pristine.items():
+            (snap_dir / fname).write_bytes(data)
+
+    # (a) Truncated representatives.jsonl: must raise BEFORE yielding row 0!
+    rep_lines = pristine["representatives.jsonl"].decode("utf-8").splitlines()
+    assert len(rep_lines) == 2
+    (snap_dir / "representatives.jsonl").write_text(rep_lines[0] + "\n", encoding="utf-8")
+    yielded_before_err: list[str] = []
+    with pytest.raises(SnapshotError, match="Incomplete, duplicate, or out-of-order"):
+        for it in iter_snapshot_items(snap_dir, data_root=tmp_path, representatives_only=True):
+            yielded_before_err.append(it.doc_id)
+    assert yielded_before_err == []
+    _restore()
+
+    # (b) Duplicated row in items.jsonl: must raise BEFORE yielding row 0!
+    item_lines = pristine["items.jsonl"].decode("utf-8").splitlines()
+    (snap_dir / "items.jsonl").write_text(
+        "\n".join([item_lines[0], item_lines[0], *item_lines[1:]]) + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SnapshotError, match="Incomplete, duplicate, or out-of-order"):
+        next(iter_snapshot_items(snap_dir, data_root=tmp_path, representatives_only=False))
+    _restore()
+
+    # (c) Extra non-representative row added to representatives.jsonl
+    (snap_dir / "representatives.jsonl").write_bytes(pristine["items.jsonl"])
+    with pytest.raises(SnapshotError, match="Incomplete, duplicate, or out-of-order"):
+        next(iter_snapshot_items(snap_dir, data_root=tmp_path, representatives_only=True))
+    _restore()
+
+    # (d) representatives.jsonl row formatting differs from items.jsonl byte-for-byte
+    rep_obj = json.loads(rep_lines[0])
+    non_canonical_line = json.dumps(
+        rep_obj, ensure_ascii=False, indent=None, separators=(", ", ": ")
+    )
+    (snap_dir / "representatives.jsonl").write_text(
+        "\n".join([non_canonical_line, rep_lines[1]]) + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SnapshotError, match=r"not byte-identical to items\.jsonl"):
+        next(iter_snapshot_items(snap_dir, data_root=tmp_path, representatives_only=True))
+    _restore()
+
+    # (e) Tampered entities.json and sources.json must fail verify_snapshot_integrity (A3)
+    (snap_dir / "entities.json").write_bytes(pristine["entities.json"] + b" ")
+    with pytest.raises(SnapshotError, match=r"Tampered entities\.json"):
+        load_snapshot_items(snap_dir, data_root=tmp_path)
+    _restore()
+
+    (snap_dir / "sources.json").write_bytes(pristine["sources.json"] + b" ")
+    with pytest.raises(SnapshotError, match=r"Tampered sources\.json"):
+        load_snapshot_items(snap_dir, data_root=tmp_path)
+    _restore()
+
+    # (f) Tampered snapshot.json (item_count or url_to_representative) must fail (E P1-3)
+    meta_obj = json.loads(pristine["snapshot.json"].decode("utf-8"))
+    meta_obj["item_count"] = 999999
+    (snap_dir / "snapshot.json").write_text(json.dumps(meta_obj), encoding="utf-8")
+    with pytest.raises(SnapshotError, match=r"Tampered snapshot\.json"):
+        load_corpus_snapshot(snap_dir, data_root=tmp_path)
+    _restore()
+
+    meta_obj2 = json.loads(pristine["snapshot.json"].decode("utf-8"))
+    meta_obj2["url_to_representative"] = {"https://natalie.mu/comic/news/600001": "doc_forged"}
+    (snap_dir / "snapshot.json").write_text(json.dumps(meta_obj2), encoding="utf-8")
+    with pytest.raises(SnapshotError, match="Tampered url_to_representative"):
+        resolve_url_in_snapshot(
+            snap_dir, "https://natalie.mu/comic/news/600001", data_root=tmp_path
+        )
+    _restore()
+
+    # (g) Tampered clusters.jsonl (missing cluster) must fail load_snapshot_clusters
+    cluster_lines = pristine["clusters.jsonl"].decode("utf-8").splitlines()
+    assert len(cluster_lines) == 2
+    (snap_dir / "clusters.jsonl").write_text(cluster_lines[0] + "\n", encoding="utf-8")
+    with pytest.raises(SnapshotError, match="Incomplete cluster partition"):
+        load_snapshot_clusters(snap_dir, data_root=tmp_path)
+    _restore()
+
+    # (h) Missing sidecar file (representatives.jsonl deleted) must raise SnapshotError in
+    # both iter_snapshot_items and idempotent publish_snapshot (F #6659994806, D P2-5)
+    (snap_dir / "representatives.jsonl").unlink()
+    with pytest.raises(SnapshotError, match="missing required files"):
+        next(iter_snapshot_items(snap_dir, data_root=tmp_path, representatives_only=True))
+    with pytest.raises(SnapshotError, match="is incomplete"):
+        publish_snapshot(built, snapshots_root=tmp_path)
+    _restore()
+
+
+def test_catalog_chronological_sort_tie_rejection_current_retention_and_partial_isolation(
+    tmp_path: Path,
+) -> None:
+    """E P1-4, D P1-4, Claude A4:
+    _update_current_and_catalog sorts publications by published_at descending, rejects exact
+    timestamp ties between distinct snapshot_ids, keeps active CURRENT in retained even when older
+    than top-K, and isolates partial=True snapshots in partial_publications.
+    """
+    from acgn_rag.core.ingest.snapshot import _update_current_and_catalog
+
+    cat_root = tmp_path / "catalog_checks"
+    cat_root.mkdir()
+
+    # S1 is set as active CURRENT at 01:00
+    _update_current_and_catalog(
+        cat_root,
+        "20261028-aaaaaaaaaaaa",
+        published_at="2026-10-28T01:00:00Z",
+        keep_snapshots=2,
+        set_current=True,
+    )
+    # S3 is published at 03:00 (set_current=False)
+    _update_current_and_catalog(
+        cat_root,
+        "20261105-cccccccccccc",
+        published_at="2026-10-28T03:00:00Z",
+        keep_snapshots=2,
+        set_current=False,
+    )
+    # S2 is published out-of-order with an earlier timestamp 02:00 (set_current=False)
+    _update_current_and_catalog(
+        cat_root,
+        "20261101-bbbbbbbbbbbb",
+        published_at="2026-10-28T02:00:00Z",
+        keep_snapshots=2,
+        set_current=False,
+    )
+
+    cat = json.loads((cat_root / "catalog.json").read_text(encoding="utf-8"))
+    # Sorted by published_at descending: S3 (03:00), S2 (02:00), S1 (01:00)
+    assert [p["snapshot_id"] for p in cat["publications"]] == [
+        "20261105-cccccccccccc",
+        "20261101-bbbbbbbbbbbb",
+        "20261028-aaaaaaaaaaaa",
+    ]
+    assert cat["latest_corpus"] == "20261105-cccccccccccc"
+    # S1 is still CURRENT, so it MUST remain in retained and never enter retired!
+    assert cat["current"] == "20261028-aaaaaaaaaaaa"
+    assert "20261028-aaaaaaaaaaaa" in cat["retained"]
+    assert "20261028-aaaaaaaaaaaa" not in cat["retired"]
+
+    # Exact timestamp tie between distinct snapshot_ids must raise SnapshotError
+    with pytest.raises(SnapshotError, match="Ambiguous tied published_at"):
+        _update_current_and_catalog(
+            cat_root,
+            "20261106-dddddddddddd",
+            published_at="2026-10-28T03:00:00Z",
+            keep_snapshots=2,
+            set_current=False,
+        )
+
+    # Partial snapshot is isolated in partial_publications and never enters publications/retained/retired
+    _update_current_and_catalog(
+        cat_root,
+        "20261106-partial00000",
+        published_at="2026-10-28T05:00:00Z",
+        keep_snapshots=2,
+        set_current=False,
+        partial=True,
+    )
+    cat_after_partial = json.loads((cat_root / "catalog.json").read_text(encoding="utf-8"))
+    assert cat_after_partial["latest_corpus"] == "20261105-cccccccccccc"
+    assert [p["snapshot_id"] for p in cat_after_partial["partial_publications"]] == [
+        "20261106-partial00000"
+    ]
+    assert "20261106-partial00000" not in cat_after_partial["retained"]
+    assert "20261106-partial00000" not in cat_after_partial["retired"]
+
+
+def test_discover_daily_next_day_20261106_rolling_14d_window_future_clamp_and_drift(
+    tmp_path: Path,
+) -> None:
+    """E P0-1, D P0-2, E P2-1, Claude A1:
+    discover_daily against a base snapshot ending 2026-11-05 accepts a newly discovered item
+    published on 2026-11-06, mints a 14-day rolling daily snapshot (2026-10-24..2026-11-06,
+    snapshot_id prefix 20261106-...) without mixing in 2024 historical items from the base
+    snapshot, clamps future 2027 metadata items into out_of_window_count, and reports
+    metadata_drift_count on modified known doc_ids.
+    """
+    import importlib.util
+    import sys
+
+    script_path = REPO_ROOT / "scripts" / "discover_daily.py"
+    spec = importlib.util.spec_from_file_location("discover_daily_test", script_path)
+    assert spec is not None and spec.loader is not None
+    discover_mod = importlib.util.module_from_spec(spec)
+    sys.modules["discover_daily_test"] = discover_mod
+    spec.loader.exec_module(discover_mod)
+
+    base_raw = [
+        RawIngestItem(
+            url="https://www.animenewsnetwork.com/news/2024-05-01/old-2024-item/.100001",
+            title="Historical 2024 Anime News",
+            body="Historical 2024 body",
+            published_at="2024-05-01T10:00:00Z",
+            publisher="Anime News Network",
+            source_key="ann-news",
+            source_type="media",
+            lang="en",
+        ),
+        RawIngestItem(
+            url="https://www.animenewsnetwork.com/news/2026-11-05/recent-nov5-item/.200001",
+            title="Recent Nov 5 Anime News",
+            body="Recent Nov 5 Archive Headline",
+            published_at="2026-11-05T10:00:00Z",
+            publisher="Anime News Network",
+            source_key="ann-news",
+            source_type="media",
+            lang="en",
+        ),
+    ]
+    base_built = build_snapshot_from_raw(
+        base_raw,
+        window_start="2023-11-05",
+        window_end="2026-11-05",
+    )
+    publish_snapshot(base_built, snapshots_root=tmp_path / "snapshots", set_current=True)
+
+    class _Nov6Adapter:
+        source_key = "ann-news"
+        publisher = "Anime News Network"
+
+        def discover(self, since=None, *, use_conditional=True):
+            _ = (since, use_conditional)
+            return [
+                # 1. Existing 2026-11-05 URL with updated RSS blurb -> unchanged + metadata_drift_count=1
+                RawIngestItem(
+                    url="https://www.animenewsnetwork.com/news/2026-11-05/recent-nov5-item/.200001",
+                    title="Recent Nov 5 Anime News",
+                    body="Recent Nov 5 Archive Headline\n\nExpanded RSS summary paragraph.",
+                    published_at="2026-11-05T12:30:00Z",
+                    publisher="Anime News Network",
+                    source_key="ann-news",
+                    source_type="media",
+                    lang="en",
+                ),
+                # 2. Brand new item published on 2026-11-06 -> inserted_count=1
+                RawIngestItem(
+                    url="https://www.animenewsnetwork.com/news/2026-11-06/brand-new-nov6/.200002",
+                    title="Brand New Nov 6 Anime Announcement",
+                    body="Brand new announcement body on Nov 6.",
+                    published_at="2026-11-06T08:00:00Z",
+                    publisher="Anime News Network",
+                    source_key="ann-news",
+                    source_type="media",
+                    lang="en",
+                ),
+                # 3. Future 2027 air date item -> clamped out of daily window (out_of_window_count=1)
+                RawIngestItem(
+                    url="https://anilist.co/anime/999888",
+                    title="Future 2027 Anime Entry",
+                    body="Release Date: 2027-04-01",
+                    published_at="2027-04-01T00:00:00Z",
+                    publisher="AniList",
+                    source_key="anilist-graphql",
+                    source_type="metadata",
+                    lang="en",
+                ),
+            ]
+
+        def backfill(self, date_range=None):
+            return []
+
+    res, daily_built = discover_mod.run_incremental_discovery(
+        reference_date="2026-11-06",
+        registry={"ann-news": _Nov6Adapter()},
+        base_snapshot_dir_or_id=base_built.snapshot_id,
+        data_root=tmp_path,
+        publish_if_changed=True,
+    )
+    assert res.inserted_count == 1
+    assert res.unchanged_count == 1
+    assert res.metadata_drift_count == 1
+    assert len(res.metadata_drift_doc_ids) == 1
+    assert res.out_of_window_count == 1
+    assert res.window_start == "2026-10-24"
+    assert res.window_end == "2026-11-06"
+    assert res.new_snapshot_id is not None
+    assert res.new_snapshot_id.startswith("20261106-")
+    assert daily_built is not None
+    # Daily snapshot contains ONLY the 14-day window items (Nov 5 + Nov 6 = 2 items), NOT the 2024 item!
+    assert daily_built.corpus_snapshot.item_count == 2
+
+
+def test_from_raw_missing_or_mismatched_sidecar_and_page_cap_partial(tmp_path: Path) -> None:
+    """E P2-2, Claude A2 & A9:
+    --from-raw without a .summary.json sidecar or with a mismatched raw_sha256 marks partial=True
+    and exits non-zero unless --allow-partial is passed; crawl_backfill_window marks partial=True
+    when an adapter hits its page cap (last_page_cap_hit=True).
+    """
+    import importlib.util
+    import sys
+
+    script_path = REPO_ROOT / "scripts" / "backfill.py"
+    spec = importlib.util.spec_from_file_location("backfill_sidecar_test", script_path)
+    assert spec is not None and spec.loader is not None
+    backfill_mod = importlib.util.module_from_spec(spec)
+    sys.modules["backfill_sidecar_test"] = backfill_mod
+    spec.loader.exec_module(backfill_mod)
+
+    raw_items = [
+        RawIngestItem(
+            url="https://www.animenewsnetwork.com/news/2026-10-28/item-1/.217200",
+            title="Item 1",
+            body="Body 1",
+            published_at="2026-10-28T00:00:00Z",
+            publisher="Anime News Network",
+            source_key="ann-news",
+            source_type="media",
+            lang="en",
+        )
+    ]
+    raw_file = tmp_path / "unverified.jsonl"
+    backfill_mod.save_raw_jsonl(raw_items, raw_file)
+    sidecar = raw_file.with_suffix(".jsonl.summary.json")
+    assert sidecar.exists()
+
+    # 1. Missing sidecar -> exit code 1 without --allow-partial
+    sidecar.unlink()
+    assert (
+        backfill_mod.main(
+            [
+                "--since",
+                "2023-10-28",
+                "--until",
+                "2026-10-28",
+                "--from-raw",
+                str(raw_file),
+                "--data-root",
+                str(tmp_path / "missing_sidecar_out"),
+            ]
+        )
+        == 1
+    )
+
+    # 2. Stale/mismatched raw_sha256 in sidecar -> exit code 1 without --allow-partial
+    sidecar.write_text(
+        json.dumps(
+            {
+                "partial": False,
+                "raw_bytes": 999999,
+                "raw_sha256": "0" * 64,
+                "sources": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        backfill_mod.main(
+            [
+                "--since",
+                "2023-10-28",
+                "--until",
+                "2026-10-28",
+                "--from-raw",
+                str(raw_file),
+                "--data-root",
+                str(tmp_path / "stale_sidecar_out"),
+            ]
+        )
+        == 1
+    )
+
+    # 3. Adapter hitting max_pages cap sets partial=True and coverage_mode="page_cap_partial"
+    class _CappedWpAdapter:
+        source_key = "capped-wp"
+        publisher = "Capped WP"
+        last_page_cap_hit = True
+        last_pages_fetched = 300
+        last_earliest_observed_date = "2025-06-01"
+        last_reached_window_start = False
+
+        def discover(self, since=None, *, use_conditional=True):
+            return list(raw_items)
+
+        def backfill(self, date_range=None):
+            return list(raw_items)
+
+    _items, summary = backfill_mod.crawl_backfill_window(
+        "2023-10-28",
+        "2026-10-28",
+        registry={"capped-wp": _CappedWpAdapter()},
+    )
+    assert summary["partial"] is True
+    assert summary["capped_sources"] == ["capped-wp"]
+    assert summary["sources"]["capped-wp"]["status"] == "page_cap_partial"
+    assert summary["sources"]["capped-wp"]["coverage_mode"] == "page_cap_partial"

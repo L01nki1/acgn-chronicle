@@ -7,6 +7,7 @@ Owner: A (WP1) | Spec: Issue #9, Issue #14 V1, docs/INGEST_CONTRACT.md §5
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 import httpx
 import pytest
@@ -444,7 +445,9 @@ def test_wp_paged_rest_fallback_to_rss() -> None:
         source_type="official",
         lang="ja",
         mode="auto",
+        per_page=50,
         max_pages=1,
+        use_rest_date_filter=False,
         http=http,
     )
     with respx.mock(assert_all_called=True) as router:
@@ -674,3 +677,220 @@ def test_round3_n1_warm_304_cache_preserves_backfill_rolling_tails_and_n2_capcom
             == "2027年3月期第2四半期(中間期)決算の連結業績は、前年同期比で増収増益、通期計画に対し順調に進捗"
         )
         assert ir_item.ingest_category == "corporate"
+
+
+def test_respect_robots_false_rejected_and_conditional_cache_body_preserved(
+    tmp_path: Path,
+) -> None:
+    """Enforce HttpConfig.respect_robots=True (COMPLIANCE C1) and verify 304 after restart
+    preserves cached body_text (E P3).
+    """
+    from acgn_rag.config import HttpConfig
+
+    with pytest.raises(ValueError, match=r"respect_robots=False.*forbidden"):
+        PoliteHttpClient(config=HttpConfig(respect_robots=False))
+
+    cond_path = tmp_path / "cond_cache.json"
+    clock = FakeClock()
+    http1 = PoliteHttpClient(
+        clock=clock,
+        sleep=clock.sleep,
+        jitter_range=(0.0, 0.0),
+        conditional_cache_path=cond_path,
+    )
+    with respx.mock(assert_all_called=True) as router:
+        router.get("https://example.org/robots.txt").mock(return_value=httpx.Response(404))
+        router.get("https://example.org/feed.xml").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    text="<rss>cached body</rss>",
+                    headers={"ETag": '"etag-v9"', "Last-Modified": "Wed, 05 Nov 2026 00:00:00 GMT"},
+                ),
+                httpx.Response(304),
+            ]
+        )
+        res1 = http1.get("https://example.org/feed.xml", use_conditional=True)
+        assert res1.not_modified is False
+        assert res1.text == "<rss>cached body</rss>"
+
+        http2 = PoliteHttpClient(
+            clock=clock,
+            sleep=clock.sleep,
+            jitter_range=(0.0, 0.0),
+            conditional_cache_path=cond_path,
+        )
+        res2 = http2.get("https://example.org/feed.xml", use_conditional=True)
+        assert res2.not_modified is True
+        assert res2.text == "<rss>cached body</rss>"
+
+
+def test_wp_paged_rest_server_bounds_100_to_50_fallback_canonical_host_and_page_cap() -> None:
+    """Verify WpPagedAdapter server-side after/before query params, categories filter,
+    HTTP 400 per_page=100 -> 50 fallback, canonical_host rewrite, content:encoded RSS priority,
+    and last_page_cap_hit detection (A2, A10, D P2-6).
+    """
+    import json
+
+    clock = FakeClock()
+    http = PoliteHttpClient(clock=clock, sleep=clock.sleep, jitter_range=(0.0, 0.0))
+    wp = WpPagedAdapter(
+        source_key="nijimen-news",
+        site_url="https://nijimen.kusuguru.co.jp",
+        publisher="にじめん",
+        source_type="media",
+        lang="ja",
+        mode="rest",
+        per_page=100,
+        max_pages=2,
+        categories=(116583, 116584),
+        canonical_host="nijimen.kusuguru.co.jp",
+        http=http,
+    )
+    page1_json = json.dumps(
+        [
+            {
+                "link": "https://nijimen.net/topics/649001",
+                "title": {"rendered": "アニメ新情報公開 - にじめん"},
+                "content": {"rendered": "<p>" + ("詳報テキスト" * 60) + "</p>"},
+                "excerpt": {"rendered": "<p>抜粋</p>"},
+                "date_gmt": "2026-10-20T05:00:00",
+            }
+        ]
+    )
+    page2_json = json.dumps(
+        [
+            {
+                "link": "https://nijimen.net/topics/649002",
+                "title": {"rendered": "アニメ続報公開"},
+                "content": {"rendered": "<p>" + ("続報テキスト" * 60) + "</p>"},
+                "excerpt": {"rendered": "<p>抜粋2</p>"},
+                "date_gmt": "2026-10-15T05:00:00",
+            }
+        ]
+    )
+    with respx.mock(assert_all_called=True) as router:
+        router.get("https://nijimen.kusuguru.co.jp/robots.txt").mock(
+            return_value=httpx.Response(404)
+        )
+        router.get(
+            "https://nijimen.kusuguru.co.jp/wp-json/wp/v2/posts"
+            "?per_page=100&page=1&categories=116583,116584"
+            "&after=2023-10-28T00:00:00&before=2026-10-28T23:59:59"
+        ).mock(return_value=httpx.Response(400, text="per_page max 50"))
+        router.get(
+            "https://nijimen.kusuguru.co.jp/wp-json/wp/v2/posts"
+            "?per_page=50&page=1&categories=116583,116584"
+            "&after=2023-10-28T00:00:00&before=2026-10-28T23:59:59"
+        ).mock(return_value=httpx.Response(200, text=page1_json))
+        router.get(
+            "https://nijimen.kusuguru.co.jp/wp-json/wp/v2/posts"
+            "?per_page=50&page=2&categories=116583,116584"
+            "&after=2023-10-28T00:00:00&before=2026-10-28T23:59:59"
+        ).mock(return_value=httpx.Response(200, text=page2_json))
+
+        items = wp.backfill((date(2023, 10, 28), date(2026, 10, 28)))
+        assert len(items) == 2
+        assert wp.last_effective_per_page == 50
+        assert wp.last_page_cap_hit is True
+        assert wp.last_reached_window_start is False
+        assert items[0].url == "https://nijimen.kusuguru.co.jp/topics/649001"
+        assert items[0].title == "アニメ新情報公開"
+
+    # Also verify _parse_rss_page prefers content:encoded over short description (D P2-6)
+    rss_with_content = """<?xml version="1.0" encoding="UTF-8"?>
+    <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel>
+      <item>
+        <title>スタジオ新作発表</title>
+        <link>https://www.mappa.co.jp/news/999</link>
+        <pubDate>Sun, 25 Oct 2026 03:00:00 +0000</pubDate>
+        <description>短い要約</description>
+        <content:encoded><![CDATA[<p>これは全文のプレスリリース本文です。制作スタッフとキャストの詳細情報を含みます。</p>]]></content:encoded>
+      </item>
+    </channel></rss>
+    """
+    parsed_rss_items = wp._parse_rss_page(rss_with_content, "https://www.mappa.co.jp/feed/")
+    assert len(parsed_rss_items) == 1
+    assert "これは全文のプレスリリース本文です" in parsed_rss_items[0].body
+
+
+def test_rss_duplicate_url_replaces_boilerplate_and_ann_recent_day_cache(tmp_path: Path) -> None:
+    """Verify RssAdapter replaces a raw fiscal boilerplate title with an informative duplicate entry
+    (E P3, C4), and AnnArchiveAdapter skips disk caching for today/yesterday UTC and tracks
+    last_truncated_days (B1, E P1-2).
+    """
+    clock = FakeClock()
+    http = PoliteHttpClient(clock=clock, sleep=clock.sleep, jitter_range=(0.0, 0.0))
+    dup_xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <rss version="2.0"><channel>
+      <item>
+        <title>プレスリリース 2027年3月期</title>
+        <link>https://www.capcom.co.jp/ir/news/html/261101.html</link>
+        <pubDate>2026-11-01T09:00:00+09:00</pubDate>
+        <description>~ サブタイトルのみ ~</description>
+      </item>
+      <item>
+        <title>『モンスターハンターワイルズ』全世界販売本数1000万本突破</title>
+        <link>https://www.capcom.co.jp/ir/news/html/261101.html</link>
+        <pubDate>2026-11-01T09:00:00+09:00</pubDate>
+        <description>カプコンの最新作が大ヒットを記録しました。</description>
+      </item>
+    </channel></rss>
+    """
+    rss = RssAdapter(
+        source_key="capcom-news",
+        feed_url="https://www.capcom.co.jp/rss/news.xml",
+        publisher="Capcom",
+        source_type="official",
+        lang="ja",
+        source_tz="Asia/Tokyo",
+        http=http,
+    )
+    with respx.mock(assert_all_called=True) as router:
+        router.get("https://www.capcom.co.jp/robots.txt").mock(return_value=httpx.Response(404))
+        router.get("https://www.capcom.co.jp/rss/news.xml").mock(
+            return_value=httpx.Response(200, text=dup_xml)
+        )
+        items = rss.backfill(("2026-10-01", "2026-11-05"))
+        assert len(items) == 1
+        assert rss.last_duplicate_url_entries == 1
+        assert items[0].title == "『モンスターハンターワイルズ』全世界販売本数1000万本突破"
+
+    # AnnArchiveAdapter: yesterday UTC is not written to disk cache when cache_recent_days=False,
+    # and last_truncated_days increments when next_page_urls exceeds max_pages_per_day - 1
+    from datetime import UTC, datetime, timedelta
+
+    from acgn_rag.core.ingest.ann_archive import AnnArchiveAdapter
+
+    today_utc = datetime.now(tz=UTC).date()
+    yesterday_utc = today_utc - timedelta(days=1)
+    y_slash = yesterday_utc.strftime("%Y/%m/%d")
+    y_iso = yesterday_utc.isoformat()
+    ann_html = f"""
+    <html><body><div id="content-zone"><ul class="article-list">
+      <li><a href="/news/{y_iso}/test-story/.300001">Test Story Headline</a> ( 10:00 )</li>
+    </ul>
+    <a href="/news/{y_slash}?page=2" rel="next">Page 2</a>
+    <a href="/news/{y_slash}?page=3" rel="next">Page 3</a>
+    </div></body></html>
+    """
+    ann_cache_dir = tmp_path / "ann_cache"
+    ann = AnnArchiveAdapter(
+        http=http,
+        cache_dir=ann_cache_dir,
+        max_pages_per_day=1,
+        cache_recent_days=False,
+    )
+    with respx.mock(assert_all_called=True) as router:
+        router.get("https://www.animenewsnetwork.com/robots.txt").mock(
+            return_value=httpx.Response(404)
+        )
+        router.get(f"https://www.animenewsnetwork.com/news/{y_slash}").mock(
+            return_value=httpx.Response(200, text=ann_html)
+        )
+        ann_items = ann.backfill((yesterday_utc, yesterday_utc))
+        assert len(ann_items) == 1
+        assert ann.last_truncated_days == 1
+        assert ann.last_days_with_items == 1
+        assert ann.last_empty_days == 0
+        assert not (ann_cache_dir / f"{y_iso}.json").exists()

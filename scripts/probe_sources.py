@@ -60,7 +60,25 @@ def _registry(*, ann_max_days_per_call: int | None = None):
     return build_default_registry(
         ann_max_days_per_call=ann_max_days_per_call,
         ann_cache_dir=Path("data/raw/ann_day_cache"),
+        wp_cache_dir=Path("data/raw/wp_cache"),
     )
+
+
+def _subtract_depth(upper: date, depth: str, days: int | None) -> date:
+    """Compute the look-back start date for `depth` relative to `upper`.
+
+    Uses calendar-year subtraction for `1y`/`2y`/`3y` so `3y` on `2026-11-05` produces
+    `2023-11-05` (matching the frozen 3-year window bounds in `docs/DECISIONS.md`).
+    """
+    if days is None:
+        return ARCHIVE_FLOOR
+    if depth in ("1y", "2y", "3y"):
+        years = int(depth[:-1])
+        try:
+            return upper.replace(year=upper.year - years)
+        except ValueError:
+            return upper.replace(year=upper.year - years, day=28)
+    return upper - timedelta(days=days)
 
 
 def _count(items) -> tuple[int, int, int]:
@@ -81,7 +99,7 @@ def _probe_one(
     until: date | None = None,
 ) -> dict[str, object]:
     upper = until if until is not None else datetime.now(tz=UTC).date()
-    since = upper - timedelta(days=days) if days is not None else ARCHIVE_FLOOR
+    since = _subtract_depth(upper, depth, days)
     row: dict[str, object] = {
         "source": name,
         "adapter": type(adapter).__name__,
@@ -100,19 +118,21 @@ def _probe_one(
         # backfill() is the historical entry point; a source that cannot page must raise, not return
         # everything (docs/SOURCES.md 7).
         if (
-            name == "ann-news"
+            name in ("ann-news", "nijimen-news")
             and depth == "all"
             and getattr(adapter, "max_days_per_call", None) is None
         ):
-            items_3y = list(
-                adapter.backfill(date_range=(upper - timedelta(days=1095), upper)) or []
-            )
+            since_3y = _subtract_depth(upper, "3y", 1095)
+            items_3y = list(adapter.backfill(date_range=(since_3y, upper)) or [])
             if len(items_3y) >= TARGET_ITEMS:
                 items = items_3y
-                adapter.last_sampled_days = 1096
-                adapter.last_requested_days = 1096
+                req_days = (upper - since_3y).days + 1
+                if hasattr(adapter, "last_sampled_days"):
+                    adapter.last_sampled_days = req_days
+                    adapter.last_requested_days = req_days
                 extra_note = (
-                    "3y already >= 8000 target (1096/1096 days); pre-2023 archive not needed"
+                    f"3y already >= 8000 target ({req_days}/{req_days} days); "
+                    f"pre-2023 archive not needed"
                 )
             else:
                 items = adapter.backfill(date_range=(since, upper))
@@ -152,6 +172,20 @@ def _probe_one(
     requested = getattr(adapter, "last_requested_days", 0)
     if isinstance(sampled, int) and isinstance(requested, int) and 0 < sampled < requested:
         notes.append(f"sampled_days={sampled}/{requested} (partial sample)")
+    days_with_items = getattr(adapter, "last_days_with_items", 0)
+    empty_days = getattr(adapter, "last_empty_days", 0)
+    if name == "ann-news" and isinstance(days_with_items, int) and days_with_items > 0:
+        notes.append(f"days_with_items={days_with_items}, empty_days={empty_days}")
+    if type(adapter).__name__ == "StructuredApiAdapter":
+        max_p = getattr(adapter, "max_pages", 1)
+        per_p = getattr(adapter, "per_page", 50)
+        notes.append(f"catalog_top_n (ranked query cap max_pages={max_p}x{per_p})")
+    if type(adapter).__name__ == "WpPagedAdapter":
+        pages_fetched = getattr(adapter, "last_pages_fetched", 0)
+        reached = bool(getattr(adapter, "last_reached_window_start", False))
+        cov = "full_window_archive" if reached else "rolling_tail_only"
+        if pages_fetched:
+            notes.append(f"{cov} (pages_fetched={pages_fetched})")
     raw_entries = getattr(adapter, "last_raw_entry_count", 0)
     skipped_entries = getattr(adapter, "last_skipped_entries", 0)
     dup_urls = getattr(adapter, "last_duplicate_url_entries", 0)

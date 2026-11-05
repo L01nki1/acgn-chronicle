@@ -27,8 +27,8 @@ from typing import Any
 from acgn_rag.core.ingest.normalize import NormalizedItem, canonical_json
 from acgn_rag.core.store.payload import iso_to_epoch
 
-DEDUP_POLICY_VERSION = "1"
-DEFAULT_DEDUP_ALGORITHM = "entity-event-72h+agglomerative-complete:char3-tf-cosine-v1"
+DEDUP_POLICY_VERSION = "2"
+DEFAULT_DEDUP_ALGORITHM = "entity-event-72h+agglomerative-complete:char3-tf-cosine-v2"
 DEFAULT_SIMILARITY_THRESHOLD = 0.86
 DEFAULT_WINDOW_HOURS = 72
 SWEEP_THRESHOLDS: tuple[float, ...] = (0.82, 0.84, 0.86, 0.88)
@@ -240,8 +240,9 @@ def _pair_merge_score(
     if abs(ts_a - ts_b) > max_gap_s:
         return None
 
-    # Corporate / IR filings never merge via the primary entity channel
-    either_corporate = a.ingest_category == "corporate" or b.ingest_category == "corporate"
+    # Corporate / IR filings never merge via either the primary entity channel or auxiliary channel
+    if a.ingest_category == "corporate" or b.ingest_category == "corporate":
+        return None
 
     media_a = set(a.media_ids)
     media_b = set(b.media_ids)
@@ -255,13 +256,7 @@ def _pair_merge_score(
         return None
 
     # 1. Primary channel: identical non-empty positive media_ids + matching non-null event_type within 72h
-    if (
-        not either_corporate
-        and media_a
-        and media_a == media_b
-        and a.event_type is not None
-        and a.event_type == b.event_type
-    ):
+    if media_a and media_a == media_b and a.event_type is not None and a.event_type == b.event_type:
         if a.lang == b.lang:
             # Same-language articles sharing (media_ids, event_type) must still share core headline topic
             if _has_conflicting_headline_numbers(a.title, b.title):

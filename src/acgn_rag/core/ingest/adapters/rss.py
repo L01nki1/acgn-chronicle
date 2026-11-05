@@ -24,6 +24,7 @@ from acgn_rag.core.ingest.normalize import (
     RawIngestItem,
     clean_title,
     is_corporate_ir_text,
+    is_fiscal_pr_boilerplate_title,
     normalize_text,
     normalize_url,
     parse_utc_timestamp,
@@ -120,6 +121,7 @@ class RssAdapter:
     last_skipped_entries: int = field(init=False, default=0, repr=False)
     last_keyword_filtered_entries: int = field(init=False, default=0, repr=False)
     last_duplicate_url_entries: int = field(init=False, default=0, repr=False)
+    last_earliest_observed_date: str | None = field(init=False, default=None, repr=False)
     last_not_modified: bool = field(init=False, default=False, repr=False)
 
     def _fetch_all_items(self, *, use_conditional: bool) -> list[RawIngestItem]:
@@ -146,9 +148,10 @@ class RssAdapter:
         self.last_skipped_entries = 0
         self.last_keyword_filtered_entries = 0
         self.last_duplicate_url_entries = 0
+        self.last_earliest_observed_date = None
 
         items: list[RawIngestItem] = []
-        seen_urls: set[str] = set()
+        seen_url_index: dict[str, int] = {}
         for entry in entries:
             getter = (
                 entry.get if isinstance(entry, dict) else lambda k, e=entry: getattr(e, k, None)
@@ -163,6 +166,13 @@ class RssAdapter:
             if pub_utc is None:
                 self.last_skipped_entries += 1
                 continue
+
+            item_date = pub_utc[:10]
+            if (
+                self.last_earliest_observed_date is None
+                or item_date < self.last_earliest_observed_date
+            ):
+                self.last_earliest_observed_date = item_date
 
             content_parts: list[str] = []
             content_list = getter("content")
@@ -203,10 +213,6 @@ class RssAdapter:
             except Exception:
                 self.last_skipped_entries += 1
                 continue
-            if canonical_url in seen_urls:
-                self.last_duplicate_url_entries += 1
-                continue
-            seen_urls.add(canonical_url)
 
             ingest_cat: str | None = None
             if (
@@ -216,20 +222,30 @@ class RssAdapter:
             ):
                 ingest_cat = "corporate"
 
-            items.append(
-                RawIngestItem(
-                    url=canonical_url,
-                    title=title,
-                    body=body,
-                    published_at=pub_utc,
-                    publisher=self.publisher,
-                    source_type=self.source_type,
-                    source_key=self.source_key,
-                    lang=self.lang,
-                    source_tz=self.source_tz,
-                    ingest_category=ingest_cat,
-                )
+            candidate = RawIngestItem(
+                url=canonical_url,
+                title=title,
+                body=body,
+                published_at=pub_utc,
+                publisher=self.publisher,
+                source_type=self.source_type,
+                source_key=self.source_key,
+                lang=self.lang,
+                source_tz=self.source_tz,
+                ingest_category=ingest_cat,
             )
+
+            if canonical_url in seen_url_index:
+                self.last_duplicate_url_entries += 1
+                existing_idx = seen_url_index[canonical_url]
+                if is_fiscal_pr_boilerplate_title(
+                    items[existing_idx].title
+                ) and not is_fiscal_pr_boilerplate_title(candidate.title):
+                    items[existing_idx] = candidate
+                continue
+
+            seen_url_index[canonical_url] = len(items)
+            items.append(candidate)
 
         if not items:
             raise SelectorBrokenError(
