@@ -37,8 +37,10 @@ pytest -q                                     # 4 tests
 
 1. Back up `data/` before any backfill.
 2. `python scripts/backfill.py --since <start> --until <end>`; check `items > 0` per source.
-3. `python scripts/build_index.py --config A` (run the three configs sequentially — running them in parallel
-   oversubscribes the CPU and is slower overall).
+3. `python scripts/build_index.py --config A` (run the three configs sequentially. On the CPU fallback the
+   reason is oversubscription; on a GPU lane it is VRAM — three concurrent builds contend for the same
+   device and the smallest allocation fails first. The sequential rule survives the lane change, its
+   rationale does not).
 4. Verify idempotency: rebuild once and compare `snapshot_id`.
 5. Post the `snapshot_id` + window in the group; every later run must use that id.
 
@@ -186,13 +188,20 @@ line what the threshold optimizes before it freezes.
   new chunk counts. The vector-identity slug change invalidates old caches once. Subsequent
   changes of batch size reuse cache entries while preserving the actual batch size in metadata.
 - **Throughput is reported in tokens/s, never bare items/s** — items/s varies ~3× with chunk length
-  and reads as noise. Measured CPU baseline (i5-13400TEF, 16 threads, torch 2.15 CPU): e5-base ≈
-  **1,661 tokens/s** on the pilot corpus (re-measured 1,644 inside the A380 run) ⇒ a 40k-chunk ×
-  512-token corpus ≈ **3.4 h per config** — plan on it. Config-A-shaped 145/431-token batches
-  (batch 32) measured 1.9–2.0k tokens/s; the ~15 % gap tracks batch size and passage-length mix and
-  is not isolated, so the lower figure plans the schedule. Peak RSS ≈ 1.4 GB. Lane tables and
-  per-run provenance: `notebooks/embedding-bakeoff/`.
-- GPU lanes are permitted (DECISIONS 2026-10-29); `.env.example` keeps `cpu` as the default lane.
+  and reads as noise. The canonical lane is Colab (T4); the measured GPU tables in
+  `notebooks/embedding-bakeoff/` are the figures that plan a build. The CPU numbers below are kept as
+  the **emergency-fallback budget**, not as a scheduling input: e5-base ≈ **1,661 tokens/s** on the
+  pilot corpus (i5-13400TEF, 16 threads, torch 2.15 CPU; re-measured 1,644 inside the A380 run) ⇒ a
+  40k-chunk × 512-token corpus ≈ **3.4 h per config**, and bge-m3 on CPU ≈ 365 tokens/s ⇒ ~15.6 h per
+  config. Config-A-shaped 145/431-token batches (batch 32) measured 1.9–2.0k tokens/s on CPU; the
+  ~15 % gap tracks batch size and passage-length mix and is not isolated. Peak CPU RSS ≈ 1.4 GB.
+  Per-run provenance: `notebooks/embedding-bakeoff/`.
+- **GPU-first (DECISIONS 2026-11-05):** every index build and every evaluation run uses a GPU lane.
+  The canonical lane is Colab (T4); a local CUDA lane is a cross-check. `ACGN_EMBED_DEVICE` must be
+  set to a GPU lane explicitly for any build or run, and that value is recorded in the identity.
+  `.env.example` keeps `cpu` only as an **install-time** default, so a machine with no GPU can still
+  create a working environment — a build or a metric produced on CPU is not reportable, and the CPU
+  figures above exist solely for the case where no GPU lane is reachable.
 - **Extraction-vendor quirk:** if extraction runs on the CSLab DSV4-flash deployment, set `max_tokens ≥ 1024`
   — it is a reasoning model and returns empty content below that, because reasoning tokens consume the budget.
 
@@ -203,7 +212,9 @@ validation — lives in `notebooks/embedding-bakeoff/` (reproducible from there 
 this section is only the decision.
 
 - **GPU canonical lane: two candidates — Qwen3-Embedding-0.6B and bge-m3 (dense)** — decided by the G1a
-  bake-off on the real frozen corpus; **CPU lane: e5-base** stays the any-member fallback. Encoder
+  bake-off on the real frozen corpus. **e5-base is not a build lane**: since DECISIONS 2026-11-05 it is
+  an emergency fallback used only when no GPU lane is reachable, and any result produced on it is
+  reported as fallback evidence, never as the canonical number. Encoder
   identity keeps lanes separable; a G2 run binds to the identity that built its index.
 - **Bake-off menu amendment (2026-10-29): EmbeddingGemma joins the GPU-lane candidates** — that is
   **`google/embeddinggemma-300m`** (308M params / 768-d MRL / Apache-2.0 / 2048-token context, strong
@@ -212,12 +223,16 @@ this section is only the decision.
   Its usage recipe (query task prompt) is verified against the model card at bake-off time, not
   from memory.
 - **Pre-registered single-lane rule:** if bge-m3 ties or wins the G1a bake-off under the existing
-  rule **and** keeps the top zh-subset MRR, bge-m3 is adopted for **both** lanes, e5-base is
-  demoted to emergency fallback, and G1b scheduling books CPU rebuilds at ~15.6 h/config
-  (365 tokens/s measured).
-- **GPU lane priority (2026-10-29): the canonical GPU runtime is Colab** (T4 measured; every member
-  can reproduce it). The local A380/OpenVINO lane is a cross-check / evaluation fallback recorded
-  via encoder identity, not a canonical build lane — members cannot reproduce that hardware.
+  rule **and** keeps the top zh-subset MRR, bge-m3 becomes the single model for the GPU lane.
+  Because CPU is emergency-only since 2026-11-05, the rule no longer books CPU rebuilds into the
+  schedule; the ~15.6 h/config CPU figure (365 tokens/s measured) remains only as the fallback cost
+  to quote if no GPU lane is reachable.
+- **GPU lane priority (2026-10-29, reaffirmed 2026-11-05): the canonical GPU runtime is Colab** (T4
+  measured; every member can reproduce it). A local CUDA lane — currently the RTX 5060 on the
+  development machine — is a cross-check recorded via encoder identity, not a canonical build lane:
+  members cannot reproduce that hardware, and its identity differs from T4's. Dependency consequence
+  to plan for: Blackwell-class cards (sm_120) need a CUDA 12.8 wheel (torch ≥ 2.7), so the local lane
+  cannot run on the `torch>=2.3` floor the CPU path is pinned to.
 - Usage differences to respect: Qwen3 takes an **instruct-style query prompt** (`prompt_name="query"` in
   sentence-transformers), documents carry no prefix. **bge-m3 needs no prefixes** and mean-pools —
   with 8k context it is the named late-chunking-capable fallback for config B (the EmbeddingGemma
@@ -227,7 +242,9 @@ this section is only the decision.
 - **Bake-off protocol before the G1b freeze**: rerun the mini-eval on the real frozen corpus with
   30+ hand-checked queries, both candidates; pick by zh-subset MRR and overall MRR with the spread
   reported; a candidate must beat e5-base by ≥10 points hit@5 or ≥0.05 MRR on the zh subset to
-  displace it. Decision and identity recorded in DECISIONS.
+  displace it. Since 2026-11-05 that baseline must be a **GPU-lane e5-base measured on the same
+  hardware**; the historical CPU e5-base numbers are not an admissible yardstick, because a
+  cross-device gap would then be attributed to the model. Decision and identity recorded in DECISIONS.
 - Considered and rejected: **Ruri v3** (JP-specialist, tops JMTEB but cannot serve zh/en queries — we
   need one trilingual retriever) · **8B+ embedders** (Qwen3-8B, Octen-8B, harrier-oss-27b: out of our
   compute class for 4×40k chunks) · **`embeddinggemma-2`** (multimodal 740M — 270M text tower + vision/audio
@@ -243,7 +260,8 @@ this section is only the decision.
 - **Reranker stretch (proposed, pairs with the Qwen3 lane):** Qwen3-Reranker-0.6B beats
   bge-reranker-v2-m3 on the published multilingual benches, but community reports show the default
   instruction can underperform — it needs a task-specific instruction tuned on our data. Retrieve
-  top-50 with the embedder, rerank to top-5; only viable on the GPU lane within the p95 budget. Owner:
+  top-50 with the embedder, rerank to top-5; with CPU out of the build path, its feasibility is purely
+  a canonical-lane p95 latency question, not a lane-selection one. Owner:
   E decides latency, F owns the instruction. Not in the minimum pass condition.
 - **Contingencies, not defaults:** *late chunking* (Jina) needs a long-context **mean-pooling** encoder —
   applies to bge-m3 (8k), not to e5 (512) nor to Qwen3 (last-token pooling); if config B's aggregated

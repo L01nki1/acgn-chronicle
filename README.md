@@ -20,7 +20,7 @@ src/acgn_rag/
 │   ├── ingest/    # WP1 · A: four adapter families / normalization / dedup clustering / snapshots
 │   ├── facts/     # WP2 · F: L0 fact-field extraction
 │   ├── chunk/     # WP2 · F: A(512/64) / A'(256/0) / B(event aggregation)
-│   ├── embed/     # WP2 · F: two-lane embedding policy + identity-keyed cache
+│   ├── embed/     # WP2 · F: GPU-lane embedding policy + identity-keyed cache
 │   ├── store/     # WP2 · F: fact zone / raw zone (two-zone design)
 │   ├── retrieve/  # WP3 · E: vector-only + filters; stretch BM25 + RRF
 │   ├── ground/    # WP4 · B: grounded generation / abstention / compliance clipping
@@ -60,7 +60,8 @@ cp .env.example .env                     # fill in keys only when you need the L
 
 > `[embed]` (sentence-transformers + torch) and `[store]` (chromadb) are heavy extras; install on demand:
 > `uv sync --extra dev --extra embed --extra store` (on Linux `pyproject.toml` already resolves the CPU
-> torch wheel). Plain `pip install -e ".[dev]"` still works for the lightweight local setup.
+> torch wheel — that wheel runs the tests, but a GPU index build needs a CUDA wheel, see `docs/RUNBOOK.md`
+> §3.5). Plain `pip install -e ".[dev]"` still works for the lightweight local setup.
 
 ### G1a query page (mock)
 
