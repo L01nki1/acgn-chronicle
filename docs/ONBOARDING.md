@@ -22,8 +22,8 @@ if you maintain the venv by hand; `uv.lock` is the canonical resolution either w
 ## 2. Branches and commits (06 §1)
 
 - `main` only moves through PRs. This is enforced, not just agreed: a direct `git push origin main` is
-  rejected by the repository ruleset with `GH013 ... Changes must be made through a pull request`, and the
-  two required status checks must be green before the merge button enables.
+  rejected by the repository ruleset with `GH013 ... Changes must be made through a pull request`, and
+  all three required status checks must be green before the merge button enables.
 - One long-lived branch per WP: `wp1-ingest` / `wp2-kb` / `wp3-retrieve` / `wp4-ground` / `wp5-eval` / `wp6-web`.
   Personal work uses short-lived branches on top: `wp1-ingest/a-toei-adapter`.
 - Commit message: `[WP1] add Toei html list adapter`; contract changes get the `[contract]` prefix.
@@ -52,8 +52,8 @@ deliberately does *not* do.
 
 **The only layer nobody can bypass is server-side.** To block merging while a check is red, the repository
 owner sets it once: `Settings → Rules → New branch ruleset` → target `main` → **Require status checks to
-pass** → select `ubuntu-latest / py3.13` and `macos-latest / py3.13` (add `windows-latest / py3.13` once it
-has run at least once). Until that exists, a red PR can still be merged by whoever presses the button.
+pass** → select `ubuntu-latest / py3.13`, `macos-latest / py3.13` and `windows-latest / py3.13`. Until that
+exists, a red PR can still be merged by whoever presses the button.
 
 ## 3. PR checklist (the reviewer ticks each line)
 
