@@ -11,6 +11,8 @@ from typing import Any
 import pytest
 
 from acgn_rag.core.eval.runner import (
+    CHUNKER_FIELDS,
+    VECTOR_IDENTITY_KEYS,
     NullAnswerer,
     RunSpec,
     bind_existing_collection,
@@ -788,3 +790,55 @@ def test_run_with_resolver_but_unverified_window_is_not_reportable(
     meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
     assert meta["window_verified"] is False
     assert meta["reportable"] is False
+
+
+@pytest.mark.parametrize("missing", VECTOR_IDENTITY_KEYS)
+def test_verify_build_identity_requires_each_vector_field(missing: str) -> None:
+    current = _build_identity()
+    build = {key: value for key, value in current.items() if key != missing}
+    assert verify_build_identity(build, current) == [f"build identity missing '{missing}'"]
+
+
+@pytest.mark.parametrize("missing", CHUNKER_FIELDS)
+def test_load_build_records_requires_each_chunker_field(tmp_path: Path, missing: str) -> None:
+    root = tmp_path / "index"
+    chunker = {
+        "version": "composed-input-v2",
+        "header_version": "h1",
+        "config": "A",
+        "max_tokens": 512,
+        "overlap": 64,
+        "max_seq_length": 512,
+    }
+    chunker.pop(missing)
+    _write_build_records(root, chunker=chunker)
+    with pytest.raises(ValueError, match="chunker identity is missing"):
+        load_build_records(root, snapshot_id=SNAPSHOT, config="A", label="A")
+
+
+@pytest.mark.parametrize(
+    ("resolver", "verified", "reportable"),
+    [
+        (True, True, True),
+        (True, False, False),
+        (False, True, False),
+        (False, False, False),
+    ],
+)
+def test_reportable_is_the_composition_of_resolver_and_verified_window(
+    tmp_path: Path,
+    resolver: bool,
+    verified: bool,
+    reportable: bool,
+) -> None:
+    result = run(
+        _spec(tmp_path, window_verified=verified),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        qa_items=[_qa_item()],
+        evidence_resolver=(
+            (lambda urls: {url: ["doc::A::1"] for url in urls}) if resolver else None
+        ),
+    )
+    meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
+    assert meta["reportable"] is reportable
