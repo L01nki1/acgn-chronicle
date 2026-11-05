@@ -26,7 +26,8 @@ from acgn_rag.core.ports import (
 from acgn_rag.core.retrieve.vector import search
 
 CONFIG_TOKENS = {"A'": "A-prime"}
-BUILD_IDENTITY_KEYS = ("model", "backend", "device", "precision", "batch_size")
+BUILD_IDENTITY_KEYS = ("model", "backend", "device", "precision", "batch_size", "identity_slug")
+VECTOR_IDENTITY_KEYS = ("model", "backend", "device", "precision", "identity_slug")
 
 
 class Answerer(Protocol):
@@ -58,6 +59,7 @@ class RunSpec:
     config: str
     out_root: Path = Path("eval/runs")
     qa_path: Path = Path("eval/qa_set.jsonl")
+    window_verified: bool = False
     top_k: int = 5
     over_fetch: int = 5
     run_id: str | None = None
@@ -66,6 +68,7 @@ class RunSpec:
     build_identity: Mapping[str, Any] = field(default_factory=dict)
     collection: str | None = None
     counts: Mapping[str, int] = field(default_factory=dict)
+    chunker: Mapping[str, Any] = field(default_factory=dict)
     llm: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -101,7 +104,7 @@ def load_build_records(
     snapshot_id: str,
     config: str,
     label: str,
-) -> tuple[dict[str, Any], str, dict[str, int]]:
+) -> tuple[dict[str, Any], str, dict[str, int], dict[str, Any]]:
     """Read and cross-validate `identity.json` + `build.json` for one run.
 
     `build.json` is written last by `build_index.py`, so it is the build-success marker. Both
@@ -153,8 +156,17 @@ def load_build_records(
     if not isinstance(docs, int) or docs <= 0:
         raise ValueError(f"build.json: no indexed documents (docs={docs!r})")
 
+    chunker = build_payload.get("chunker")
+    identity_chunker = identity_payload.get("chunker")
+    if not isinstance(chunker, dict) or not chunker:
+        raise ValueError("build.json: missing or invalid `chunker` identity")
+    if not isinstance(identity_chunker, dict) or not identity_chunker:
+        raise ValueError("identity.json: missing or invalid `chunker` identity")
+    if chunker != identity_chunker:
+        raise ValueError("build.json: chunker identity does not match identity.json")
+
     counts = {"docs": docs, "chunks": chunks, "stored": stored}
-    return dict(identity), collection, counts
+    return dict(identity), collection, counts, dict(chunker)
 
 
 def _embed_metadata(identity: Mapping[str, Any]) -> dict[str, Any]:
@@ -172,13 +184,32 @@ def _embed_metadata(identity: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _library_keys(*identities: Mapping[str, Any]) -> set[str]:
+    keys: set[str] = set()
+    for identity in identities:
+        keys.update(key for key in identity if isinstance(key, str) and key.startswith("lib_"))
+    return keys
+
+
 def verify_build_identity(
     build_identity: Mapping[str, Any],
     current_identity: Mapping[str, Any],
 ) -> list[str]:
-    """Return the identity fields that do not match the index that will be queried."""
+    """Return vector-affecting identity fields that differ from the index.
+
+    Model, backend, device, precision, the encoder slug and every recorded library version
+    can change the vector. `batch_size` is run metadata only and is not a mismatch.
+    """
     problems: list[str] = []
-    for key in BUILD_IDENTITY_KEYS:
+    for key in VECTOR_IDENTITY_KEYS:
+        if key not in build_identity:
+            problems.append(f"build identity missing {key!r}")
+            continue
+        if str(build_identity[key]) != str(current_identity.get(key)):
+            problems.append(
+                f"{key}: build={build_identity[key]!r}, current={current_identity.get(key)!r}"
+            )
+    for key in sorted(_library_keys(build_identity, current_identity)):
         if key not in build_identity:
             problems.append(f"build identity missing {key!r}")
             continue
@@ -219,6 +250,43 @@ def bind_existing_collection(
     return bound
 
 
+def resolve_window(
+    snapshot_dir: Path,
+    snapshot_id: str,
+    window_start: str | None,
+    window_end: str | None,
+) -> tuple[str, str, bool]:
+    """Resolve the corpus window from the frozen manifest, or require explicit bounds.
+
+    The evaluation corpus window is a property of the frozen snapshot (A's manifest), not
+    of the QA items' per-question validity windows. If the manifest is absent, both bounds
+    must be supplied explicitly and the run is marked unverified.
+    """
+    manifest_path = Path(snapshot_dir) / "manifest.json"
+    if manifest_path.exists():
+        manifest = _read_json(manifest_path)
+        start = manifest.get("window_start")
+        end = manifest.get("window_end")
+        if not isinstance(start, str) or not isinstance(end, str):
+            raise ValueError(f"snapshot {snapshot_id!r} manifest has no window_start/window_end")
+        if window_start is not None and window_start != start:
+            raise ValueError(f"--window-start {window_start!r} conflicts with manifest {start!r}")
+        if window_end is not None and window_end != end:
+            raise ValueError(f"--window-end {window_end!r} conflicts with manifest {end!r}")
+        if start > end:
+            raise ValueError(f"snapshot {snapshot_id!r} manifest window is reversed")
+        return start, end, True
+
+    if window_start is None or window_end is None:
+        raise ValueError(
+            f"snapshot {snapshot_id!r} has no frozen manifest; supply both "
+            "--window-start and --window-end (the run is marked unverified)"
+        )
+    if window_start > window_end:
+        raise ValueError("--window-start must not be later than --window-end")
+    return window_start, window_end, False
+
+
 def _validate_spec(spec: RunSpec) -> None:
     missing = [
         name
@@ -227,6 +295,8 @@ def _validate_spec(spec: RunSpec) -> None:
     ]
     if not spec.build_identity:
         missing.append("build_identity")
+    if not spec.chunker:
+        missing.append("chunker")
     if missing:
         raise ValueError(f"run spec is missing {', '.join(missing)}")
 
@@ -343,6 +413,7 @@ def run(
                 gold_unavailable=bool(gold_urls)
                 and evidence_resolver is not None
                 and all(not resolved.get(url) for url in gold_urls),
+                gold_unresolved=bool(gold_urls) and evidence_resolver is None,
                 dropped=bool(item.get("dropped", False)),
                 calibration=bool(item.get("calibration", False)),
                 answer_label=None,
@@ -355,12 +426,14 @@ def run(
         k=spec.top_k,
         deduped_count=spec.counts.get("docs"),
         indexed_chunks=spec.counts.get("stored"),
+        provisional=evidence_resolver is None,
     )
     meta = {
         "run_id": run_id,
         "snapshot_id": spec.snapshot_id,
         "window_start": spec.window_start,
         "window_end": spec.window_end,
+        "window_verified": spec.window_verified,
         "chunk_config": spec.config,
         "retrieval": {
             "mode": "vector",
@@ -369,6 +442,8 @@ def run(
         },
         "embed": _embed_metadata(spec.build_identity),
         "build_identity": dict(spec.build_identity),
+        "chunker": dict(spec.chunker),
+        "reportable": evidence_resolver is not None,
         "collection": spec.collection,
         "llm": dict(spec.llm),
         "git_sha": spec.git_sha,
@@ -410,6 +485,7 @@ __all__ = [
     "RunSpec",
     "bind_existing_collection",
     "load_build_records",
+    "resolve_window",
     "run",
     "verify_build_identity",
 ]

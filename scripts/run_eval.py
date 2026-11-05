@@ -30,6 +30,7 @@ from acgn_rag.core.eval.runner import (
     RunSpec,
     bind_existing_collection,
     load_build_records,
+    resolve_window,
     run,
     verify_build_identity,
 )
@@ -62,8 +63,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", default="eval/runs", help="run archive root")
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--run-id", default=None, help="override the generated run id")
-    parser.add_argument("--window-start", default=None)
-    parser.add_argument("--window-end", default=None)
+    parser.add_argument(
+        "--window-start",
+        default=None,
+        help="frozen corpus start; required when the snapshot manifest is absent",
+    )
+    parser.add_argument(
+        "--window-end",
+        default=None,
+        help="frozen corpus end; required when the snapshot manifest is absent",
+    )
     parser.add_argument(
         "--allow-invalid-qa",
         action="store_true",
@@ -89,13 +98,20 @@ def main(argv: list[str] | None = None) -> int:
             print("Use --allow-invalid-qa only for development runs.", file=sys.stderr)
             return 1
 
-    window_start = args.window_start or min(str(item["window"][0]) for item in items)
-    window_end = args.window_end or max(str(item["window"][1]) for item in items)
-
     settings = load_settings()
+    try:
+        window_start, window_end, window_verified = resolve_window(
+            settings.paths.snapshots / args.snapshot,
+            args.snapshot,
+            args.window_start,
+            args.window_end,
+        )
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        print(f"WINDOW RESOLUTION FAILED: {exc}", file=sys.stderr)
+        return 1
     label = COLLECTION_LABELS.get(args.config, args.config)
     try:
-        build_identity, collection, counts = load_build_records(
+        build_identity, collection, counts, chunker = load_build_records(
             settings.paths.index,
             snapshot_id=args.snapshot,
             config=args.config,
@@ -147,6 +163,7 @@ def main(argv: list[str] | None = None) -> int:
         snapshot_id=args.snapshot,
         window_start=window_start,
         window_end=window_end,
+        window_verified=window_verified,
         config=args.config,
         out_root=Path(args.out),
         qa_path=qa_path,
@@ -157,6 +174,7 @@ def main(argv: list[str] | None = None) -> int:
         build_identity=build_identity,
         collection=collection,
         counts=counts,
+        chunker=chunker,
         llm={
             "provider": settings.llm.base_url or "none",
             "model": settings.llm.model or "none",
@@ -174,6 +192,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"run_id: {result.run_id}")
     print(f"out:    {result.out_dir}")
+    if result.metrics.get("provisional"):
+        print(
+            "PROVISIONAL: no evidence resolver configured; unresolved gold urls are excluded "
+            "from retrieval metrics and this run is not reportable.",
+            file=sys.stderr,
+        )
     print(f"hit@k:  {result.metrics['retrieval']['hit']}")
     print(f"mrr:    {result.metrics['retrieval']['mrr']}")
     print(f"recall: {result.metrics['retrieval']['evidence_recall']}")

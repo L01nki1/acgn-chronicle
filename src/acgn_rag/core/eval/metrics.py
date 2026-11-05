@@ -53,6 +53,7 @@ class CaseResult:
     retrieved_chunk_ids: tuple[str, ...] = ()
     cited_chunk_ids: tuple[str, ...] = ()
     gold_unavailable: bool = False
+    gold_unresolved: bool = False
     dropped: bool = False
     calibration: bool = False
     answer_label: str | None = None
@@ -117,6 +118,7 @@ def _retrieval_eligible(case: CaseResult) -> bool:
     return (
         case.answerable
         and not case.gold_unavailable
+        and not case.gold_unresolved
         and not case.dropped
         and not case.calibration
         and bool(case.gold_urls)
@@ -134,6 +136,7 @@ def _blocks(cases: Sequence[CaseResult]) -> dict[str, list[CaseResult]]:
 def retrieval_metrics(cases: Sequence[CaseResult], *, k: int = 5) -> dict[str, Any]:
     """Per-language retrieval rates (each with its own `n`) plus the exclusion counters."""
     eligible = [case for case in cases if _retrieval_eligible(case)]
+    excluded = [case for case in cases if not case.calibration]
     blocks = _blocks(eligible)
     return {
         "k": k,
@@ -143,14 +146,15 @@ def retrieval_metrics(cases: Sequence[CaseResult], *, k: int = 5) -> dict[str, A
             key: _mean([evidence_recall(case) for case in block]) for key, block in blocks.items()
         },
         "excluded": {
-            "unanswerable": sum(1 for case in cases if not case.answerable),
-            "gold_unavailable": sum(1 for case in cases if case.gold_unavailable),
+            "unanswerable": sum(1 for case in excluded if not case.answerable),
+            "gold_unavailable": sum(1 for case in excluded if case.gold_unavailable),
+            "gold_unresolved": sum(1 for case in excluded if case.gold_unresolved),
             "missing_gold": sum(
                 1
-                for case in cases
+                for case in excluded
                 if case.answerable and not case.gold_unavailable and not case.gold_urls
             ),
-            "dropped": sum(1 for case in cases if case.dropped),
+            "dropped": sum(1 for case in excluded if case.dropped),
         },
     }
 
@@ -221,11 +225,7 @@ def abstention_accuracy(
 
 def citation_containment(cases: Sequence[CaseResult]) -> dict[str, Any]:
     """Every cited chunk must have been retrieved for that query."""
-    checked = [
-        case
-        for case in cases
-        if case.cited_chunk_ids and case.retrieved_chunk_ids and not case.calibration
-    ]
+    checked = [case for case in cases if case.cited_chunk_ids and not case.calibration]
     violations = sum(
         1 for case in checked if not set(case.cited_chunk_ids).issubset(case.retrieved_chunk_ids)
     )
@@ -242,6 +242,7 @@ def aggregate(
     deduped_count: int | None = None,
     indexed_chunks: int | None = None,
     threshold: float | None = None,
+    provisional: bool = False,
 ) -> dict[str, Any]:
     """Full metrics object for `eval/runs/<run_id>/metrics.json`.
 
@@ -256,6 +257,7 @@ def aggregate(
             "answerable": sum(1 for case in qa_cases if case.answerable),
             "unanswerable": sum(1 for case in qa_cases if not case.answerable),
             "gold_unavailable": sum(1 for case in qa_cases if case.gold_unavailable),
+            "gold_unresolved": sum(1 for case in qa_cases if case.gold_unresolved),
             "dropped": sum(1 for case in qa_cases if case.dropped),
             "deduped_count": deduped_count,
             "indexed_chunks": indexed_chunks,
@@ -264,4 +266,5 @@ def aggregate(
         "correctness": answer_correctness(cases),
         "abstention": abstention_accuracy(cases, threshold=threshold),
         "citation": citation_containment(cases),
+        "provisional": provisional,
     }

@@ -14,6 +14,7 @@ from acgn_rag.core.eval.runner import (
     RunSpec,
     bind_existing_collection,
     load_build_records,
+    resolve_window,
     run,
     verify_build_identity,
 )
@@ -128,6 +129,7 @@ def _spec(tmp_path: Path, **overrides: object) -> RunSpec:
         "qa_path": tmp_path / "qa.jsonl",
         "run_id": "20261030-A-20261028abcdef",
         "run_date": "20261030",
+        "window_verified": True,
         "git_sha": "test-sha",
         "build_identity": {
             "model": "fake",
@@ -135,10 +137,19 @@ def _spec(tmp_path: Path, **overrides: object) -> RunSpec:
             "device": "cpu",
             "precision": "fp32",
             "batch_size": 32,
+            "identity_slug": "fake-torch-cpu-fp32-b32-12345678",
             "lib_torch": "2.15.0",
         },
         "collection": "snap_20261028abc_A",
         "counts": {"docs": 6402, "chunks": 6500, "stored": 9120},
+        "chunker": {
+            "version": "composed-input-v2",
+            "header_version": "h1",
+            "config": "A",
+            "max_tokens": 512,
+            "overlap": 64,
+            "max_seq_length": 512,
+        },
         "llm": {"provider": "none", "model": "none"},
     }
     values.update(overrides)
@@ -169,11 +180,23 @@ def _write_build_records(
     chunks: int = 1,
     stored: int = 1,
     docs: int = 1,
+    chunker: dict[str, Any] | None = None,
 ) -> Path:
     base = root / snapshot_id / label
     base.mkdir(parents=True)
     identity = dict(identity or _build_identity())
     build_identity = dict(build_identity or identity)
+    chunker = dict(
+        chunker
+        or {
+            "version": "composed-input-v2",
+            "header_version": "h1",
+            "config": config,
+            "max_tokens": 512,
+            "overlap": 64,
+            "max_seq_length": 512,
+        }
+    )
     common = {
         "snapshot_id": snapshot_id,
         "config": config,
@@ -181,7 +204,7 @@ def _write_build_records(
         "collection": collection,
     }
     (base / "identity.json").write_text(
-        json.dumps({**common, "identity": identity}),
+        json.dumps({**common, "identity": identity, "chunker": chunker}),
         encoding="utf-8",
     )
     (base / "build.json").write_text(
@@ -192,6 +215,7 @@ def _write_build_records(
                 "chunks": chunks,
                 "stored": stored,
                 "identity": build_identity,
+                "chunker": chunker,
             }
         ),
         encoding="utf-8",
@@ -207,6 +231,7 @@ def test_run_writes_complete_archive(tmp_path: Path) -> None:
         embedder=FakeEmbedder(),
         answerer=NullAnswerer(),
         qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["doc::A::1"] for url in urls},
     )
 
     assert result.run_id == spec.run_id
@@ -236,6 +261,8 @@ def test_run_writes_complete_archive(tmp_path: Path) -> None:
         "batch": 32,
     }
     assert meta["collection"] == "snap_20261028abc_A"
+    assert meta["chunker"]["max_tokens"] == 512
+    assert meta["reportable"] is True
 
     assert result.metrics["retrieval"]["hit"]["all"] == {"value": 1.0, "n": 1}
     assert result.metrics["retrieval"]["hit"]["en"] == {"value": 1.0, "n": 1}
@@ -259,6 +286,7 @@ def test_null_answerer_marks_not_run(tmp_path: Path) -> None:
     assert answer["abstained"] is None
     assert result.metrics["correctness"]["rates"]["all"] == {"value": None, "n": 0}
     assert result.metrics["abstention"]["false_refusal_rate"] == {"value": None, "n": 0}
+    assert result.metrics["provisional"] is True
 
 
 def test_run_uses_item_window_as_filters(tmp_path: Path) -> None:
@@ -373,12 +401,14 @@ def test_run_requires_build_identity(tmp_path: Path) -> None:
 def test_load_build_records_reads_both(tmp_path: Path) -> None:
     root = tmp_path / "index"
     _write_build_records(root)
-    identity, collection, counts = load_build_records(
+    identity, collection, counts, chunker = load_build_records(
         root, snapshot_id=SNAPSHOT, config="A", label="A"
     )
     assert identity["model"] == "fake"
     assert collection == "snap_20261028abc_A"
     assert counts == {"docs": 1, "chunks": 1, "stored": 1}
+    assert chunker["max_tokens"] == 512
+    assert chunker["header_version"] == "h1"
 
 
 def test_load_build_records_requires_build_json(tmp_path: Path) -> None:
@@ -396,6 +426,36 @@ def test_load_build_records_rejects_mismatched_identity(tmp_path: Path) -> None:
         build_identity={**_build_identity(), "model": "other"},
     )
     with pytest.raises(ValueError, match="encoder identity"):
+        load_build_records(root, snapshot_id=SNAPSHOT, config="A", label="A")
+
+
+def test_load_build_records_requires_identity_chunker(tmp_path: Path) -> None:
+    root = tmp_path / "index"
+    base = _write_build_records(root)
+    payload = json.loads((base / "identity.json").read_text(encoding="utf-8"))
+    payload.pop("chunker")
+    (base / "identity.json").write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"identity\.json: missing or invalid `chunker`"):
+        load_build_records(root, snapshot_id=SNAPSHOT, config="A", label="A")
+
+
+def test_load_build_records_rejects_chunker_mismatch(tmp_path: Path) -> None:
+    root = tmp_path / "index"
+    base = _write_build_records(root)
+    payload = json.loads((base / "identity.json").read_text(encoding="utf-8"))
+    payload["chunker"]["max_tokens"] = 256
+    (base / "identity.json").write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="chunker identity"):
+        load_build_records(root, snapshot_id=SNAPSHOT, config="A", label="A")
+
+
+def test_load_build_records_requires_chunker(tmp_path: Path) -> None:
+    root = tmp_path / "index"
+    base = _write_build_records(root)
+    payload = json.loads((base / "build.json").read_text(encoding="utf-8"))
+    payload.pop("chunker")
+    (base / "build.json").write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="missing or invalid `chunker`"):
         load_build_records(root, snapshot_id=SNAPSHOT, config="A", label="A")
 
 
@@ -418,17 +478,30 @@ def test_load_build_records_rejects_wrong_snapshot(tmp_path: Path) -> None:
 
 
 def test_verify_build_identity_matches_and_reports_mismatch() -> None:
-    build = {
-        "model": "fake",
-        "backend": "torch",
-        "device": "cpu",
-        "precision": "fp32",
-        "batch_size": 32,
-    }
+    build = _build_identity()
     assert verify_build_identity(build, build) == []
     assert verify_build_identity(build, {**build, "device": "cuda"}) == [
         "device: build='cpu', current='cuda'"
     ]
+
+
+def test_verify_build_identity_checks_library_versions_and_slug() -> None:
+    build = _build_identity()
+    lib = verify_build_identity(build, {**build, "lib_torch": "9.9"})
+    assert lib == ["lib_torch: build='2.15.0', current='9.9'"]
+    slug = verify_build_identity(build, {**build, "identity_slug": "other-slug"})
+    assert slug == ["identity_slug: build='fake-torch-cpu-fp32-b32-12345678', current='other-slug'"]
+
+
+def test_verify_build_identity_ignores_batch_size() -> None:
+    build = _build_identity()
+    assert verify_build_identity(build, {**build, "batch_size": 8}) == []
+
+
+def test_verify_build_identity_requires_every_library_key() -> None:
+    build = _build_identity()
+    current = {key: value for key, value in build.items() if key != "lib_torch"}
+    assert verify_build_identity(build, current) == ["lib_torch: build='2.15.0', current=None"]
 
 
 def test_bind_existing_collection_uses_actual_name() -> None:
@@ -488,3 +561,122 @@ def test_bind_existing_collection_requires_no_create_api() -> None:
             collection="snap_legacy_A",
         )
     assert not store.bind_called
+
+
+def test_resolve_window_uses_the_frozen_manifest(tmp_path: Path) -> None:
+    snap = tmp_path / "snapshots" / SNAPSHOT
+    snap.mkdir(parents=True)
+    (snap / "manifest.json").write_text(
+        json.dumps({"window_start": "2021-01-01", "window_end": "2026-11-05"}),
+        encoding="utf-8",
+    )
+    assert resolve_window(snap, SNAPSHOT, None, None) == (
+        "2021-01-01",
+        "2026-11-05",
+        True,
+    )
+    assert resolve_window(snap, SNAPSHOT, "2021-01-01", "2026-11-05") == (
+        "2021-01-01",
+        "2026-11-05",
+        True,
+    )
+
+
+def test_resolve_window_rejects_conflicting_explicit_bounds(tmp_path: Path) -> None:
+    snap = tmp_path / "snapshots" / SNAPSHOT
+    snap.mkdir(parents=True)
+    (snap / "manifest.json").write_text(
+        json.dumps({"window_start": "2021-01-01", "window_end": "2026-11-05"}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="conflicts with manifest"):
+        resolve_window(snap, SNAPSHOT, "2023-10-28", None)
+    with pytest.raises(ValueError, match="conflicts with manifest"):
+        resolve_window(snap, SNAPSHOT, None, "2026-10-28")
+
+
+def test_resolve_window_requires_both_explicit_bounds_without_manifest(
+    tmp_path: Path,
+) -> None:
+    snap = tmp_path / "snapshots" / SNAPSHOT
+    with pytest.raises(ValueError, match="supply both"):
+        resolve_window(snap, SNAPSHOT, None, None)
+    with pytest.raises(ValueError, match="supply both"):
+        resolve_window(snap, SNAPSHOT, "2023-10-28", None)
+
+
+def test_resolve_window_marks_explicit_bounds_unverified(tmp_path: Path) -> None:
+    snap = tmp_path / "snapshots" / SNAPSHOT
+    assert resolve_window(snap, SNAPSHOT, "2023-10-28", "2026-11-05") == (
+        "2023-10-28",
+        "2026-11-05",
+        False,
+    )
+
+
+def test_resolve_window_rejects_a_manifest_without_bounds(tmp_path: Path) -> None:
+    snap = tmp_path / "snapshots" / SNAPSHOT
+    snap.mkdir(parents=True)
+    (snap / "manifest.json").write_text(json.dumps({"window": "x"}), encoding="utf-8")
+    with pytest.raises(ValueError, match="no window_start/window_end"):
+        resolve_window(snap, SNAPSHOT, None, None)
+
+
+def test_run_without_resolver_is_provisional_and_excludes_unresolved_gold(
+    tmp_path: Path,
+) -> None:
+    result = run(
+        _spec(tmp_path),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        qa_items=[_qa_item()],
+    )
+    assert result.metrics["provisional"] is True
+    assert result.metrics["counts"]["gold_unresolved"] == 1
+    assert result.metrics["retrieval"]["hit"]["all"] == {"value": None, "n": 0}
+    resolved = json.loads((result.out_dir / "resolved_evidence.json").read_text(encoding="utf-8"))
+    assert resolved["status"] == "not_configured"
+    meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
+    assert meta["reportable"] is False
+
+
+def test_bind_existing_collection_does_not_create_real_storage(tmp_path: Path) -> None:
+    pytest.importorskip("chromadb")
+    from acgn_rag.config import StoreConfig
+    from acgn_rag.core.store import ChromaStore
+
+    store = ChromaStore(tmp_path / "chroma", StoreConfig())
+    with pytest.raises(LookupError):
+        bind_existing_collection(
+            store,
+            snapshot_id=SNAPSHOT,
+            chunk_config="A",
+            collection="snap_full_20261028abcdef1234_A",
+        )
+    assert not (tmp_path / "chroma" / "chroma.sqlite3").exists()
+
+
+def test_bind_existing_collection_mismatch_does_not_create_the_sidecar_name(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("chromadb")
+    from acgn_rag.config import StoreConfig
+    from acgn_rag.core.store import ChromaStore
+
+    store = ChromaStore(tmp_path / "chroma", StoreConfig())
+    store.bind(SNAPSHOT, "A")  # build-side setup creates only the real collection
+    with pytest.raises(RuntimeError, match="does not match sidecar"):
+        bind_existing_collection(
+            store,
+            snapshot_id=SNAPSHOT,
+            chunk_config="A",
+            collection="snap_full_other_A",
+        )
+    names = {collection.name for collection in store.client.list_collections()}
+    assert "snap_full_other_A" not in names
+
+
+def test_verify_build_identity_reports_a_current_library_missing_from_build() -> None:
+    build = _build_identity()
+    current = {**build, "lib_newdep": "1.0"}
+    assert verify_build_identity(build, current) == ["build identity missing 'lib_newdep'"]

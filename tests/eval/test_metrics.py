@@ -82,6 +82,7 @@ def test_retrieval_metrics_per_language_and_exclusions() -> None:
     assert metrics["excluded"] == {
         "unanswerable": 1,
         "gold_unavailable": 1,
+        "gold_unresolved": 0,
         "missing_gold": 1,
         "dropped": 0,
     }
@@ -202,6 +203,13 @@ def test_citation_containment_flags_outside_chunks() -> None:
     assert metrics == {"containment_rate": {"value": 0.5, "n": 2}, "violations": 1}
 
 
+def test_citation_containment_counts_a_citation_with_no_retrieved_chunks() -> None:
+    metrics = citation_containment(
+        [_case(qa_id="A-001", retrieved_chunk_ids=(), cited_chunk_ids=("c1",))]
+    )
+    assert metrics == {"containment_rate": {"value": 0.0, "n": 1}, "violations": 1}
+
+
 def test_aggregate_contains_every_report_block() -> None:
     metrics = aggregate(
         [_case()],
@@ -209,12 +217,21 @@ def test_aggregate_contains_every_report_block() -> None:
         deduped_count=6402,
         indexed_chunks=9120,
     )
-    assert set(metrics) == {"counts", "retrieval", "correctness", "abstention", "citation"}
+    assert set(metrics) == {
+        "counts",
+        "retrieval",
+        "correctness",
+        "abstention",
+        "citation",
+        "provisional",
+    }
+    assert metrics["provisional"] is False
     assert metrics["counts"] == {
         "qa_total": 1,
         "answerable": 1,
         "unanswerable": 0,
         "gold_unavailable": 0,
+        "gold_unresolved": 0,
         "dropped": 0,
         "deduped_count": 6402,
         "indexed_chunks": 9120,
@@ -222,3 +239,24 @@ def test_aggregate_contains_every_report_block() -> None:
     assert metrics["retrieval"]["k"] == 5
     assert metrics["retrieval"]["hit"]["all"] == {"value": 1.0, "n": 1}
     assert metrics["citation"]["containment_rate"] == {"value": None, "n": 0}
+
+
+def test_unresolved_gold_is_excluded_and_counted() -> None:
+    cases = [
+        _case(qa_id="A-001"),
+        _case(qa_id="A-002", gold_unresolved=True),
+    ]
+    metrics = aggregate(cases, provisional=True)
+    assert metrics["retrieval"]["hit"]["all"] == {"value": 1.0, "n": 1}
+    assert metrics["counts"]["gold_unresolved"] == 1
+    assert metrics["retrieval"]["excluded"]["gold_unresolved"] == 1
+    assert metrics["provisional"] is True
+
+
+def test_retrieval_excluded_counts_ignore_calibration_items() -> None:
+    cases = [
+        _case(qa_id="A-001", gold_unavailable=True),
+        _case(qa_id="C-001", gold_unavailable=True, calibration=True),
+    ]
+    metrics = retrieval_metrics(cases)
+    assert metrics["excluded"]["gold_unavailable"] == 1
