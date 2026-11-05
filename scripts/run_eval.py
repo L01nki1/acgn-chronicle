@@ -136,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
             chunk_config=label,
             collection=collection,
         )
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, LookupError) as exc:
         print(f"COLLECTION NOT FOUND: {exc}", file=sys.stderr)
         return 2
     except RuntimeError as exc:

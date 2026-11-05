@@ -69,31 +69,30 @@ class NamedCollection:
     name: str
 
 
-class BindClient:
-    def __init__(self, names: list[str]) -> None:
-        self._names = names
-
-    def list_collections(self) -> list[NamedCollection]:
-        return [NamedCollection(name) for name in self._names]
-
-
 class BindStore:
-    def __init__(
-        self,
-        names: list[str],
-        bound_name: str,
-        error: RuntimeError | None = None,
-    ) -> None:
-        self.client = BindClient(names)
+    def __init__(self, bound_name: str, error: Exception | None = None) -> None:
         self._bound_name = bound_name
         self._error = error
+        self.calls: list[tuple[str, str]] = []
         self.bound = False
 
-    def bind(self, snapshot_id: str, chunk_config: str) -> NamedCollection:
-        self.bound = True
+    def bind_existing(self, snapshot_id: str, chunk_config: str) -> NamedCollection:
+        self.calls.append((snapshot_id, chunk_config))
         if self._error is not None:
             raise self._error
+        self.bound = True
         return NamedCollection(self._bound_name)
+
+
+class BuildOnlyStore:
+    """A store with only the build-side bind; a read must not fall back to it."""
+
+    def __init__(self) -> None:
+        self.bind_called = False
+
+    def bind(self, snapshot_id: str, chunk_config: str) -> NamedCollection:
+        self.bind_called = True
+        return NamedCollection("snap_legacy_A")
 
 
 def _qa_item(
@@ -433,7 +432,7 @@ def test_verify_build_identity_matches_and_reports_mismatch() -> None:
 
 
 def test_bind_existing_collection_uses_actual_name() -> None:
-    store = BindStore(["snap_legacy_A"], "snap_legacy_A")
+    store = BindStore("snap_legacy_A")
     bound = bind_existing_collection(
         store,
         snapshot_id=SNAPSHOT,
@@ -442,11 +441,12 @@ def test_bind_existing_collection_uses_actual_name() -> None:
     )
     assert bound.name == "snap_legacy_A"
     assert store.bound
+    assert store.calls == [(SNAPSHOT, "A")]
 
 
 def test_bind_existing_collection_missing_does_not_bind() -> None:
-    store = BindStore([], "snap_full_A")
-    with pytest.raises(FileNotFoundError):
+    store = BindStore("snap_full_A", error=LookupError("no existing collection"))
+    with pytest.raises(LookupError):
         bind_existing_collection(
             store,
             snapshot_id=SNAPSHOT,
@@ -457,7 +457,7 @@ def test_bind_existing_collection_missing_does_not_bind() -> None:
 
 
 def test_bind_existing_collection_rejects_name_mismatch() -> None:
-    store = BindStore(["snap_legacy_A"], "snap_full_A")
+    store = BindStore("snap_full_A")
     with pytest.raises(RuntimeError, match="does not match sidecar"):
         bind_existing_collection(
             store,
@@ -468,11 +468,7 @@ def test_bind_existing_collection_rejects_name_mismatch() -> None:
 
 
 def test_bind_existing_collection_propagates_ambiguity() -> None:
-    store = BindStore(
-        ["snap_legacy_A"],
-        "snap_legacy_A",
-        error=RuntimeError("ambiguous snapshot"),
-    )
+    store = BindStore("snap_legacy_A", error=RuntimeError("ambiguous snapshot"))
     with pytest.raises(RuntimeError, match="ambiguous"):
         bind_existing_collection(
             store,
@@ -480,3 +476,15 @@ def test_bind_existing_collection_propagates_ambiguity() -> None:
             chunk_config="A",
             collection="snap_legacy_A",
         )
+
+
+def test_bind_existing_collection_requires_no_create_api() -> None:
+    store = BuildOnlyStore()
+    with pytest.raises(RuntimeError, match="bind_existing"):
+        bind_existing_collection(
+            store,
+            snapshot_id=SNAPSHOT,
+            chunk_config="A",
+            collection="snap_legacy_A",
+        )
+    assert not store.bind_called

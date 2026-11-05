@@ -200,19 +200,17 @@ def bind_existing_collection(
     chunk_config: str,
     collection: str,
 ) -> Any:
-    """Bind the actual sidecar collection without creating a missing one.
+    """Bind the sidecar-named collection without creating one.
 
-    The store may expose a legacy physical name or the new full-id name. The sidecar is the
-    authority; the store must resolve to that same name. A read must not create evidence, so
-    presence is checked before `bind()` (which may create on a missing collection).
+    `bind_existing` is the store's no-create read API: it raises `LookupError` when no
+    verified full or legacy collection exists and never initializes missing storage. The
+    sidecar is the authority, so the returned physical name must match it. No fallback to
+    the build-side `bind()`, which may create a collection.
     """
-    client = getattr(store, "client", None)
-    if client is None:
-        raise RuntimeError("store does not expose a client for collection presence checks")
-    names = {_collection_name(item) for item in client.list_collections()}
-    if collection not in names:
-        raise FileNotFoundError(f"collection {collection!r} is not present")
-    bound = store.bind(snapshot_id, chunk_config)
+    binder = getattr(store, "bind_existing", None)
+    if binder is None:
+        raise RuntimeError("store does not expose bind_existing for read binding")
+    bound = binder(snapshot_id, chunk_config)
     bound_name = _collection_name(bound)
     if bound_name != collection:
         raise RuntimeError(
