@@ -35,6 +35,8 @@ Run: `python scripts/probe_sources.py` to size the window, then `python scripts/
 then compare `snapshot_id` on a rebuild. The chosen window is frozen into `docs/DECISIONS.md` and into every
 run's `meta.json`.
 
+**G1a outcome — recorded 2026-11-07 (ruling in [issue #30](https://github.com/L01nki1/acgn-chronicle/issues/30#issuecomment-6637275084), 2026-11-05).** The gate closed on 2026-11-02 as **partial**: the **contract** check passed (#26 merged `22d404e`, schema 0.2.3; #40 merged `fb02d3a`, `source_count` aligned with the producer unit), while the **seven corpus checks** (size, span, probe, balance, mix, idempotency, failure visibility) had no evidence on `main` at the gate date and are carried to a corpus-side re-checkpoint whose date is set when A's dated corpus plan lands on issue #9. Design-review acceptance (E's #9 review, comment `6554593036`) is a prerequisite artifact, **not** a gate pass. Corpus status since the gate: [PR #47](https://github.com/L01nki1/acgn-chronicle/pull/47) (`feat/wp1-ingest-pipeline`, CI 6/6) implements the ingestion pipeline with complete-linkage dedup behind the corporate-IR guard (`DEDUP_POLICY_VERSION = "2"`) and re-minted both real 3-year frozen snapshots with `eval/source_depth_probe.csv` and `eval/snapshot_evidence.json` (2026-11-05); it stays candidate evidence until #47 merges.
+
 **WP4 / B status — 0.2.3 merged; 0.2.4 candidate (2026-11-01).**
 [PR #26](https://github.com/L01nki1/acgn-chronicle/pull/26) merged as `22d404e`. C's
 [0.2.3 approval](https://github.com/L01nki1/acgn-chronicle/pull/26#pullrequestreview-5724246386)
