@@ -306,6 +306,33 @@ def _canonical_manifest_digest(manifest: Mapping[str, Any]) -> str | None:
     return hashlib.sha256(data).hexdigest()
 
 
+def build_evidence_resolver(
+    collection: Any,
+) -> Callable[[Sequence[str]], Mapping[str, Sequence[str]]]:
+    """Resolve gold URLs to chunk ids from the bound collection's metadata.
+
+    The resolver is scoped to the collection the runner will query: a URL present in a
+    different snapshot/config must stay unresolved rather than borrowing evidence.
+    """
+    rows = collection.get(include=["metadatas"])
+    ids = list(rows.get("ids") or [])
+    metadatas = list(rows.get("metadatas") or [])
+    if len(ids) != len(metadatas):
+        raise RuntimeError("collection metadata rows are incomplete")
+    by_url: dict[str, list[str]] = {}
+    for chunk_id, metadata in zip(ids, metadatas, strict=True):
+        if not isinstance(metadata, dict):
+            continue
+        url = metadata.get("url")
+        if isinstance(url, str) and url:
+            by_url.setdefault(metrics.normalize_url(url), []).append(str(chunk_id))
+
+    def resolve(urls: Sequence[str]) -> Mapping[str, Sequence[str]]:
+        return {str(url): list(by_url.get(metrics.normalize_url(str(url)), [])) for url in urls}
+
+    return resolve
+
+
 def resolve_window(
     snapshot_dir: Path,
     snapshot_id: str,
@@ -557,6 +584,7 @@ __all__ = [
     "RunResult",
     "RunSpec",
     "bind_existing_collection",
+    "build_evidence_resolver",
     "load_build_records",
     "resolve_window",
     "run",

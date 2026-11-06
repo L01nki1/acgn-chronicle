@@ -192,22 +192,39 @@ def test_citation_containment_flags_outside_chunks() -> None:
                 qa_id="A-001",
                 retrieved_chunk_ids=("c1", "c2"),
                 cited_chunk_ids=("c1",),
+                abstained=False,
             ),
             _case(
                 qa_id="A-002",
                 retrieved_chunk_ids=("c1",),
                 cited_chunk_ids=("c2",),
+                abstained=False,
             ),
         ]
     )
-    assert metrics == {"containment_rate": {"value": 0.5, "n": 2}, "violations": 1}
+    assert metrics == {
+        "containment_rate": {"value": 0.5, "n": 2},
+        "violations": 1,
+        "abstained_violations": 0,
+    }
 
 
 def test_citation_containment_counts_a_citation_with_no_retrieved_chunks() -> None:
     metrics = citation_containment(
-        [_case(qa_id="A-001", retrieved_chunk_ids=(), cited_chunk_ids=("c1",))]
+        [
+            _case(
+                qa_id="A-001",
+                retrieved_chunk_ids=(),
+                cited_chunk_ids=("c1",),
+                abstained=False,
+            )
+        ]
     )
-    assert metrics == {"containment_rate": {"value": 0.0, "n": 1}, "violations": 1}
+    assert metrics == {
+        "containment_rate": {"value": 0.0, "n": 1},
+        "violations": 1,
+        "abstained_violations": 0,
+    }
 
 
 def test_aggregate_contains_every_report_block() -> None:
@@ -260,3 +277,32 @@ def test_retrieval_excluded_counts_ignore_calibration_items() -> None:
     ]
     metrics = retrieval_metrics(cases)
     assert metrics["excluded"]["gold_unavailable"] == 1
+
+
+def test_k_truncates_hit_recall_and_mrr() -> None:
+    urls = (OTHER, OTHER, OTHER, GOLD_A, OTHER)
+    case = _case(retrieved_urls=urls)
+    assert retrieval_metrics([case], k=3)["hit"]["all"] == {"value": 0.0, "n": 1}
+    assert retrieval_metrics([case], k=3)["mrr"]["all"] == {"value": 0.0, "n": 1}
+    assert retrieval_metrics([case], k=5)["hit"]["all"] == {"value": 1.0, "n": 1}
+    assert retrieval_metrics([case], k=5)["mrr"]["all"] == {"value": 0.25, "n": 1}
+
+
+def test_non_abstained_empty_citations_are_a_violation() -> None:
+    metrics = citation_containment(
+        [_case(qa_id="A-001", retrieved_chunk_ids=("c1",), cited_chunk_ids=(), abstained=False)]
+    )
+    assert metrics == {
+        "containment_rate": {"value": 0.0, "n": 1},
+        "violations": 1,
+        "abstained_violations": 0,
+    }
+
+
+def test_abstained_citations_are_a_separate_violation() -> None:
+    metrics = citation_containment([_case(qa_id="D-001", cited_chunk_ids=("c1",), abstained=True)])
+    assert metrics == {
+        "containment_rate": {"value": None, "n": 0},
+        "violations": 0,
+        "abstained_violations": 1,
+    }

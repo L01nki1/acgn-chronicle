@@ -133,6 +133,9 @@ def search(
     if query.top_k < 1:
         raise ValueError("top_k must be >= 1")
     where = build_where(query.filters)
+    if not query.text.strip():
+        # An empty question has no evidence; embedding it would return arbitrary chunks.
+        return []
     vectors = embedder.encode_queries([query.text])
     if not len(vectors):
         raise ValueError("embedder returned no vector for the query")

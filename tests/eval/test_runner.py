@@ -16,6 +16,7 @@ from acgn_rag.core.eval.runner import (
     NullAnswerer,
     RunSpec,
     bind_existing_collection,
+    build_evidence_resolver,
     load_build_records,
     resolve_window,
     run,
@@ -842,3 +843,30 @@ def test_reportable_is_the_composition_of_resolver_and_verified_window(
     )
     meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
     assert meta["reportable"] is reportable
+
+
+class _FakeCollection:
+    def __init__(self, rows: list[dict[str, Any]]) -> None:
+        self.rows = rows
+
+    def get(self, *, include: list[str]) -> dict[str, Any]:
+        assert include == ["metadatas"]
+        return {
+            "ids": [row["id"] for row in self.rows],
+            "metadatas": [{"url": row["url"]} for row in self.rows],
+        }
+
+
+def test_build_evidence_resolver_maps_normalized_urls_to_chunk_ids() -> None:
+    collection = _FakeCollection(
+        [
+            {"id": "c1", "url": "https://Example.com/news/a#frag"},
+            {"id": "c2", "url": "https://example.com/news/a/"},
+            {"id": "c3", "url": "https://example.com/news/b"},
+        ]
+    )
+    resolve = build_evidence_resolver(collection)
+
+    assert resolve(["https://EXAMPLE.com/news/a"]) == {"https://EXAMPLE.com/news/a": ["c1", "c2"]}
+    assert resolve(["https://example.com/news/b"]) == {"https://example.com/news/b": ["c3"]}
+    assert resolve(["https://example.com/news/missing"]) == {"https://example.com/news/missing": []}

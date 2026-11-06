@@ -80,35 +80,43 @@ def _mean(values: Sequence[float]) -> dict[str, float | int | None]:
     return _rate(sum(values) / n if n else None, n)
 
 
-def hit_at_k(case: CaseResult) -> int:
-    """1 if any retrieved URL is a gold URL, else 0. Not graded on answer text."""
+def _retrieved_at_k(case: CaseResult, k: int | None) -> tuple[str, ...]:
+    if k is None:
+        return case.retrieved_urls
+    if k < 1:
+        raise ValueError("k must be >= 1")
+    return case.retrieved_urls[:k]
+
+
+def hit_at_k(case: CaseResult, *, k: int | None = None) -> int:
+    """1 if any retrieved URL within `k` is a gold URL, else 0. Not graded on answer text."""
     if case.gold_unavailable:
         return 0
     gold = _gold_set(case.gold_urls)
     if not gold:
         return 0
-    return int(any(normalize_url(url) in gold for url in case.retrieved_urls))
+    return int(any(normalize_url(url) in gold for url in _retrieved_at_k(case, k)))
 
 
-def evidence_recall(case: CaseResult) -> float:
-    """Distinct gold URLs retrieved / all gold URLs. Distinct: duplicates do not help."""
+def evidence_recall(case: CaseResult, *, k: int | None = None) -> float:
+    """Distinct gold URLs retrieved within `k` / all gold URLs. Duplicates do not help."""
     if case.gold_unavailable:
         return 0.0
     gold = _gold_set(case.gold_urls)
     if not gold:
         return 0.0
-    found = {normalize_url(url) for url in case.retrieved_urls} & gold
+    found = {normalize_url(url) for url in _retrieved_at_k(case, k)} & gold
     return len(found) / len(gold)
 
 
-def mrr_at_k(case: CaseResult) -> float:
-    """Reciprocal rank of the first gold-URL hit; 0.0 when there is none."""
+def mrr_at_k(case: CaseResult, *, k: int | None = None) -> float:
+    """Reciprocal rank of the first gold-URL hit within `k`; 0.0 when there is none."""
     if case.gold_unavailable:
         return 0.0
     gold = _gold_set(case.gold_urls)
     if not gold:
         return 0.0
-    for rank, url in enumerate(case.retrieved_urls, start=1):
+    for rank, url in enumerate(_retrieved_at_k(case, k), start=1):
         if normalize_url(url) in gold:
             return 1.0 / rank
     return 0.0
@@ -140,10 +148,15 @@ def retrieval_metrics(cases: Sequence[CaseResult], *, k: int = 5) -> dict[str, A
     blocks = _blocks(eligible)
     return {
         "k": k,
-        "hit": {key: _mean([hit_at_k(case) for case in block]) for key, block in blocks.items()},
-        "mrr": {key: _mean([mrr_at_k(case) for case in block]) for key, block in blocks.items()},
+        "hit": {
+            key: _mean([hit_at_k(case, k=k) for case in block]) for key, block in blocks.items()
+        },
+        "mrr": {
+            key: _mean([mrr_at_k(case, k=k) for case in block]) for key, block in blocks.items()
+        },
         "evidence_recall": {
-            key: _mean([evidence_recall(case) for case in block]) for key, block in blocks.items()
+            key: _mean([evidence_recall(case, k=k) for case in block])
+            for key, block in blocks.items()
         },
         "excluded": {
             "unanswerable": sum(1 for case in excluded if not case.answerable),
@@ -224,14 +237,20 @@ def abstention_accuracy(
 
 
 def citation_containment(cases: Sequence[CaseResult]) -> dict[str, Any]:
-    """Every cited chunk must have been retrieved for that query."""
-    checked = [case for case in cases if case.cited_chunk_ids and not case.calibration]
+    """Every non-abstained answer must cite only retrieved chunks, and cite at least one."""
+    checked = [case for case in cases if case.abstained is False and not case.calibration]
     violations = sum(
-        1 for case in checked if not set(case.cited_chunk_ids).issubset(case.retrieved_chunk_ids)
+        1
+        for case in checked
+        if not case.cited_chunk_ids
+        or not set(case.cited_chunk_ids).issubset(case.retrieved_chunk_ids)
     )
+    abstained = [case for case in cases if case.abstained is True and not case.calibration]
+    abstained_violations = sum(1 for case in abstained if case.cited_chunk_ids)
     return {
         "containment_rate": _rate(1 - violations / len(checked) if checked else None, len(checked)),
         "violations": violations,
+        "abstained_violations": abstained_violations,
     }
 
 

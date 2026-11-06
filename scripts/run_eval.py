@@ -29,6 +29,7 @@ from acgn_rag.core.eval.runner import (
     NullAnswerer,
     RunSpec,
     bind_existing_collection,
+    build_evidence_resolver,
     load_build_records,
     resolve_window,
     run,
@@ -146,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
 
     store = ChromaStore(settings.paths.index / "chroma", settings.store)
     try:
-        bind_existing_collection(
+        bound = bind_existing_collection(
             store,
             snapshot_id=args.snapshot,
             chunk_config=label,
@@ -157,6 +158,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     except RuntimeError as exc:
         print(f"COLLECTION BINDING FAILED: {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        evidence_resolver = build_evidence_resolver(bound)
+    except RuntimeError as exc:
+        print(f"EVIDENCE RESOLVER FAILED: {exc}", file=sys.stderr)
         return 1
 
     spec = RunSpec(
@@ -189,6 +196,7 @@ def main(argv: list[str] | None = None) -> int:
         embedder=embedder,
         answerer=NullAnswerer(),
         qa_items=items,
+        evidence_resolver=evidence_resolver,
     )
     print(f"run_id: {result.run_id}")
     print(f"out:    {result.out_dir}")

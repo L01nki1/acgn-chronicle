@@ -286,3 +286,18 @@ def test_search_rejects_top_k_zero() -> None:
             store=FakeStore([]),
             embedder=FakeEmbedder(),
         )
+
+
+def test_search_rejects_blank_query_before_embedding() -> None:
+    store = FakeStore([_hit("c1")])
+    embedder = FakeEmbedder()
+
+    chunks = search(
+        RetrievalQuery(text="   ", snapshot_id=SNAPSHOT),
+        store=store,
+        embedder=embedder,
+    )
+
+    assert chunks == []
+    assert store.calls == []
+    assert embedder.texts == []
