@@ -24,6 +24,9 @@ _QUOTE_PAIRS: Final = {
     "\u2018": "\u2019",
     "\u300c": "\u300d",
 }
+# Chunk text is bounded by the encoder window, but a synthetic or corrupted chunk must not
+# turn the contiguous-copy scan quadratic without limit; oversized sources are skipped.
+_BUDGET_SCAN_MAX_SOURCE_CHARS: Final = 20_000
 
 
 class GroundingComponentError(Exception):
@@ -231,11 +234,12 @@ def _parse_answer_claims(
         evidence = tuple(retrieved[citations[ref - 1].chunk_id] for ref in refs)
         source_text = _strip_optional_quotes(text)
         is_quoted = len(text) > 1 and _QUOTE_PAIRS.get(text[0]) == text[-1]
-        if all(chunk.citation.source_type == "media" for chunk in evidence) and (
-            not is_quoted or allowed_media_quote(source_text, evidence) is None
+        media_evidence = [chunk for chunk in evidence if chunk.citation.source_type == "media"]
+        if media_evidence and (
+            not is_quoted or allowed_media_quote(source_text, media_evidence) is None
         ):
             raise GroundingValidationError(
-                "media-only claims must be attributed in-budget verbatim quotations"
+                "claims citing a media source must be attributed in-budget verbatim quotations"
             )
         claims.append(ClaimEvidence(text=source_text, chunks=evidence))
         segment_start = marker.end()
@@ -271,6 +275,8 @@ def _contains_over_budget_contiguous_copy(
         answer = separator.join(answer.split())
         for chunk in chunks:
             source = separator.join(chunk.text.split())
+            if len(source) > _BUDGET_SCAN_MAX_SOURCE_CHARS:
+                continue
             for start in range(len(source) - run_length + 1):
                 if source[start : start + run_length] in answer:
                     return True

@@ -47,17 +47,28 @@ def test_openai_answer_adapter_uses_answer_settings_and_returns_wire_content() -
                             "finish_reason": "stop",
                         }
                     ],
+                    "usage": {
+                        "prompt_tokens": 30,
+                        "completion_tokens": 90,
+                        "total_tokens": 120,
+                    },
                 },
             )
         )
         with httpx.Client(transport=httpx.MockTransport(respx.mock.handler)) as http_client:
             client = make_openai_answer_client(config, http_client=http_client)
-            output = client.complete("system", "user", max_tokens=1024)
+            output = client.complete("system", "user", max_tokens=2048)
 
-        assert output == canned
+        assert output.text == canned
+        assert output.finish_reason == "stop"
+        assert output.usage == {
+            "prompt_tokens": 30,
+            "completion_tokens": 90,
+            "total_tokens": 120,
+        }
         body = json.loads(route.calls.last.request.content)
         assert body["model"] == "test-answer-model"
-        assert body["max_tokens"] == 1024
+        assert body["max_tokens"] == 2048
         assert body["temperature"] == 0.0
         assert [message["role"] for message in body["messages"]] == ["system", "user"]
 
@@ -127,4 +138,4 @@ def test_openai_answer_adapter_rejects_incomplete_provider_responses(
         with httpx.Client(transport=httpx.MockTransport(respx.mock.handler)) as http_client:
             client = make_openai_answer_client(config, http_client=http_client)
             with pytest.raises(ProviderResponseError):
-                client.complete("system", "user", max_tokens=1024)
+                client.complete("system", "user", max_tokens=2048)

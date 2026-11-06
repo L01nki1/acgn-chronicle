@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 
 from acgn_rag.config import LLMConfig
-from acgn_rag.core.ground.generate import AnswerClient
+from acgn_rag.core.ground.generate import AnswerClient, Completion
 from acgn_rag.core.ground.validation import ProviderResponseError
 
 
@@ -35,7 +35,7 @@ def make_openai_answer_client(
         )
 
     class _Adapter:
-        def complete(self, system: str, user: str, *, max_tokens: int) -> str:
+        def complete(self, system: str, user: str, *, max_tokens: int) -> Completion:
             response = vendor.chat.completions.create(
                 model=config.answer_model,
                 messages=[
@@ -55,6 +55,18 @@ def make_openai_answer_client(
             content = choice.message.content
             if content is None or not content.strip():
                 raise ProviderResponseError("the answer provider returned no completion content")
-            return content
+            usage = response.usage
+            usage_counts = None
+            if usage is not None:
+                usage_counts = {
+                    "prompt_tokens": int(usage.prompt_tokens),
+                    "completion_tokens": int(usage.completion_tokens),
+                    "total_tokens": int(usage.total_tokens),
+                }
+            return Completion(
+                text=content,
+                finish_reason=choice.finish_reason,
+                usage=usage_counts,
+            )
 
     return _Adapter()

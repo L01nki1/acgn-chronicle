@@ -8,6 +8,11 @@ from collections.abc import Sequence
 import pytest
 
 from acgn_rag.core.ground import (
+    ABSTAIN_ALL_CLAIMS_REJECTED,
+    ABSTAIN_MODEL_EMPTY,
+    ABSTAIN_NO_EVIDENCE,
+    REJECTED_CLAIMS_REASON,
+    Completion,
     GroundingValidationError,
     InvalidModelResponseError,
     InvalidRetrievedEvidenceError,
@@ -18,6 +23,7 @@ from acgn_rag.core.ground.generate import (
     GroundedAnswerer,
     build_grounding_prompt,
     generate_grounded_answer,
+    generate_grounded_answer_run,
     validate_grounded_answer,
 )
 from acgn_rag.core.ground.policy import MEDIA_SOURCE_RULE
@@ -33,9 +39,9 @@ class FakeAnswerClient:
         self.response = response
         self.calls: list[tuple[str, str, int]] = []
 
-    def complete(self, system: str, user: str, *, max_tokens: int) -> str:
+    def complete(self, system: str, user: str, *, max_tokens: int) -> Completion:
         self.calls.append((system, user, max_tokens))
-        return self.response
+        return Completion(text=self.response, finish_reason="stop")
 
 
 def _citation(index: int, *, chunk_id: str | None = None) -> Citation:
@@ -113,8 +119,8 @@ def test_out_of_range_indices_produce_an_explicit_refusal(
     )
 
     assert answer.abstained
-    assert answer.answer == UNSUPPORTED_REASON
-    assert answer.abstain_reason == UNSUPPORTED_REASON
+    assert answer.answer == REJECTED_CLAIMS_REASON
+    assert answer.abstain_reason == REJECTED_CLAIMS_REASON
     assert list(answer.citations) == []
     assert list(answer.cited_chunk_ids) == []
 
@@ -298,3 +304,116 @@ def test_final_guard_rejects_mutated_markers_on_generated_answer(mutated_text: s
 
     with pytest.raises(GroundingValidationError):
         validate_grounded_answer(answer, _query().snapshot_id, chunks)
+
+
+def test_default_answer_budget_is_above_the_reasoning_floor_and_can_be_overridden() -> None:
+    client = FakeAnswerClient(_response([]))
+    generate_grounded_answer(_query(), [_chunk(1)], client)
+    assert client.calls[0][2] == 2048
+
+    override = FakeAnswerClient(_response([]))
+    generate_grounded_answer(_query(), [_chunk(1)], override, max_tokens=3072)
+    assert override.calls[0][2] == 3072
+
+
+def test_run_diagnostics_record_completion_metadata_and_dropped_claims() -> None:
+    class MetadataClient(FakeAnswerClient):
+        def complete(self, system: str, user: str, *, max_tokens: int) -> Completion:
+            self.calls.append((system, user, max_tokens))
+            return Completion(
+                text=_response(
+                    [
+                        {"text": "Supported fact.", "evidence_indices": [1]},
+                        {"text": "Malformed claim.", "evidence_indices": ["1"]},
+                    ]
+                ),
+                finish_reason="stop",
+                usage={"prompt_tokens": 30, "completion_tokens": 12, "total_tokens": 42},
+            )
+
+    run = generate_grounded_answer_run(_query(), [_chunk(1)], MetadataClient(""))
+
+    assert run.answer.answer == "Supported fact. [1]"
+    assert run.diagnostics.max_tokens == 2048
+    assert run.diagnostics.finish_reason == "stop"
+    assert run.diagnostics.usage == {
+        "prompt_tokens": 30,
+        "completion_tokens": 12,
+        "total_tokens": 42,
+    }
+    assert run.diagnostics.dropped_claims == 1
+    assert run.diagnostics.abstain_code is None
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        'Here is the JSON: {"claims": [{"text": "Fact one.", "evidence_indices": [1]}]} Thanks.',
+        '\u0060\u0060\u0060json\n{"claims": [{"text": "Fact one.", "evidence_indices": [1]}]}\n\u0060\u0060\u0060',
+    ],
+)
+def test_prose_and_fences_around_the_json_object_do_not_lose_valid_claims(raw: str) -> None:
+    answer = generate_grounded_answer(_query(), [_chunk(1)], FakeAnswerClient(raw))
+
+    assert answer.answer == "Fact one. [1]"
+
+
+def test_one_malformed_claim_does_not_discard_the_valid_claims() -> None:
+    client = FakeAnswerClient(
+        _response(
+            [
+                {"text": "Fact one.", "evidence_indices": [1]},
+                {"text": "Malformed.", "evidence_indices": ["1"]},
+                {"text": "Fact two.", "evidence_indices": [2]},
+            ]
+        )
+    )
+
+    run = generate_grounded_answer_run(_query(), [_chunk(1), _chunk(2)], client)
+
+    assert run.answer.answer == "Fact one. [1] Fact two. [2]"
+    assert run.diagnostics.dropped_claims == 1
+
+
+def test_extra_top_level_keys_do_not_discard_valid_claims() -> None:
+    raw = json.dumps({"claims": [{"text": "Fact one.", "evidence_indices": [1]}], "note": "x"})
+
+    answer = generate_grounded_answer(_query(), [_chunk(1)], FakeAnswerClient(raw))
+
+    assert answer.answer == "Fact one. [1]"
+
+
+@pytest.mark.parametrize(
+    ("question", "expected"),
+    [
+        ("这部作品什么时候播出?", "本次请求没有可用的检索证据。"),
+        ("この作品はいつ放送されますか?", "このリクエストには検索で得られた根拠がありません。"),
+        ("When is it broadcast?", NO_EVIDENCE_REASON),
+    ],
+)
+def test_empty_evidence_refusal_uses_the_question_language(question: str, expected: str) -> None:
+    query = RetrievalQuery(text=question, snapshot_id=_query().snapshot_id)
+
+    answer = generate_grounded_answer(query, [], FakeAnswerClient(_response([])))
+
+    assert answer.abstained
+    assert answer.answer == expected
+    assert answer.abstain_reason == expected
+
+
+def test_abstention_diagnostics_distinguish_the_abstention_causes() -> None:
+    no_evidence = generate_grounded_answer_run(_query(), [], FakeAnswerClient(_response([])))
+    assert no_evidence.diagnostics.abstain_code == ABSTAIN_NO_EVIDENCE
+
+    model_empty = generate_grounded_answer_run(
+        _query(), [_chunk(1)], FakeAnswerClient(_response([]))
+    )
+    assert model_empty.diagnostics.abstain_code == ABSTAIN_MODEL_EMPTY
+
+    rejected = generate_grounded_answer_run(
+        _query(),
+        [_chunk(1)],
+        FakeAnswerClient(_response([{"text": "Unsupported.", "evidence_indices": [99]}])),
+    )
+    assert rejected.diagnostics.abstain_code == ABSTAIN_ALL_CLAIMS_REJECTED
+    assert rejected.diagnostics.dropped_claims == 1
