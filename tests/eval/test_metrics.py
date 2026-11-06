@@ -241,9 +241,16 @@ def test_aggregate_contains_every_report_block() -> None:
         "correctness",
         "abstention",
         "citation",
+        "reporting",
         "provisional",
     }
     assert metrics["provisional"] is False
+    assert metrics["reporting"] == {
+        "retrieval": {"available": True, "n": 1},
+        "correctness": {"available": False, "n": 0},
+        "abstention": {"available": False, "n": 0},
+        "citation": {"available": False, "n": 0},
+    }
     assert metrics["counts"] == {
         "qa_total": 1,
         "answerable": 1,
@@ -258,6 +265,13 @@ def test_aggregate_contains_every_report_block() -> None:
     assert metrics["retrieval"]["k"] == 5
     assert metrics["retrieval"]["hit"]["all"] == {"value": 1.0, "n": 1}
     assert metrics["citation"]["containment_rate"] == {"value": None, "n": 0}
+
+
+def test_reporting_block_keeps_families_independent() -> None:
+    no_retrieval_with_label = _case(gold_unavailable=True, answer_label="fully_correct")
+    metrics = aggregate([no_retrieval_with_label])
+    assert metrics["reporting"]["retrieval"] == {"available": False, "n": 0}
+    assert metrics["reporting"]["correctness"] == {"available": True, "n": 1}
 
 
 def test_unresolved_gold_is_excluded_and_counted() -> None:

@@ -259,6 +259,8 @@ def test_run_writes_complete_archive(tmp_path: Path) -> None:
     assert meta["retrieval"]["mode"] == "vector"
     assert meta["git_sha"] == "test-sha"
     assert meta["qa"]["count"] == 1
+    assert meta["qa"]["validated"] is True
+    assert meta["qa"]["validation"] == "validated"
     assert meta["build_identity"]["model"] == "fake"
     assert meta["embed"] == {
         "model": "fake",
@@ -1000,6 +1002,36 @@ def test_partial_gold_member_not_indexed_keeps_item_eligible(tmp_path: Path) -> 
     assert meta["metrics"]["retrieval"]["hit"]["all"] == {"value": 1.0, "n": 1}
     resolved = json.loads((result.out_dir / "resolved_evidence.json").read_text(encoding="utf-8"))
     assert resolved["member_not_indexed"] == [OTHER]
+
+
+def test_no_eligible_retrieval_is_non_reportable(tmp_path: Path) -> None:
+    result = run(
+        _spec(tmp_path),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: [] for url in urls},
+    )
+    meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
+    assert meta["reportable"] is False
+    assert meta["non_reportable_reason"] == "no_reportable_metrics"
+    assert meta["metrics"]["reporting"]["retrieval"] == {"available": False, "n": 0}
+
+
+def test_bypassed_qa_validation_is_recorded_and_non_reportable(tmp_path: Path) -> None:
+    result = run(
+        _spec(tmp_path, qa_validated=False),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["doc::A::1"] for url in urls},
+    )
+    meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
+    assert meta["reportable"] is False
+    assert meta["non_reportable_reason"] == "qa_validation_bypassed"
+    assert meta["qa"]["validated"] is False
+    assert meta["qa"]["validation"] == "bypassed"
+    assert meta["metrics"]["reporting"]["retrieval"] == {"available": True, "n": 1}
 
 
 class _FakeCollection:

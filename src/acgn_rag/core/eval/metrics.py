@@ -264,6 +264,12 @@ def citation_containment(cases: Sequence[CaseResult]) -> dict[str, Any]:
     }
 
 
+def _availability(rate: dict[str, Any]) -> dict[str, Any]:
+    """Per-family reporting availability: a rate is reportable only when its n > 0."""
+    n = int(rate.get("n") or 0)
+    return {"available": n > 0, "n": n}
+
+
 def aggregate(
     cases: Sequence[CaseResult],
     *,
@@ -280,6 +286,13 @@ def aggregate(
     items are reported through `abstention.calibration_in_sample` and never inflate `qa_total`.
     """
     qa_cases = [case for case in cases if not case.calibration]
+    retrieval = retrieval_metrics(cases, k=k)
+    correctness = answer_correctness(cases)
+    abstention = abstention_accuracy(cases, threshold=threshold)
+    citation = citation_containment(cases)
+    abstention_n = int(abstention["refusal_rate"].get("n") or 0) + int(
+        abstention["false_refusal_rate"].get("n") or 0
+    )
     return {
         "counts": {
             "qa_total": len(qa_cases),
@@ -292,9 +305,15 @@ def aggregate(
             "deduped_count": deduped_count,
             "indexed_chunks": indexed_chunks,
         },
-        "retrieval": retrieval_metrics(cases, k=k),
-        "correctness": answer_correctness(cases),
-        "abstention": abstention_accuracy(cases, threshold=threshold),
-        "citation": citation_containment(cases),
+        "retrieval": retrieval,
+        "correctness": correctness,
+        "abstention": abstention,
+        "citation": citation,
+        "reporting": {
+            "retrieval": _availability(retrieval["hit"]["all"]),
+            "correctness": _availability(correctness["rates"]["all"]),
+            "abstention": {"available": abstention_n > 0, "n": abstention_n},
+            "citation": _availability(citation["containment_rate"]),
+        },
         "provisional": provisional,
     }

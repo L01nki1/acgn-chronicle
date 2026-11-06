@@ -76,6 +76,7 @@ class RunSpec:
     llm: Mapping[str, Any] = field(default_factory=dict)
     determinism: Mapping[str, Any] = field(default_factory=dict)
     require_gpu: bool = False
+    qa_validated: bool = True
 
 
 @dataclass(frozen=True)
@@ -211,14 +212,20 @@ def _reportability_reason(
     window_verified: bool,
     build_identity: Mapping[str, Any],
     require_gpu: bool,
+    qa_validated: bool,
+    has_reportable_metrics: bool,
 ) -> str | None:
     """Return why a run is not reportable, or None when it is reportable."""
+    if not qa_validated:
+        return "qa_validation_bypassed"
     if evidence_resolver is None:
         return "no_evidence_resolver"
     if not window_verified:
         return "window_unverified"
     if require_gpu and not _is_reportable_device(build_identity):
         return "non_gpu_device"
+    if not has_reportable_metrics:
+        return "no_reportable_metrics"
     return None
 
 
@@ -617,11 +624,16 @@ def run(
         indexed_chunks=spec.counts.get("stored"),
         provisional=evidence_resolver is None,
     )
+    has_reportable_metrics = any(
+        bool(block["available"]) for block in metrics_payload["reporting"].values()
+    )
     non_reportable_reason = _reportability_reason(
         evidence_resolver=evidence_resolver,
         window_verified=spec.window_verified,
         build_identity=spec.build_identity,
         require_gpu=spec.require_gpu,
+        qa_validated=spec.qa_validated,
+        has_reportable_metrics=has_reportable_metrics,
     )
     meta = {
         "run_id": run_id,
@@ -640,13 +652,19 @@ def run(
         "chunker": dict(spec.chunker),
         "reportable": non_reportable_reason is None,
         "non_reportable_reason": non_reportable_reason,
+        "reportable_scope": "run; per-family availability is in metrics.reporting",
         "determinism": dict(spec.determinism),
         "gpu_policy": "pr48_require_gpu" if spec.require_gpu else "not_enforced",
         "require_gpu": spec.require_gpu,
         "collection": spec.collection,
         "llm": dict(spec.llm),
         "git_sha": spec.git_sha,
-        "qa": {"path": str(spec.qa_path), "count": len(items)},
+        "qa": {
+            "path": str(spec.qa_path),
+            "count": len(items),
+            "validated": spec.qa_validated,
+            "validation": "validated" if spec.qa_validated else "bypassed",
+        },
         "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "metrics": metrics_payload,
     }

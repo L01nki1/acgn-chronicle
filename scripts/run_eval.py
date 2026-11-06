@@ -226,6 +226,7 @@ def main(argv: list[str] | None = None) -> int:
         },
         determinism=determinism,
         require_gpu=args.require_gpu,
+        qa_validated=not args.allow_invalid_qa,
     )
     result = run(
         spec,
