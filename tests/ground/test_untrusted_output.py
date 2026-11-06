@@ -7,6 +7,7 @@ import json
 import pytest
 
 from acgn_rag.core.ground import (
+    Completion,
     GroundedAnswerer,
     GroundingValidationError,
     InvalidRetrievedEvidenceError,
@@ -14,6 +15,7 @@ from acgn_rag.core.ground import (
 )
 from acgn_rag.core.ports import (
     Citation,
+    GroundedAnswer,
     RetrievalQuery,
     RetrievedChunk,
     SourceType,
@@ -27,9 +29,9 @@ class FakeAnswerClient:
         self.response = json.dumps({"claims": claims})
         self.calls = 0
 
-    def complete(self, system: str, user: str, *, max_tokens: int) -> str:
+    def complete(self, system: str, user: str, *, max_tokens: int) -> Completion:
         self.calls += 1
-        return self.response
+        return Completion(text=self.response, finish_reason="stop")
 
 
 def _query() -> RetrievalQuery:
@@ -157,3 +159,56 @@ def test_answerer_allows_publisher_name_as_a_supported_fact() -> None:
 
     assert not answer.abstained
     assert answer.answer == f"{claim} [1]"
+
+
+def test_mixed_media_and_official_citation_still_requires_a_verbatim_media_quote() -> None:
+    official = _chunk("Official statement: the series returns in spring 2027.", index=1)
+    media = _chunk(
+        "The reviewer called the episode the best of the season.",
+        index=2,
+        source_type="media",
+    )
+    paraphrase = (
+        "The review described the episode as the season's finest achievement, and the series "
+        "returns in spring 2027."
+    )
+
+    answer = GroundedAnswerer(
+        FakeAnswerClient([{"text": paraphrase, "evidence_indices": [1, 2]}])
+    ).answer(_query(), [official, media])
+
+    assert answer.abstained
+    assert paraphrase not in answer.answer
+    assert list(answer.citations) == []
+
+
+def test_mixed_media_quote_with_official_support_is_allowed() -> None:
+    quote = "The release date is April 2."
+    official = _chunk("The official notice confirms the schedule.", index=1)
+    media = _chunk(f"Report text: {quote} More reporting.", index=2, source_type="media")
+
+    answer = GroundedAnswerer(
+        FakeAnswerClient([{"text": quote, "evidence_indices": [1, 2]}])
+    ).answer(_query(), [official, media])
+
+    assert not answer.abstained
+    assert answer.answer == f'"{quote}" [1, 2]'
+
+
+def test_final_guard_rejects_mixed_media_paraphrase() -> None:
+    official = _chunk("Official statement: the series returns in spring 2027.", index=1)
+    media = _chunk(
+        "The reviewer called the episode the best of the season.",
+        index=2,
+        source_type="media",
+    )
+    answer = GroundedAnswer(
+        answer=("The review described the episode as the season's finest achievement. [1, 2]"),
+        citations=[official.citation, media.citation],
+        cited_chunk_ids=[official.chunk_id, media.chunk_id],
+        abstained=False,
+        abstain_reason=None,
+    )
+
+    with pytest.raises(GroundingValidationError):
+        validate_grounded_answer(answer, _query().snapshot_id, [official, media])

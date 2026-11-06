@@ -7,6 +7,8 @@ import json
 import pytest
 
 from acgn_rag.core.ground import (
+    REJECTED_CLAIMS_REASON,
+    Completion,
     GroundedAnswerer,
     GroundingValidationError,
     validate_grounded_answer,
@@ -24,8 +26,8 @@ class FakeAnswerClient:
     def __init__(self, claims: list[dict[str, str | list[int]]]) -> None:
         self.response = json.dumps({"claims": claims})
 
-    def complete(self, system: str, user: str, *, max_tokens: int) -> str:
-        return self.response
+    def complete(self, system: str, user: str, *, max_tokens: int) -> Completion:
+        return Completion(text=self.response, finish_reason="stop")
 
 
 def _query() -> RetrievalQuery:
@@ -57,39 +59,39 @@ def _chunk(
     )
 
 
-@pytest.mark.parametrize(
-    "claims",
-    [
-        [
-            {
-                "text": ("Raw source sentence with exact wording.\n\t" * 20)[:563],
-                "evidence_indices": [1],
-            }
-        ],
-        [
-            {"text": "a" * 110, "evidence_indices": [1]},
-            {"text": "b" * 110, "evidence_indices": [1]},
-        ],
-    ],
-)
-def test_answerer_rejects_over_budget_verbatim_source(
-    claims: list[dict[str, str | list[int]]],
-) -> None:
-    source = " ".join(str(claim["text"]) for claim in claims)
+def test_answerer_drops_over_budget_verbatim_claims_instead_of_failing() -> None:
+    long_claim = ("Raw source sentence with exact wording.\n\t" * 20)[:563]
 
-    with pytest.raises(GroundingValidationError):
-        GroundedAnswerer(FakeAnswerClient(claims)).answer(_query(), [_chunk(source)])
+    answer = GroundedAnswerer(
+        FakeAnswerClient([{"text": long_claim, "evidence_indices": [1]}])
+    ).answer(_query(), [_chunk(long_claim)])
+    assert answer.abstained
+    assert answer.answer == REJECTED_CLAIMS_REASON
+
+    first, second = "a" * 110, "b" * 110
+    answer = GroundedAnswerer(
+        FakeAnswerClient(
+            [
+                {"text": first, "evidence_indices": [1]},
+                {"text": second, "evidence_indices": [1]},
+            ]
+        )
+    ).answer(_query(), [_chunk(f"{first} {second}")])
+    assert not answer.abstained
+    assert answer.answer == f"{first} [1]"
 
 
-def test_answerer_rejects_source_copied_across_a_wordless_claim_boundary() -> None:
+def test_answerer_drops_the_claim_that_would_cross_a_wordless_copy_boundary() -> None:
     first, second = "a" * 180, "b" * 180
     claims = [
         {"text": first, "evidence_indices": [1]},
         {"text": second, "evidence_indices": [1]},
     ]
 
-    with pytest.raises(GroundingValidationError):
-        GroundedAnswerer(FakeAnswerClient(claims)).answer(_query(), [_chunk(first + second)])
+    answer = GroundedAnswerer(FakeAnswerClient(claims)).answer(_query(), [_chunk(first + second)])
+
+    assert not answer.abstained
+    assert answer.answer == f"{first} [1]"
 
 
 def test_answerer_rejects_two_media_quotes_reconstructing_one_body() -> None:
@@ -106,10 +108,12 @@ def test_answerer_rejects_two_media_quotes_reconstructing_one_body() -> None:
         {"text": second, "evidence_indices": [1]},
     ]
 
-    with pytest.raises(GroundingValidationError):
-        GroundedAnswerer(FakeAnswerClient(claims)).answer(
-            _query(), [_chunk(f"{first} {second}", source_type="media")]
-        )
+    answer = GroundedAnswerer(FakeAnswerClient(claims)).answer(
+        _query(), [_chunk(f"{first} {second}", source_type="media")]
+    )
+
+    assert not answer.abstained
+    assert answer.answer == f'"{first}" [1]'
 
 
 def test_answerer_rejects_quotes_across_chunks_of_the_same_document() -> None:
@@ -123,8 +127,10 @@ def test_answerer_rejects_quotes_across_chunks_of_the_same_document() -> None:
         _chunk(second, index=2, doc_id="shared-doc", url="https://example.com/shared"),
     ]
 
-    with pytest.raises(GroundingValidationError):
-        GroundedAnswerer(FakeAnswerClient(claims)).answer(_query(), chunks)
+    answer = GroundedAnswerer(FakeAnswerClient(claims)).answer(_query(), chunks)
+
+    assert not answer.abstained
+    assert answer.answer == f"{first} [1]"
 
 
 def test_final_guard_rejects_mutated_source_budget_across_same_document_chunks() -> None:
@@ -172,17 +178,20 @@ def test_final_guard_allows_long_paraphrased_refusal_explanations() -> None:
 
 
 @pytest.mark.parametrize(
-    ("length", "raises"),
-    [(MAX_QUOTE_CHARS, False), (MAX_QUOTE_CHARS + 1, True)],
+    ("length", "accepted"),
+    [(MAX_QUOTE_CHARS, True), (MAX_QUOTE_CHARS + 1, False)],
 )
-def test_literal_source_budget_accepts_200_and_rejects_201(length: int, raises: bool) -> None:
+def test_literal_source_budget_accepts_200_and_drops_201(length: int, accepted: bool) -> None:
     quote = "x" * length
-    answerer = GroundedAnswerer(FakeAnswerClient([{"text": quote, "evidence_indices": [1]}]))
-    if raises:
-        with pytest.raises(GroundingValidationError):
-            answerer.answer(_query(), [_chunk(quote)])
+    answer = GroundedAnswerer(FakeAnswerClient([{"text": quote, "evidence_indices": [1]}])).answer(
+        _query(), [_chunk(quote)]
+    )
+
+    if accepted:
+        assert not answer.abstained
     else:
-        assert not answerer.answer(_query(), [_chunk(quote)]).abstained
+        assert answer.abstained
+        assert answer.answer == REJECTED_CLAIMS_REASON
 
 
 @pytest.mark.parametrize("shared_identity", ["doc_id", "url"])
@@ -213,8 +222,10 @@ def test_source_budget_groups_chunks_by_document_or_trimmed_url(
         {"text": second, "evidence_indices": [2]},
     ]
 
-    with pytest.raises(GroundingValidationError):
-        GroundedAnswerer(FakeAnswerClient(claims)).answer(_query(), chunks)
+    answer = GroundedAnswerer(FakeAnswerClient(claims)).answer(_query(), chunks)
+
+    assert not answer.abstained
+    assert answer.answer == f"{first} [1]"
 
 
 def test_overlapping_chunks_count_one_claim_once_per_source_group() -> None:
