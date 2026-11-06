@@ -28,6 +28,7 @@ from acgn_rag.core.store.payload import ChunkPayload, iso_to_epoch
 
 SNAPSHOT = "20261028abcdef"
 GOLD = "https://example.com/news/a"
+OTHER = "https://example.com/news/b"
 DAY = 86_400
 
 
@@ -965,6 +966,40 @@ def test_load_snapshot_member_urls_reads_manifest(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     assert load_snapshot_member_urls(snap) == frozenset({GOLD, "https://example.com/news/b"})
+
+
+def test_load_snapshot_member_urls_missing_manifest(tmp_path: Path) -> None:
+    assert load_snapshot_member_urls(tmp_path / "absent") == frozenset()
+
+
+def test_no_resolver_keeps_member_urls_unresolved(tmp_path: Path) -> None:
+    result = run(
+        _spec(tmp_path),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        qa_items=[_qa_item()],
+        snapshot_member_urls=(GOLD,),
+    )
+    resolved = json.loads((result.out_dir / "resolved_evidence.json").read_text(encoding="utf-8"))
+    assert resolved["status"] == "not_configured"
+    assert resolved["member_not_indexed"] == []
+    assert resolved["unresolved"] == [GOLD]
+
+
+def test_partial_gold_member_not_indexed_keeps_item_eligible(tmp_path: Path) -> None:
+    result = run(
+        _spec(tmp_path),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        qa_items=[_qa_item(urls=(GOLD, OTHER))],
+        evidence_resolver=lambda urls: {GOLD: ["doc::A::1"], OTHER: []},
+        snapshot_member_urls=(OTHER,),
+    )
+    meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
+    assert meta["metrics"]["counts"]["gold_member_not_indexed"] == 0
+    assert meta["metrics"]["retrieval"]["hit"]["all"] == {"value": 1.0, "n": 1}
+    resolved = json.loads((result.out_dir / "resolved_evidence.json").read_text(encoding="utf-8"))
+    assert resolved["member_not_indexed"] == [OTHER]
 
 
 class _FakeCollection:

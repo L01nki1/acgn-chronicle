@@ -245,7 +245,7 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
     if not result.meta.get("reportable", False):
-        reason = result.meta.get("non_reportable_reason")
+        reason = result.meta.get("non_reportable_reason") or "unknown"
         suffix = " (PR #48 GPU-first policy, pending)" if reason == "non_gpu_device" else ""
         print(f"NOT REPORTABLE: {reason}{suffix}", file=sys.stderr)
     print(f"hit@k:  {result.metrics['retrieval']['hit']}")

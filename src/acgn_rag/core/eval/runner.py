@@ -522,7 +522,12 @@ def run(
     evidence_resolver: Callable[[Sequence[str]], Mapping[str, Sequence[str]]] | None = None,
     snapshot_member_urls: Collection[str] | None = None,
 ) -> RunResult:
-    """Execute one run and write the archive under `out_root/<run_id>/`."""
+    """Execute one run and write the archive under `out_root/<run_id>/`.
+
+    `snapshot_member_urls` is the full member URL set from the frozen manifest. A gold URL
+    present there but absent from the bound collection is recorded as `member_not_indexed`,
+    not `gold_unavailable`; the alias policy is pending the E/F/D rule.
+    """
     _validate_spec(spec)
     items = _load_items(spec, qa_items)
     run_id = _run_id(spec)
@@ -544,16 +549,20 @@ def run(
             for url, chunk_ids in evidence_resolver(all_gold).items()
         }
     member_urls = frozenset(metrics.normalize_url(str(url)) for url in (snapshot_member_urls or ()))
-    member_not_indexed = [
-        url
-        for url in all_gold
-        if not resolved.get(url) and metrics.normalize_url(url) in member_urls
-    ]
-    unresolved = [
-        url
-        for url in all_gold
-        if not resolved.get(url) and metrics.normalize_url(url) not in member_urls
-    ]
+    if evidence_resolver is not None:
+        member_not_indexed = [
+            url
+            for url in all_gold
+            if not resolved.get(url) and metrics.normalize_url(url) in member_urls
+        ]
+        unresolved = [
+            url
+            for url in all_gold
+            if not resolved.get(url) and metrics.normalize_url(url) not in member_urls
+        ]
+    else:
+        member_not_indexed = []
+        unresolved = list(all_gold)
 
     cases: list[metrics.CaseResult] = []
     answers: list[dict[str, Any]] = []
