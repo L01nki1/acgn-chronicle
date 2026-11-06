@@ -227,3 +227,37 @@ def test_empty_media_ids_payload_is_storable_and_not_media_matchable(
     store.upsert_chunks([unresolved], [[1.0, 0.0]])
     assert "c7" in _ids(_search(store))
     assert "c7" not in _ids(_search(store, RetrievalFilters(media_ids=[1])))
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "F store cannot clear media_ids when the same chunk_id is re-upserted as unresolved; "
+        "the coordinated fix must use Chroma's removal marker. Remove this marker when the "
+        "store fix lands."
+    ),
+)
+def test_media_ids_can_become_unresolved_on_upsert(store: ChromaStore) -> None:
+    """A linked item that later becomes unresolved must not retain its old media link."""
+    linked = _payload(
+        "c7",
+        source_type="official",
+        published_at="2026-10-28T00:00:00Z",
+        media_ids=(1,),
+    )
+    store.upsert_chunks([linked], [[1.0, 0.0]])
+    assert "c7" in _ids(_search(store, RetrievalFilters(media_ids=[1])))
+
+    unresolved = _payload(
+        "c7",
+        source_type="official",
+        published_at="2026-10-28T00:00:00Z",
+        media_ids=(),
+    )
+    store.upsert_chunks([unresolved], [[1.0, 0.0]])
+    assert "c7" in _ids(_search(store))
+    assert "c7" not in _ids(_search(store, RetrievalFilters(media_ids=[1])))
+
+    hits = store.query([1.0, 0.0], top_k=10)
+    c7 = next(hit for hit in hits if hit.payload.chunk_id == "c7")
+    assert c7.payload.media_ids == ()
