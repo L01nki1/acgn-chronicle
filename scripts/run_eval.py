@@ -235,6 +235,12 @@ def main(argv: list[str] | None = None) -> int:
             "from retrieval metrics and this run is not reportable.",
             file=sys.stderr,
         )
+    if not result.meta.get("reportable", False):
+        print(
+            f"NOT REPORTABLE: {result.meta.get('non_reportable_reason')} "
+            "(DECISIONS 2026-11-05 requires a GPU lane).",
+            file=sys.stderr,
+        )
     print(f"hit@k:  {result.metrics['retrieval']['hit']}")
     print(f"mrr:    {result.metrics['retrieval']['mrr']}")
     print(f"recall: {result.metrics['retrieval']['evidence_recall']}")

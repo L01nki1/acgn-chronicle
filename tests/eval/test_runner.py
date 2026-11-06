@@ -857,6 +857,8 @@ def test_reportable_is_the_composition_of_resolver_and_verified_window(
         ("cuda:0", True, None),
         ("cpu", False, "non_gpu_device"),
         ("mps", False, "non_gpu_device"),
+        ("cudafoo", False, "non_gpu_device"),
+        ("", False, "non_gpu_device"),
     ],
 )
 def test_reportable_requires_a_gpu_device(
@@ -880,6 +882,21 @@ def test_reportable_requires_a_gpu_device(
     meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
     assert meta["reportable"] is reportable
     assert meta["non_reportable_reason"] == reason
+
+
+def test_reportable_requires_an_explicit_device(tmp_path: Path) -> None:
+    identity = _build_identity()
+    identity.pop("device")
+    result = run(
+        _spec(tmp_path, build_identity=identity),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["doc::A::1"] for url in urls},
+    )
+    meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
+    assert meta["reportable"] is False
+    assert meta["non_reportable_reason"] == "non_gpu_device"
 
 
 class _FakeCollection:

@@ -190,20 +190,20 @@ def _embed_metadata(identity: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-GPU_DEVICE_PREFIX = "cuda"
+_GPU_DEVICE_PREFIX = "cuda"
 
 
-def is_reportable_device(build_identity: Mapping[str, Any]) -> bool:
+def _is_reportable_device(build_identity: Mapping[str, Any]) -> bool:
     """Return True when the recorded encoder device is a GPU lane.
 
     DECISIONS 2026-11-05 makes GPU builds/runs mandatory and CPU output non-reportable.
     `mps` is deliberately not accepted until D defines whether it is a reportable lane.
     """
     device = str(build_identity.get("device") or "").strip().lower()
-    return device.startswith(GPU_DEVICE_PREFIX)
+    return device == _GPU_DEVICE_PREFIX or device.startswith(f"{_GPU_DEVICE_PREFIX}:")
 
 
-def reportability_reason(
+def _reportability_reason(
     *,
     evidence_resolver: object | None,
     window_verified: bool,
@@ -214,7 +214,7 @@ def reportability_reason(
         return "no_evidence_resolver"
     if not window_verified:
         return "window_unverified"
-    if not is_reportable_device(build_identity):
+    if not _is_reportable_device(build_identity):
         return "non_gpu_device"
     return None
 
@@ -558,7 +558,7 @@ def run(
         indexed_chunks=spec.counts.get("stored"),
         provisional=evidence_resolver is None,
     )
-    non_reportable_reason = reportability_reason(
+    non_reportable_reason = _reportability_reason(
         evidence_resolver=evidence_resolver,
         window_verified=spec.window_verified,
         build_identity=spec.build_identity,
