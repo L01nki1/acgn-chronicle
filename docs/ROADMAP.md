@@ -102,17 +102,9 @@ their owners.
 - encoding on the recorded lane with an identity-keyed cache (model policy: RUNBOOK §3.5); compliance tests green (`pytest tests/compliance -q`)
 - L0 fact extraction on a 30-item spot check ≥90% field accuracy, every row carries `chunkId` + `url`
 
-**WP4 / B status — G1b code candidate, not gate evidence (2026-11-05).** [PR #45](https://github.com/L01nki1/acgn-chronicle/pull/45)
-adds request-local grounded generation in `core/ground/`: retrieved chunks are passed to the model as
-indices, deterministic code maps each accepted index back to the request's `chunk_id` and citation,
-claims with invalid evidence are discarded, and a request with no surviving claim returns
-`abstained=true` with a refusal reason. It revalidates citation markers, applies the same literal-source
-quote budget to refusal text, and keeps the 0.2.3 wire schema unchanged. On Windows / CPython 3.13.5,
-the locked `dev,store,llm` environment passed lint, format, schema sync and 277 offline tests (279
-collected, 2 documented opt-in real-e5 skips, 0 failures); all six CI checks passed at `92a19b8`. C and
-E are requested for cross-review and consumer review. The candidate is not merged and does not pass
-G1b: no real corpus, index, retrieval service, HTTP host or live LLM run was exercised, and semantic
-faithfulness still requires evaluation.
+**G1b outbound guard (`KnowledgePort` §3.7):** code candidate in
+[#45](https://github.com/L01nki1/acgn-chronicle/pull/45) — not gate evidence; no real corpus, index or
+live LLM run yet.
 
 ### G2 · 2026-11-21 — Topic 5 complete (official brief, hard gate)
 
