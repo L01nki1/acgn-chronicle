@@ -1047,6 +1047,28 @@ def test_bypassed_qa_validation_is_recorded_and_non_reportable(tmp_path: Path) -
     assert meta["metrics"]["reporting"]["retrieval"] == {"available": True, "n": 1}
 
 
+def test_file_path_qa_is_auto_validated_and_reportable(tmp_path: Path) -> None:
+    values = asdict(_spec(tmp_path))
+    values["qa_path"] = Path("eval/qa_set.jsonl")
+    values.pop("qa_validated")
+    values.pop("qa_source")
+    spec = RunSpec(**values)  # type: ignore[arg-type]
+    result = run(
+        spec,
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        qa_items=None,
+        evidence_resolver=lambda urls: {url: ["doc::A::1"] for url in urls},
+    )
+    meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
+    assert meta["qa"]["count"] == 32
+    assert meta["qa"]["validated"] is True
+    assert meta["qa"]["validation"] == "validated"
+    assert meta["qa"]["source"] == "runner"
+    assert meta["reportable"] is True
+    assert meta["metrics"]["reporting"]["retrieval"]["available"] is True
+
+
 class _FakeCollection:
     def __init__(self, rows: list[dict[str, Any]]) -> None:
         self.rows = rows

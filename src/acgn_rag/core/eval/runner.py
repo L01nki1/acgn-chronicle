@@ -16,7 +16,7 @@ from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from acgn_rag.core.eval import metrics, qa
 from acgn_rag.core.ports import (
@@ -77,7 +77,7 @@ class RunSpec:
     determinism: Mapping[str, Any] = field(default_factory=dict)
     require_gpu: bool = False
     qa_validated: bool = False
-    qa_source: str = "caller"
+    qa_source: Literal["cli", "caller", "runner"] = "caller"
 
 
 @dataclass(frozen=True)
@@ -471,7 +471,8 @@ def _load_items(
 ) -> list[dict[str, Any]]:
     """Load QA items from the file path or a caller-supplied sequence.
 
-    The file path is validated here. Caller-supplied items are accepted as-is only when
+    The file path is validated here and archived as `source="runner"` with
+    `validated=True`. Caller-supplied items are accepted as-is only when
     `RunSpec.qa_validated` is explicitly True, which is the caller's attestation that
     `qa.validate` passed; the default is False and archives the run as bypassed and
     non-reportable. `run_eval.py` sets the flag only after its own validation.
@@ -545,6 +546,13 @@ def run(
     """
     _validate_spec(spec)
     items = _load_items(spec, qa_items)
+    if qa_items is None:
+        # The runner loaded and validated the file path itself.
+        effective_qa_validated = True
+        effective_qa_source: Literal["cli", "caller", "runner"] = "runner"
+    else:
+        effective_qa_validated = spec.qa_validated
+        effective_qa_source = spec.qa_source
     run_id = _run_id(spec)
     out_dir = spec.out_root / run_id
     if out_dir.exists():
@@ -640,7 +648,7 @@ def run(
         window_verified=spec.window_verified,
         build_identity=spec.build_identity,
         require_gpu=spec.require_gpu,
-        qa_validated=spec.qa_validated,
+        qa_validated=effective_qa_validated,
         has_reportable_metrics=has_reportable_metrics,
     )
     meta = {
@@ -670,9 +678,9 @@ def run(
         "qa": {
             "path": str(spec.qa_path),
             "count": len(items),
-            "validated": spec.qa_validated,
-            "validation": "validated" if spec.qa_validated else "bypassed",
-            "source": spec.qa_source,
+            "validated": effective_qa_validated,
+            "validation": "validated" if effective_qa_validated else "bypassed",
+            "source": effective_qa_source,
         },
         "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "metrics": metrics_payload,
