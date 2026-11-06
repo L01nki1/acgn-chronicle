@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from acgn_rag.core.eval import qa
 from acgn_rag.core.eval.runner import (
     CHUNKER_FIELDS,
     VECTOR_IDENTITY_KEYS,
@@ -159,6 +160,10 @@ def _spec(tmp_path: Path, **overrides: object) -> RunSpec:
         "llm": {"provider": "none", "model": "none"},
         "determinism": {"torch_seed": 0, "use_deterministic_algorithms": True},
         "require_gpu": False,
+        # Test fixtures explicitly attest QA validity so the reportability-composition
+        # tests can isolate resolver/window/GPU/metrics. The production default is False.
+        "qa_validated": True,
+        "qa_source": "caller",
     }
     values.update(overrides)
     return RunSpec(**values)  # type: ignore[arg-type]
@@ -261,6 +266,7 @@ def test_run_writes_complete_archive(tmp_path: Path) -> None:
     assert meta["qa"]["count"] == 1
     assert meta["qa"]["validated"] is True
     assert meta["qa"]["validation"] == "validated"
+    assert meta["qa"]["source"] == "caller"
     assert meta["build_identity"]["model"] == "fake"
     assert meta["embed"] == {
         "model": "fake",
@@ -1019,11 +1025,17 @@ def test_no_eligible_retrieval_is_non_reportable(tmp_path: Path) -> None:
 
 
 def test_bypassed_qa_validation_is_recorded_and_non_reportable(tmp_path: Path) -> None:
+    item = _qa_item()
+    assert qa.validate([item]), "fixture must be invalid under the full QA rules"
+    values = asdict(_spec(tmp_path))
+    values.pop("qa_validated")
+    values.pop("qa_source")
+    spec = RunSpec(**values)  # type: ignore[arg-type]
     result = run(
-        _spec(tmp_path, qa_validated=False),
+        spec,
         store=FakeStore([_hit()]),
         embedder=FakeEmbedder(),
-        qa_items=[_qa_item()],
+        qa_items=[item],
         evidence_resolver=lambda urls: {url: ["doc::A::1"] for url in urls},
     )
     meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
@@ -1031,6 +1043,7 @@ def test_bypassed_qa_validation_is_recorded_and_non_reportable(tmp_path: Path) -
     assert meta["non_reportable_reason"] == "qa_validation_bypassed"
     assert meta["qa"]["validated"] is False
     assert meta["qa"]["validation"] == "bypassed"
+    assert meta["qa"]["source"] == "caller"
     assert meta["metrics"]["reporting"]["retrieval"] == {"available": True, "n": 1}
 
 

@@ -76,7 +76,8 @@ class RunSpec:
     llm: Mapping[str, Any] = field(default_factory=dict)
     determinism: Mapping[str, Any] = field(default_factory=dict)
     require_gpu: bool = False
-    qa_validated: bool = True
+    qa_validated: bool = False
+    qa_source: str = "caller"
 
 
 @dataclass(frozen=True)
@@ -468,6 +469,13 @@ def _validate_spec(spec: RunSpec) -> None:
 def _load_items(
     spec: RunSpec, qa_items: Sequence[Mapping[str, Any]] | None
 ) -> list[dict[str, Any]]:
+    """Load QA items from the file path or a caller-supplied sequence.
+
+    The file path is validated here. Caller-supplied items are accepted as-is only when
+    `RunSpec.qa_validated` is explicitly True, which is the caller's attestation that
+    `qa.validate` passed; the default is False and archives the run as bypassed and
+    non-reportable. `run_eval.py` sets the flag only after its own validation.
+    """
     if qa_items is None:
         items = qa.load_jsonl(spec.qa_path)
         problems = qa.validate(items)
@@ -664,6 +672,7 @@ def run(
             "count": len(items),
             "validated": spec.qa_validated,
             "validation": "validated" if spec.qa_validated else "bypassed",
+            "source": spec.qa_source,
         },
         "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "metrics": metrics_payload,
