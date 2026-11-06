@@ -208,7 +208,7 @@ number alone invites the obvious objection. The calibration set's own rates may 
   "chunk_config": "A",
   "chunker": {"max_tokens": 512, "overlap": 64, "budget": 508, "max_seq_length": 512, "header_version": "h1"},
   "retrieval": {"mode": "vector", "top_k": 5, "over_fetch": 5},
-  "embed": {"model": "intfloat/multilingual-e5-base", "backend": "torch", "device": "cpu", "precision": "fp32", "library_versions": {"torch": "2.15.0", "sentence_transformers": "6.1.0"}, "batch": 32},
+  "embed": {"model": "intfloat/multilingual-e5-base", "backend": "torch", "device": "cuda", "precision": "fp16", "library_versions": {"torch": "2.15.0", "sentence_transformers": "6.1.0"}, "batch": 32},
   "llm": {"provider": "...", "model": "...", "version": "...", "temperature": 0.0, "seed": 0},
   "git_sha": "...",
   "metrics": {"retrieval_hit_rate": {"all": 0.0, "en": 0.0, "zh": 0.0}, "evidence_recall": {"all": 0.0, "en": 0.0, "zh": 0.0}, "answer_correctness": {}, "abstention_accuracy": {}}
@@ -233,6 +233,13 @@ number alone invites the obvious objection. The calibration set's own rates may 
 
 - `temperature=0` **is not determinism**: MoE routing and batching still introduce jitter. Record provider, model,
   version, date and seed, and state in the report that reruns differ slightly, with the measured spread.
+- **Tier 1 assumes one encoder identity, not "GPU" as a device class.** Since DECISIONS 2026-11-05 every build
+  runs on a GPU lane, and a tier-1 rerun must reuse the *same* identity. fp16 CUDA kernels are not bitwise
+  deterministic across GPU models, precision settings or kernel-selection changes, so a rebuild on another card
+  or another torch build is a different identity: its hit-rate difference is a different experiment, not a rerun
+  spread, and it must not be reported in the spread column. If tier 1 ever has to be compared across machines,
+  fix the reduction order with `torch.use_deterministic_algorithms(True)` and disclose the precision alongside
+  the metric.
 - **Two reruns are archived, not one.** A spread claim with a single run behind it is unsupported.
 - Grading reproducibility is a separate question: **re-grade the same `answers.jsonl`** and the labels must be
   identical. A difference means the rubric is ambiguous, not that the model moved.

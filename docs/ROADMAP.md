@@ -99,7 +99,10 @@ their owners.
 - **no silent truncation**: for every config and a non-empty context header,
   `len(ids(prefix + header + "\n" + chunk)) <= max_seq_length` on every chunk
   (`test_encoded_length_never_exceeds_context`); a full-budget chunk that overflows raises at build time
-- encoding on the recorded lane with an identity-keyed cache (model policy: RUNBOOK §3.5); compliance tests green (`pytest tests/compliance -q`)
+- encoding on the canonical **GPU** lane with an identity-keyed cache (model policy: RUNBOOK §3.5; CPU is
+  emergency-only per DECISIONS 2026-11-05 and its output is not reportable); compliance tests green (`pytest tests/compliance -q`).
+  **The local CUDA lane is unavailable until the `[gpu]` extra lands in G2**, so every G1b build runs on
+  Colab (T4) and the session budget must account for it.
 - L0 fact extraction on a 30-item spot check ≥90% field accuracy, every row carries `chunkId` + `url`
 
 ### G2 · 2026-11-21 — Topic 5 complete (official brief, hard gate)
@@ -213,7 +216,7 @@ Secondary responsibilities (revised 2026-10-28):
 | R4 | Scope creep (site, board) | Report stays five sections; board is conditional; D holds the cut list | D |
 | R5 | Missing signature page = desk reject | Checked daily from 11/20 | D |
 | R6 | Silent corpus shrinkage | selector errors raise; `items > 0` assertion; coverage monitoring | A |
-| R7 | Encoding over budget | content budget derived from the model (RUNBOOK §3.4), cache mandatory, measured lane numbers before scaling | F |
+| R7 | Encoding over budget | content budget derived from the model (RUNBOOK §3.4), cache mandatory, measured **GPU-lane** numbers before scaling; a CPU fallback build costs 3.4–15.6 h/config and is not a schedule option (DECISIONS 2026-11-05) | F |
 | R8 | QA set degenerates into lookups | type A ≤ 1/3; C/D must include cross-source synthesis | D |
 
 ## 7. How we track work

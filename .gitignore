@@ -61,3 +61,6 @@ desktop.ini
 
 # ---- Internal workspace data (agent memory; never committed) ----
 /.workbuddy/
+
+# ---- Paper research (personal research plan; not part of the course deliverable) ----
+/paper/

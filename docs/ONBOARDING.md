@@ -13,7 +13,10 @@
 | torch wheel | native arm64, installs cleanly | fine |
 
 On **Linux**, `pyproject.toml` resolves torch from the PyTorch CPU index automatically (the PyPI linux
-wheel bundles CUDA and is ~3 GB bigger) — no flags needed. Plain `pip install -e ".[dev]"` still works
+wheel bundles CUDA and is ~3 GB bigger) — no flags needed. **That wheel is for CI and for running the test
+suite; it cannot execute a GPU build.** Since DECISIONS 2026-11-05 every index build and evaluation run uses
+a GPU lane, so a machine that will build indexes needs a CUDA wheel on top of this resolution — see RUNBOOK
+§3.5 for the lane policy and the sm_120 (Blackwell) wheel caveat. Plain `pip install -e ".[dev]"` still works
 if you maintain the venv by hand; `uv.lock` is the canonical resolution either way.
 
 **Do not** commit `.sh` / `.ps1` / `.bat` files as entry points. Every repeatable action goes through
@@ -182,7 +185,7 @@ that is what this table is for.
 | Default encoding: UTF-8 on macOS, cp936 on Windows | Garbled sample pages | Always pass `encoding=`; detect Japanese encodings with `charset-normalizer` |
 | Unicode normalisation: macOS uses NFD for filenames | Japanese titles split into two files | **Never use a title as a filename** — use media_id / hash |
 | Time zone | Corrupted snapshot windows | Store UTC internally, convert for display only |
-| Embedding device: macOS has MPS | Floating-point results differ slightly per device | Never mix vectors across devices: every build records its **encoder identity** and the cache is keyed by it (RUNBOOK §3.4); `.env.example` defaults to `cpu`, the lane every member can run |
+| Embedding device: macOS has MPS, local cards are CUDA | Floating-point results differ slightly per device | Never mix vectors across devices: every build records its **encoder identity** and the cache is keyed by it (RUNBOOK §3.4). Since DECISIONS 2026-11-05 every build uses a GPU lane, so `ACGN_EMBED_DEVICE` must be set explicitly; `.env.example` keeps `cpu` only as an install-time default, and a CPU build is not reportable |
 
 ## 6. Division of labor
 
