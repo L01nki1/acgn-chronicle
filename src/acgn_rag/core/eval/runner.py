@@ -74,6 +74,7 @@ class RunSpec:
     counts: Mapping[str, int] = field(default_factory=dict)
     chunker: Mapping[str, Any] = field(default_factory=dict)
     llm: Mapping[str, Any] = field(default_factory=dict)
+    determinism: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -187,6 +188,35 @@ def _embed_metadata(identity: Mapping[str, Any]) -> dict[str, Any]:
         "library_versions": versions,
         "batch": identity.get("batch_size"),
     }
+
+
+GPU_DEVICE_PREFIX = "cuda"
+
+
+def is_reportable_device(build_identity: Mapping[str, Any]) -> bool:
+    """Return True when the recorded encoder device is a GPU lane.
+
+    DECISIONS 2026-11-05 makes GPU builds/runs mandatory and CPU output non-reportable.
+    `mps` is deliberately not accepted until D defines whether it is a reportable lane.
+    """
+    device = str(build_identity.get("device") or "").strip().lower()
+    return device.startswith(GPU_DEVICE_PREFIX)
+
+
+def reportability_reason(
+    *,
+    evidence_resolver: object | None,
+    window_verified: bool,
+    build_identity: Mapping[str, Any],
+) -> str | None:
+    """Return why a run is not reportable, or None when it is reportable."""
+    if evidence_resolver is None:
+        return "no_evidence_resolver"
+    if not window_verified:
+        return "window_unverified"
+    if not is_reportable_device(build_identity):
+        return "non_gpu_device"
+    return None
 
 
 def _library_keys(*identities: Mapping[str, Any]) -> set[str]:
@@ -528,6 +558,11 @@ def run(
         indexed_chunks=spec.counts.get("stored"),
         provisional=evidence_resolver is None,
     )
+    non_reportable_reason = reportability_reason(
+        evidence_resolver=evidence_resolver,
+        window_verified=spec.window_verified,
+        build_identity=spec.build_identity,
+    )
     meta = {
         "run_id": run_id,
         "snapshot_id": spec.snapshot_id,
@@ -543,7 +578,9 @@ def run(
         "embed": _embed_metadata(spec.build_identity),
         "build_identity": dict(spec.build_identity),
         "chunker": dict(spec.chunker),
-        "reportable": evidence_resolver is not None and spec.window_verified,
+        "reportable": non_reportable_reason is None,
+        "non_reportable_reason": non_reportable_reason,
+        "determinism": dict(spec.determinism),
         "collection": spec.collection,
         "llm": dict(spec.llm),
         "git_sha": spec.git_sha,

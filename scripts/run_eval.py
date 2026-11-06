@@ -56,6 +56,33 @@ def _git_sha() -> str:
     return completed.stdout.strip() or "unknown"
 
 
+def _configure_determinism(seed: int = 0) -> dict[str, object]:
+    """Set and record the torch determinism knobs for a reportable run."""
+    try:
+        import torch
+    except Exception:
+        return {
+            "torch_available": False,
+            "torch_seed": seed,
+            "use_deterministic_algorithms": False,
+            "warn_only": None,
+        }
+    torch.manual_seed(seed)
+    warn_only = True
+    enabled = False
+    try:
+        torch.use_deterministic_algorithms(True, warn_only=warn_only)
+        enabled = True
+    except Exception:
+        enabled = False
+    return {
+        "torch_available": True,
+        "torch_seed": seed,
+        "use_deterministic_algorithms": enabled,
+        "warn_only": warn_only if enabled else None,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run one evaluation configuration")
     parser.add_argument("--config", required=True, choices=CONFIG_CHOICES)
@@ -166,6 +193,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"EVIDENCE RESOLVER FAILED: {exc}", file=sys.stderr)
         return 1
 
+    determinism = _configure_determinism()
     spec = RunSpec(
         snapshot_id=args.snapshot,
         window_start=window_start,
@@ -189,6 +217,7 @@ def main(argv: list[str] | None = None) -> int:
             "temperature": settings.llm.temperature,
             "seed": 0,
         },
+        determinism=determinism,
     )
     result = run(
         spec,

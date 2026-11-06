@@ -138,10 +138,10 @@ def _spec(tmp_path: Path, **overrides: object) -> RunSpec:
         "build_identity": {
             "model": "fake",
             "backend": "torch",
-            "device": "cpu",
+            "device": "cuda",
             "precision": "fp32",
             "batch_size": 32,
-            "identity_slug": "fake-torch-cpu-fp32-b32-12345678",
+            "identity_slug": "fake-torch-cuda-fp32-b32-12345678",
             "lib_torch": "2.15.0",
         },
         "collection": "snap_20261028abc_A",
@@ -155,6 +155,7 @@ def _spec(tmp_path: Path, **overrides: object) -> RunSpec:
             "max_seq_length": 512,
         },
         "llm": {"provider": "none", "model": "none"},
+        "determinism": {"torch_seed": 0, "use_deterministic_algorithms": True},
     }
     values.update(overrides)
     return RunSpec(**values)  # type: ignore[arg-type]
@@ -259,11 +260,13 @@ def test_run_writes_complete_archive(tmp_path: Path) -> None:
     assert meta["embed"] == {
         "model": "fake",
         "backend": "torch",
-        "device": "cpu",
+        "device": "cuda",
         "precision": "fp32",
         "library_versions": {"torch": "2.15.0"},
         "batch": 32,
     }
+    assert meta["determinism"] == {"torch_seed": 0, "use_deterministic_algorithms": True}
+    assert meta["non_reportable_reason"] is None
     assert meta["collection"] == "snap_20261028abc_A"
     assert meta["chunker"]["max_tokens"] == 512
     assert meta["reportable"] is True
@@ -733,6 +736,7 @@ def test_run_without_resolver_is_provisional_and_excludes_unresolved_gold(
     assert resolved["status"] == "not_configured"
     meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
     assert meta["reportable"] is False
+    assert meta["non_reportable_reason"] == "no_evidence_resolver"
 
 
 def test_bind_existing_collection_does_not_create_real_storage(tmp_path: Path) -> None:
@@ -791,6 +795,7 @@ def test_run_with_resolver_but_unverified_window_is_not_reportable(
     meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
     assert meta["window_verified"] is False
     assert meta["reportable"] is False
+    assert meta["non_reportable_reason"] == "window_unverified"
 
 
 @pytest.mark.parametrize("missing", VECTOR_IDENTITY_KEYS)
@@ -843,6 +848,38 @@ def test_reportable_is_the_composition_of_resolver_and_verified_window(
     )
     meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
     assert meta["reportable"] is reportable
+
+
+@pytest.mark.parametrize(
+    ("device", "reportable", "reason"),
+    [
+        ("cuda", True, None),
+        ("cuda:0", True, None),
+        ("cpu", False, "non_gpu_device"),
+        ("mps", False, "non_gpu_device"),
+    ],
+)
+def test_reportable_requires_a_gpu_device(
+    tmp_path: Path,
+    device: str,
+    reportable: bool,
+    reason: str | None,
+) -> None:
+    identity = {
+        **_build_identity(),
+        "device": device,
+        "identity_slug": f"fake-torch-{device}-fp32-b32-12345678",
+    }
+    result = run(
+        _spec(tmp_path, build_identity=identity),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["doc::A::1"] for url in urls},
+    )
+    meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
+    assert meta["reportable"] is reportable
+    assert meta["non_reportable_reason"] == reason
 
 
 class _FakeCollection:
