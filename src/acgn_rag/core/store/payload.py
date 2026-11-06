@@ -1,8 +1,8 @@
 """Chroma metadata payload: the flat, typed shape one chunk takes inside a collection.
 
-Owner: F | Spec: 04 §7 D4, docs/RUNBOOK.md §3.1 (chromadb >=1.0,<2)
+Owner: F | Spec: 04 §7 D4, docs/RUNBOOK.md §3.1 (chromadb >=1.5.0,<2)
 
-Chroma 1.x metadata accepts scalars or flat same-type arrays - nesting is still forbidden -
+Chroma 1.5.0 metadata accepts scalars or flat same-type arrays - nesting is still forbidden -
 so a chunk is stored as `documents=<body>` plus a flat metadata dict built by `to_payload`:
 `published_ts` is an int epoch (never an ISO string) and `media_ids` stays a native `int[]`
 filtered with `$contains` (see `chroma_store.media_filter`).

@@ -72,10 +72,10 @@ pytest -q                                     # 4 tests
 | Committing shows no `[pre-commit]` line at all | `core.hooksPath` is not set in this clone (it is a local setting) | `python scripts/install_hooks.py` |
 | `hooks/pre-commit: bad interpreter` | The hook file picked up CRLF | `.gitattributes` forces LF for `.githooks/*`; re-checkout the file (`git checkout -- .githooks`) |
 
-### 3.1 Chroma specifics — three pitfalls to verify before building the index (chromadb >=1.0,<2)
+### 3.1 Chroma specifics — three pitfalls to verify before building the index (chromadb >=1.5.0,<2)
 
-1. **Metadata holds scalars or flat typed arrays.** Since 1.0 Chroma accepts `str / int /
-   float / bool` and one-type, one-dimensional arrays (`int[]` works, nesting is still
+1. **Metadata holds scalars or flat typed arrays.** The minimum supported Chroma 1.5.0 accepts
+   `str / int / float / bool` and one-type, one-dimensional arrays (`int[]` works, nesting is still
    forbidden). `media_ids` is stored natively as `int[]` and filtered with
    `{"$or": [{"media_ids": {"$contains": id}}, ...]}` — measured adequate for the small
    any-of lists `RetrievalFilters.media_ids` implies. Long any-of lists may still justify a

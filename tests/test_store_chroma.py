@@ -1,10 +1,8 @@
 """ChromaStore on an embedded chromadb 1.x instance: offline, tmp_path, telemetry off.
 
 Requires the [store] extra; skipped whole-module without it, so a bare
-`pip install -e ".[dev]"` clone still passes (RUNBOOK §1). Written for the 1.x API
-(`configuration=`, typed array metadata): the drafting venv still carries the old 0.6.3
-band, where only the version anchor fails by design - see NOTES.md (verification) for what
-was exercised on which band.
+`pip install -e ".[dev]"` clone still passes (RUNBOOK §1). The supported band starts at
+1.5.0 for typed array metadata and the `$contains` filter.
 """
 
 from __future__ import annotations
@@ -69,9 +67,9 @@ def loaded(store: ChromaStore) -> ChromaStore:
     return store
 
 
-def test_chromadb_is_1x() -> None:
-    # The store is written for the 1.x API (configuration=, typed array metadata); see NOTES.
-    assert int(chromadb.__version__.split(".")[0]) == 1
+def test_chromadb_is_in_supported_band() -> None:
+    major, minor = (int(part) for part in chromadb.__version__.split(".")[:2])
+    assert (1, 5) <= (major, minor) < (2, 0)
 
 
 def test_collection_name_format() -> None:
