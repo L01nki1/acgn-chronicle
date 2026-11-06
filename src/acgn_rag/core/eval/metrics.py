@@ -11,7 +11,8 @@ the index covers; it is **not** a divisor. Every rate is computed over its own e
 and prints that set's `n` beside the value:
 
 - retrieval: answerable items whose gold url resolves in this snapshot (`gold_unavailable`
-  items are excluded and counted);
+  items are excluded and counted; `gold_member_not_indexed` items are excluded and counted
+  separately until the E/F/D representative-alias rule is agreed);
 - correctness: answerable items actually graded (dropped items are excluded and counted);
 - abstention: the QA set only — unanswerable items for the refusal rate, answerable items for
   the false-refusal rate; the calibration set is reported separately as in-sample.
@@ -40,6 +41,8 @@ class CaseResult:
     """One QA item after retrieval and (optionally) generation.
 
     `gold_unavailable` is set by the runner when the gold URL is absent from the snapshot.
+    `gold_member_not_indexed` is set when the gold URL is a snapshot member whose cluster is
+    represented in the index by another member; eligibility is pending the E/F/D rule.
     `dropped` is set when an item is excluded after adjudication (§5); it stays counted.
     `calibration` marks an item from `eval/abstain_calibration.jsonl`, never a reporting item.
     `answer_label` and `abstained` stay `None` until a human labels the run.
@@ -53,6 +56,7 @@ class CaseResult:
     retrieved_chunk_ids: tuple[str, ...] = ()
     cited_chunk_ids: tuple[str, ...] = ()
     gold_unavailable: bool = False
+    gold_member_not_indexed: bool = False
     gold_unresolved: bool = False
     dropped: bool = False
     calibration: bool = False
@@ -90,7 +94,7 @@ def _retrieved_at_k(case: CaseResult, k: int | None) -> tuple[str, ...]:
 
 def hit_at_k(case: CaseResult, *, k: int | None = None) -> int:
     """1 if any retrieved URL within `k` is a gold URL, else 0. Not graded on answer text."""
-    if case.gold_unavailable:
+    if case.gold_unavailable or case.gold_member_not_indexed:
         return 0
     gold = _gold_set(case.gold_urls)
     if not gold:
@@ -100,7 +104,7 @@ def hit_at_k(case: CaseResult, *, k: int | None = None) -> int:
 
 def evidence_recall(case: CaseResult, *, k: int | None = None) -> float:
     """Distinct gold URLs retrieved within `k` / all gold URLs. Duplicates do not help."""
-    if case.gold_unavailable:
+    if case.gold_unavailable or case.gold_member_not_indexed:
         return 0.0
     gold = _gold_set(case.gold_urls)
     if not gold:
@@ -111,7 +115,7 @@ def evidence_recall(case: CaseResult, *, k: int | None = None) -> float:
 
 def mrr_at_k(case: CaseResult, *, k: int | None = None) -> float:
     """Reciprocal rank of the first gold-URL hit within `k`; 0.0 when there is none."""
-    if case.gold_unavailable:
+    if case.gold_unavailable or case.gold_member_not_indexed:
         return 0.0
     gold = _gold_set(case.gold_urls)
     if not gold:
@@ -126,6 +130,7 @@ def _retrieval_eligible(case: CaseResult) -> bool:
     return (
         case.answerable
         and not case.gold_unavailable
+        and not case.gold_member_not_indexed
         and not case.gold_unresolved
         and not case.dropped
         and not case.calibration
@@ -161,11 +166,15 @@ def retrieval_metrics(cases: Sequence[CaseResult], *, k: int = 5) -> dict[str, A
         "excluded": {
             "unanswerable": sum(1 for case in excluded if not case.answerable),
             "gold_unavailable": sum(1 for case in excluded if case.gold_unavailable),
+            "gold_member_not_indexed": sum(1 for case in excluded if case.gold_member_not_indexed),
             "gold_unresolved": sum(1 for case in excluded if case.gold_unresolved),
             "missing_gold": sum(
                 1
                 for case in excluded
-                if case.answerable and not case.gold_unavailable and not case.gold_urls
+                if case.answerable
+                and not case.gold_unavailable
+                and not case.gold_member_not_indexed
+                and not case.gold_urls
             ),
             "dropped": sum(1 for case in excluded if case.dropped),
         },
@@ -209,6 +218,7 @@ def abstention_accuracy(
         if not case.calibration
         and not case.dropped
         and not case.gold_unavailable
+        and not case.gold_member_not_indexed
         and case.abstained is not None
     ]
     answerable = [case for case in reporting if case.answerable]
@@ -276,6 +286,7 @@ def aggregate(
             "answerable": sum(1 for case in qa_cases if case.answerable),
             "unanswerable": sum(1 for case in qa_cases if not case.answerable),
             "gold_unavailable": sum(1 for case in qa_cases if case.gold_unavailable),
+            "gold_member_not_indexed": sum(1 for case in qa_cases if case.gold_member_not_indexed),
             "gold_unresolved": sum(1 for case in qa_cases if case.gold_unresolved),
             "dropped": sum(1 for case in qa_cases if case.dropped),
             "deduped_count": deduped_count,

@@ -18,6 +18,7 @@ from acgn_rag.core.eval.runner import (
     bind_existing_collection,
     build_evidence_resolver,
     load_build_records,
+    load_snapshot_member_urls,
     resolve_window,
     run,
     verify_build_identity,
@@ -156,6 +157,7 @@ def _spec(tmp_path: Path, **overrides: object) -> RunSpec:
         },
         "llm": {"provider": "none", "model": "none"},
         "determinism": {"torch_seed": 0, "use_deterministic_algorithms": True},
+        "require_gpu": False,
     }
     values.update(overrides)
     return RunSpec(**values)  # type: ignore[arg-type]
@@ -873,7 +875,7 @@ def test_reportable_requires_a_gpu_device(
         "identity_slug": f"fake-torch-{device}-fp32-b32-12345678",
     }
     result = run(
-        _spec(tmp_path, build_identity=identity),
+        _spec(tmp_path, build_identity=identity, require_gpu=True),
         store=FakeStore([_hit()]),
         embedder=FakeEmbedder(),
         qa_items=[_qa_item()],
@@ -888,7 +890,7 @@ def test_reportable_requires_an_explicit_device(tmp_path: Path) -> None:
     identity = _build_identity()
     identity.pop("device")
     result = run(
-        _spec(tmp_path, build_identity=identity),
+        _spec(tmp_path, build_identity=identity, require_gpu=True),
         store=FakeStore([_hit()]),
         embedder=FakeEmbedder(),
         qa_items=[_qa_item()],
@@ -897,6 +899,72 @@ def test_reportable_requires_an_explicit_device(tmp_path: Path) -> None:
     meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
     assert meta["reportable"] is False
     assert meta["non_reportable_reason"] == "non_gpu_device"
+
+
+def test_cpu_is_reportable_when_the_gpu_policy_is_not_enforced(tmp_path: Path) -> None:
+    result = run(
+        _spec(tmp_path, build_identity=_build_identity(), require_gpu=False),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["doc::A::1"] for url in urls},
+    )
+    meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
+    assert meta["reportable"] is True
+    assert meta["require_gpu"] is False
+    assert meta["gpu_policy"] == "not_enforced"
+
+
+def test_gold_member_not_indexed_is_distinct_from_absent(tmp_path: Path) -> None:
+    result = run(
+        _spec(tmp_path),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: [] for url in urls},
+        snapshot_member_urls=(GOLD,),
+    )
+    meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
+    assert meta["metrics"]["counts"]["gold_member_not_indexed"] == 1
+    assert meta["metrics"]["counts"]["gold_unavailable"] == 0
+    assert meta["metrics"]["retrieval"]["hit"]["all"]["n"] == 0
+    resolved = json.loads((result.out_dir / "resolved_evidence.json").read_text(encoding="utf-8"))
+    assert resolved["member_not_indexed"] == [GOLD]
+    assert resolved["unresolved"] == []
+
+
+def test_gold_absent_from_snapshot_is_unavailable(tmp_path: Path) -> None:
+    result = run(
+        _spec(tmp_path),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: [] for url in urls},
+        snapshot_member_urls=(),
+    )
+    meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
+    assert meta["metrics"]["counts"]["gold_unavailable"] == 1
+    assert meta["metrics"]["counts"]["gold_member_not_indexed"] == 0
+    resolved = json.loads((result.out_dir / "resolved_evidence.json").read_text(encoding="utf-8"))
+    assert resolved["unresolved"] == [GOLD]
+    assert resolved["member_not_indexed"] == []
+
+
+def test_load_snapshot_member_urls_reads_manifest(tmp_path: Path) -> None:
+    snap = tmp_path / "snap"
+    snap.mkdir()
+    (snap / "manifest.json").write_text(
+        json.dumps(
+            {
+                "items": [
+                    {"url": GOLD},
+                    {"url": "https://example.com/news/b/"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert load_snapshot_member_urls(snap) == frozenset({GOLD, "https://example.com/news/b"})
 
 
 class _FakeCollection:

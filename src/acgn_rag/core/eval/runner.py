@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -75,6 +75,7 @@ class RunSpec:
     chunker: Mapping[str, Any] = field(default_factory=dict)
     llm: Mapping[str, Any] = field(default_factory=dict)
     determinism: Mapping[str, Any] = field(default_factory=dict)
+    require_gpu: bool = False
 
 
 @dataclass(frozen=True)
@@ -196,8 +197,9 @@ _GPU_DEVICE_PREFIX = "cuda"
 def _is_reportable_device(build_identity: Mapping[str, Any]) -> bool:
     """Return True when the recorded encoder device is a GPU lane.
 
-    DECISIONS 2026-11-05 makes GPU builds/runs mandatory and CPU output non-reportable.
-    `mps` is deliberately not accepted until D defines whether it is a reportable lane.
+    PR #48 proposes GPU-first encoding; the policy is not merged yet, so this check is only
+    enforced when `RunSpec.require_gpu` is set. `mps` is deliberately not accepted until D
+    defines whether it is a reportable lane.
     """
     device = str(build_identity.get("device") or "").strip().lower()
     return device == _GPU_DEVICE_PREFIX or device.startswith(f"{_GPU_DEVICE_PREFIX}:")
@@ -208,13 +210,14 @@ def _reportability_reason(
     evidence_resolver: object | None,
     window_verified: bool,
     build_identity: Mapping[str, Any],
+    require_gpu: bool,
 ) -> str | None:
     """Return why a run is not reportable, or None when it is reportable."""
     if evidence_resolver is None:
         return "no_evidence_resolver"
     if not window_verified:
         return "window_unverified"
-    if not _is_reportable_device(build_identity):
+    if require_gpu and not _is_reportable_device(build_identity):
         return "non_gpu_device"
     return None
 
@@ -363,6 +366,30 @@ def build_evidence_resolver(
     return resolve
 
 
+def load_snapshot_member_urls(snapshot_dir: Path) -> frozenset[str]:
+    """Return every member URL recorded in the frozen manifest.
+
+    Configs A/A'/A0 index one representative per cluster, so a gold URL can be present in
+    the snapshot while absent from the bound collection. The run uses this set to tell
+    "absent from the snapshot" apart from "member not indexed".
+    """
+    manifest_path = Path(snapshot_dir) / "manifest.json"
+    if not manifest_path.exists():
+        return frozenset()
+    manifest = _read_json(manifest_path)
+    items = manifest.get("items")
+    if not isinstance(items, list):
+        return frozenset()
+    urls: set[str] = set()
+    for row in items:
+        if not isinstance(row, dict):
+            continue
+        url = row.get("url")
+        if isinstance(url, str) and url:
+            urls.add(metrics.normalize_url(url))
+    return frozenset(urls)
+
+
 def resolve_window(
     snapshot_dir: Path,
     snapshot_id: str,
@@ -493,6 +520,7 @@ def run(
     answerer: Answerer | None = None,
     qa_items: Sequence[Mapping[str, Any]] | None = None,
     evidence_resolver: Callable[[Sequence[str]], Mapping[str, Sequence[str]]] | None = None,
+    snapshot_member_urls: Collection[str] | None = None,
 ) -> RunResult:
     """Execute one run and write the archive under `out_root/<run_id>/`."""
     _validate_spec(spec)
@@ -515,7 +543,17 @@ def run(
             str(url): [str(chunk_id) for chunk_id in chunk_ids]
             for url, chunk_ids in evidence_resolver(all_gold).items()
         }
-    unresolved = [url for url in all_gold if not resolved.get(url)]
+    member_urls = frozenset(metrics.normalize_url(str(url)) for url in (snapshot_member_urls or ()))
+    member_not_indexed = [
+        url
+        for url in all_gold
+        if not resolved.get(url) and metrics.normalize_url(url) in member_urls
+    ]
+    unresolved = [
+        url
+        for url in all_gold
+        if not resolved.get(url) and metrics.normalize_url(url) not in member_urls
+    ]
 
     cases: list[metrics.CaseResult] = []
     answers: list[dict[str, Any]] = []
@@ -531,6 +569,19 @@ def run(
         chunks = search(query, store=store, embedder=embedder)
         answer = answerer.answer(query, chunks) if answerer is not None else None
         answers.append(_answer_record(item, chunks, answer))
+        gold_resolved = any(resolved.get(url) for url in gold_urls)
+        gold_member_not_indexed = (
+            bool(gold_urls)
+            and evidence_resolver is not None
+            and not gold_resolved
+            and any(metrics.normalize_url(url) in member_urls for url in gold_urls)
+        )
+        gold_unavailable = (
+            bool(gold_urls)
+            and evidence_resolver is not None
+            and not gold_resolved
+            and not gold_member_not_indexed
+        )
         cases.append(
             metrics.CaseResult(
                 qa_id=str(item["qa_id"]),
@@ -540,9 +591,8 @@ def run(
                 retrieved_urls=tuple(chunk.citation.url for chunk in chunks),
                 retrieved_chunk_ids=tuple(chunk.chunk_id for chunk in chunks),
                 cited_chunk_ids=tuple(answer.cited_chunk_ids) if answer else (),
-                gold_unavailable=bool(gold_urls)
-                and evidence_resolver is not None
-                and all(not resolved.get(url) for url in gold_urls),
+                gold_unavailable=gold_unavailable,
+                gold_member_not_indexed=gold_member_not_indexed,
                 gold_unresolved=bool(gold_urls) and evidence_resolver is None,
                 dropped=bool(item.get("dropped", False)),
                 calibration=bool(item.get("calibration", False)),
@@ -562,6 +612,7 @@ def run(
         evidence_resolver=evidence_resolver,
         window_verified=spec.window_verified,
         build_identity=spec.build_identity,
+        require_gpu=spec.require_gpu,
     )
     meta = {
         "run_id": run_id,
@@ -581,6 +632,8 @@ def run(
         "reportable": non_reportable_reason is None,
         "non_reportable_reason": non_reportable_reason,
         "determinism": dict(spec.determinism),
+        "gpu_policy": "pr48_require_gpu" if spec.require_gpu else "not_enforced",
+        "require_gpu": spec.require_gpu,
         "collection": spec.collection,
         "llm": dict(spec.llm),
         "git_sha": spec.git_sha,
@@ -603,6 +656,7 @@ def run(
             "build_identity": dict(spec.build_identity),
             "resolved": resolved,
             "unresolved": unresolved,
+            "member_not_indexed": member_not_indexed,
             "status": "resolved" if evidence_resolver is not None else "not_configured",
         },
     )
@@ -623,6 +677,7 @@ __all__ = [
     "bind_existing_collection",
     "build_evidence_resolver",
     "load_build_records",
+    "load_snapshot_member_urls",
     "resolve_window",
     "run",
     "verify_build_identity",

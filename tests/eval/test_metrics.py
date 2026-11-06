@@ -82,6 +82,7 @@ def test_retrieval_metrics_per_language_and_exclusions() -> None:
     assert metrics["excluded"] == {
         "unanswerable": 1,
         "gold_unavailable": 1,
+        "gold_member_not_indexed": 0,
         "gold_unresolved": 0,
         "missing_gold": 1,
         "dropped": 0,
@@ -248,6 +249,7 @@ def test_aggregate_contains_every_report_block() -> None:
         "answerable": 1,
         "unanswerable": 0,
         "gold_unavailable": 0,
+        "gold_member_not_indexed": 0,
         "gold_unresolved": 0,
         "dropped": 0,
         "deduped_count": 6402,
@@ -277,6 +279,17 @@ def test_retrieval_excluded_counts_ignore_calibration_items() -> None:
     ]
     metrics = retrieval_metrics(cases)
     assert metrics["excluded"]["gold_unavailable"] == 1
+
+
+def test_gold_member_not_indexed_is_excluded_not_unavailable() -> None:
+    case = _case(gold_member_not_indexed=True)
+    assert hit_at_k(case) == 0
+    assert evidence_recall(case) == 0.0
+    assert mrr_at_k(case) == 0.0
+    metrics = retrieval_metrics([case])
+    assert metrics["hit"]["all"] == {"value": None, "n": 0}
+    assert metrics["excluded"]["gold_member_not_indexed"] == 1
+    assert metrics["excluded"]["gold_unavailable"] == 0
 
 
 def test_k_truncates_hit_recall_and_mrr() -> None:

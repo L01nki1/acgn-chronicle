@@ -31,6 +31,7 @@ from acgn_rag.core.eval.runner import (
     bind_existing_collection,
     build_evidence_resolver,
     load_build_records,
+    load_snapshot_member_urls,
     resolve_window,
     run,
     verify_build_identity,
@@ -106,6 +107,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="development only: run against a draft QA set that fails the protocol quotas",
     )
+    parser.add_argument(
+        "--require-gpu",
+        action="store_true",
+        help="enforce the PR #48 GPU-first policy; CPU runs are then non-reportable",
+    )
     args = parser.parse_args(argv)
 
     qa_path = Path(args.qa)
@@ -137,6 +143,7 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         print(f"WINDOW RESOLUTION FAILED: {exc}", file=sys.stderr)
         return 1
+    member_urls = load_snapshot_member_urls(settings.paths.snapshots / args.snapshot)
     label = COLLECTION_LABELS.get(args.config, args.config)
     try:
         build_identity, collection, counts, chunker = load_build_records(
@@ -218,6 +225,7 @@ def main(argv: list[str] | None = None) -> int:
             "seed": 0,
         },
         determinism=determinism,
+        require_gpu=args.require_gpu,
     )
     result = run(
         spec,
@@ -226,6 +234,7 @@ def main(argv: list[str] | None = None) -> int:
         answerer=NullAnswerer(),
         qa_items=items,
         evidence_resolver=evidence_resolver,
+        snapshot_member_urls=member_urls,
     )
     print(f"run_id: {result.run_id}")
     print(f"out:    {result.out_dir}")
@@ -236,11 +245,9 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
     if not result.meta.get("reportable", False):
-        print(
-            f"NOT REPORTABLE: {result.meta.get('non_reportable_reason')} "
-            "(DECISIONS 2026-11-05 requires a GPU lane).",
-            file=sys.stderr,
-        )
+        reason = result.meta.get("non_reportable_reason")
+        suffix = " (PR #48 GPU-first policy, pending)" if reason == "non_gpu_device" else ""
+        print(f"NOT REPORTABLE: {reason}{suffix}", file=sys.stderr)
     print(f"hit@k:  {result.metrics['retrieval']['hit']}")
     print(f"mrr:    {result.metrics['retrieval']['mrr']}")
     print(f"recall: {result.metrics['retrieval']['evidence_recall']}")
