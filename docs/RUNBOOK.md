@@ -54,6 +54,16 @@ pytest -q                                     # 4 tests
 > whole selected collection, not individual rows — rebuilding a subset into it means the subset is all it
 > will contain; the full input must be rebuilt again to restore the rest.
 
+> **Red line — snapshot distribution is private, evidence is public.** Frozen snapshots carry full text
+> (C2/R2), so they never touch a public surface: no Releases, no Actions artifacts, no LFS, no fixtures —
+> `data/` stays out of git for the same reason (invariant 6). The distribution channel is the private
+> drive archive recorded in `docs/DECISIONS.md` (2026-11-07 row: `snapshots-20261107.tar.gz`,
+> `174,958,210` B, `sha256=fde3bed2b2642860ea10d13d9ef5862e25eaa7e1b276700fdca657b9c92053b8`); the archive
+> is transport, **never evidence** — a snapshot's repo-visible identity is `eval/snapshot_evidence.json`
+> plus each run's `meta.json`/manifest sha256, and every consumer (F's index builds, E's eval runs)
+> manifest-verifies the archive against those before first use. Changing the channel means updating the
+> DECISIONS row in the same PR, never this line alone.
+
 ## 3. Common failures
 
 | Symptom | Check first | Action |
