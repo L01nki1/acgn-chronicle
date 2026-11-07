@@ -1,8 +1,8 @@
 """Chroma 1.x embedded vector store: one collection per (snapshot, chunk config).
 
-Owner: F | Spec: 04 §7 D4, docs/RUNBOOK.md §3.1 (chromadb >=1.0,<2 rewrite), PLAN PR3
+Owner: F | Spec: 04 §7 D4, docs/RUNBOOK.md §3.1 (chromadb >=1.5.0,<2), PLAN PR3
 
-API surface used (all 1.x; nothing here runs on 0.5.x):
+API surface used (the supported store extra starts at 1.5.0):
   - ``PersistentClient(path=..., settings=Settings(anonymized_telemetry=False))``: embedded,
     offline, telemetry off; the client is created lazily so importing this module costs
     nothing without the ``[store]`` extra.
