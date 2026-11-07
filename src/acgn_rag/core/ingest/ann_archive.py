@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import html
 import io
 import json
 import re
@@ -305,6 +306,35 @@ def parse_ann_day_html(
     )
 
 
+_BLOCK_BOUNDARY_RE = re.compile(
+    r"</?(?:p|div|li|tr|h[1-6]|blockquote|pre|section|article|header|footer|table|ul|ol|dl|dt|dd)\b[^>]*>"
+    r"|<br\s*/?>|<hr\s*/?>",
+    re.IGNORECASE,
+)
+_CELL_BOUNDARY_RE = re.compile(r"</?(?:td|th)\b[^>]*>", re.IGNORECASE)
+_INLINE_OR_ANY_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _extract_block_paragraphs(body_node: object) -> list[str]:
+    """Extract block-level paragraphs from a `selectolax` node while keeping inline markup
+    (`<em>`, `<i>`, `<b>`, `<strong>`, `<a>`, `<cite>`, `<span>`, etc.) inline within its
+    enclosing paragraph.
+    """
+    for bad in body_node.css("script, style, noscript, instaread-player"):  # type: ignore[attr-defined]
+        bad.decompose()
+    raw_html = getattr(body_node, "html", None) or ""
+    step1 = _CELL_BOUNDARY_RE.sub(" ", raw_html)
+    step2 = _BLOCK_BOUNDARY_RE.sub("\x00", step1)
+    step3 = _INLINE_OR_ANY_TAG_RE.sub("", step2)
+    unescaped = normalize_text(html.unescape(step3))
+    paragraphs: list[str] = []
+    for chunk in unescaped.split("\x00"):
+        cleaned = re.sub(r"\s+", " ", chunk).strip()
+        if cleaned:
+            paragraphs.append(cleaned)
+    return paragraphs
+
+
 @dataclass(frozen=True)
 class AnnArticleParseResult:
     """Result of parsing an individual ANN article HTML page (`div.KonaBody`)."""
@@ -312,6 +342,7 @@ class AnnArticleParseResult:
     title: str
     body: str
     published_at: str | None
+    paragraph_count: int = 0
 
 
 def parse_ann_article_html(
@@ -321,7 +352,7 @@ def parse_ann_article_html(
     source_key: str = ANN_SOURCE_KEY,
 ) -> AnnArticleParseResult:
     """Parse a full ANN article page (`#page_header`, `#page-title small time[datetime]`,
-    `div.KonaBody`) and return `(title, body, published_at)`.
+    `div.KonaBody`) and return `(title, body, published_at, paragraph_count)`.
 
     Raises `SelectorBrokenError` if the HTML is empty or `div.KonaBody` / `div.meat` yields an
     empty article body (never falls back to the title on an article page).
@@ -361,10 +392,8 @@ def parse_ann_article_html(
         raise SelectorBrokenError(
             f"[{source_key}] Missing div.KonaBody on ANN article page {url!r}"
         )
-    for bad in body_node.css("script, style, noscript"):
-        bad.decompose()
-    raw_body = normalize_text(body_node.text(separator="\n", strip=True) or "").strip()
-    cleaned_body = re.sub(r"\n{3,}", "\n\n", raw_body).strip()
+    paragraphs = _extract_block_paragraphs(body_node)
+    cleaned_body = "\n\n".join(paragraphs).strip()
     if not cleaned_body:
         raise SelectorBrokenError(
             f"[{source_key}] Empty div.KonaBody text on ANN article page {url!r}"
@@ -374,6 +403,7 @@ def parse_ann_article_html(
         title=title,
         body=cleaned_body,
         published_at=pub_utc,
+        paragraph_count=len(paragraphs),
     )
 
 

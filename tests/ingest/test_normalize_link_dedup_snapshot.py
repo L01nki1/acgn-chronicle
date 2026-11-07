@@ -1542,6 +1542,48 @@ def test_coverage_complete_false_when_coverage_gaps_present_and_strict_body_leve
     assert len(single_para_blurb.body) >= 300
     assert _classify_item_body_level(single_para_blurb) == "blurb"
 
+    # Regression (E Review #5810415231 Defect 2): a 507+ char single <p> containing inline <em>/<a>
+    # markup is still a single paragraph and must be classified as 'blurb', never 'full'.
+    from acgn_rag.core.ingest.ann_archive import parse_ann_article_html
+
+    parsed_inline = parse_ann_article_html(
+        "<html><body><h1 id='page_header'>Inline Markup Brief</h1>"
+        "<div class='KonaBody'><p>"
+        + ("First segment of a single long paragraph " * 6)
+        + "<em>Italicized Franchise Name</em> and <a href='https://example.com'>link</a> "
+        + ("second segment of the same single paragraph. " * 6)
+        + "</p></div></body></html>",
+        url="https://www.animenewsnetwork.com/news/2026-10-20/inline-brief/.100019",
+    )
+    inline_blurb_item = normalize_item(
+        RawIngestItem(
+            url="https://www.animenewsnetwork.com/news/2026-10-20/inline-brief/.100019",
+            title=parsed_inline.title,
+            body=parsed_inline.body,
+            published_at="2026-10-20T10:30:00Z",
+            publisher="Anime News Network",
+            source_key="ann-news",
+            source_type="media",
+            lang="en",
+        )
+    )
+    assert len(inline_blurb_item.body) >= 500
+    assert _classify_item_body_level(inline_blurb_item) == "blurb"
+
+    raw_html_single_para = normalize_item(
+        RawIngestItem(
+            url="https://www.animenewsnetwork.com/news/2026-10-20/raw-html-brief/.100020",
+            title="Raw HTML Single Paragraph",
+            body=("<p>" + ("A" * 240) + "\n<em>inline italic</em>\n" + ("B" * 260) + "</p>"),
+            published_at="2026-10-20T10:45:00Z",
+            publisher="Anime News Network",
+            source_key="ann-news",
+            source_type="media",
+            lang="en",
+        )
+    )
+    assert _classify_item_body_level(raw_html_single_para) == "blurb"
+
     multi_para_article = normalize_item(
         RawIngestItem(
             url="https://www.animenewsnetwork.com/news/2026-10-20/full-article/.100011",
@@ -1592,3 +1634,91 @@ def test_coverage_complete_false_when_coverage_gaps_present_and_strict_body_leve
     assert meta["full_body_item_count"] == 1
     assert meta["body_level_by_source"]["ann-news"] == {"full": 1, "blurb": 1, "headline": 0}
     assert meta["body_level_by_source"]["anilist-graphql"] == {"full": 0, "blurb": 1, "headline": 0}
+
+    # Regression (E Review #5810415231 Defect 5): directly test build_snapshot_from_raw deriving
+    # coverage_gaps and coverage_complete=False from crawl_summary.
+    raw_built = build_snapshot_from_raw(
+        [
+            RawIngestItem(
+                url="https://www.chuapp.com/article/290001.html",
+                title="Chuapp Game Feature",
+                body=("First paragraph of long feature. " * 6)
+                + "\n"
+                + ("Second paragraph of long feature. " * 6),
+                published_at="2026-10-22T08:00:00Z",
+                publisher="Chuapp",
+                source_key="chuapp-news",
+                source_type="media",
+                lang="zh",
+            )
+        ],
+        window_start="2023-10-28",
+        window_end="2026-10-28",
+        crawl_summary=[
+            {
+                "source_key": "chuapp-news",
+                "status": "ok",
+                "mode": "discover_tail",
+                "coverage_mode": "rolling_tail_only",
+                "reached_window_start": False,
+                "count": 1,
+            }
+        ],
+        partial=False,
+    )
+    assert raw_built.ingest_report["coverage_complete"] is False
+    assert raw_built.ingest_report["coverage_gaps"] == ["chuapp-news:rolling_tail_only"]
+    raw_snap_dir = publish_snapshot(raw_built, snapshots_root=tmp_path / "raw_snaps")
+    raw_meta = json.loads((raw_snap_dir / "snapshot.json").read_text(encoding="utf-8"))
+    assert raw_meta["coverage_complete"] is False
+    assert raw_meta["coverage_gaps"] == ["chuapp-news:rolling_tail_only"]
+    assert len(raw_meta["crawl_summary"]) == 1
+
+
+def test_committed_snapshot_evidence_internal_consistency() -> None:
+    """Verify eval/snapshot_evidence.json internal consistency (E Review #5810415231 Defects 1 & 3):
+    - Every snapshot has non-empty crawl_summary.
+    - All 8 file_digests entries exist with valid sha256 and byte counts.
+    - body_level_counts and source_type_counts sum to item_count.
+    - Both frozen snapshots share identical entities.json sha256 and byte count.
+    """
+    evidence_path = Path("eval/snapshot_evidence.json")
+    assert evidence_path.exists()
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    snapshots = evidence.get("snapshots", {})
+    assert len(snapshots) == 2
+
+    entities_digests = set()
+    required_files = {
+        "clusters.jsonl",
+        "entities.json",
+        "items.jsonl",
+        "manifest.json",
+        "quarantine.jsonl",
+        "representatives.jsonl",
+        "snapshot.json",
+        "sources.json",
+    }
+    for snap_id, snap in snapshots.items():
+        assert snap["snapshot_id"] == snap_id
+        crawl_summary = snap.get("crawl_summary") or []
+        assert len(crawl_summary) >= 12, f"{snap_id} has empty crawl_summary"
+        fdigests = snap.get("file_digests") or {}
+        assert set(fdigests.keys()) == required_files
+        for fname, info in fdigests.items():
+            assert len(info["sha256"]) == 64
+            if fname != "quarantine.jsonl":
+                assert info["bytes"] > 0
+        entities_digests.add(
+            (fdigests["entities.json"]["sha256"], fdigests["entities.json"]["bytes"])
+        )
+        item_count = snap["item_count"]
+        assert sum(snap["body_level_counts"].values()) == item_count
+        assert sum(snap["source_type_counts"].values()) == item_count
+        assert snap["full_body_item_count"] == snap["body_level_counts"]["full"]
+        expected_complete = (len(snap.get("coverage_gaps") or []) == 0) and not snap["partial"]
+        assert snap["coverage_complete"] is expected_complete
+
+    assert len(entities_digests) == 1, (
+        f"Mismatched entities.json across snapshots: {entities_digests}"
+    )

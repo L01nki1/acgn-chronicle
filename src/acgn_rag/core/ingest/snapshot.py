@@ -389,14 +389,45 @@ def _next_unique_publish_timestamp(snapshots_root: Path) -> str:
     return now_dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
+_HTML_BLOCK_BOUNDARY_RE = re.compile(
+    r"</?(?:p|div|li|tr|h[1-6]|blockquote|pre|section|article|header|footer|table|ul|ol|dl|dt|dd)\b[^>]*>"
+    r"|<br\s*/?>|<hr\s*/?>",
+    re.IGNORECASE,
+)
+_HTML_CELL_BOUNDARY_RE = re.compile(r"</?(?:td|th)\b[^>]*>", re.IGNORECASE)
+_HTML_ANY_TAG_RE = re.compile(r"<[a-zA-Z!/][^>]*>")
+
+
+def _split_body_paragraphs(body_text: str) -> list[str]:
+    """Split an article body into distinct block-level paragraphs.
+
+    If `body_text` still contains HTML tags, block tags (`<p>`, `<div>`, `<li>`, etc.) become
+    paragraph boundaries while inline tags (`<em>`, `<a>`, `<cite>`, `<strong>`, etc.) and soft
+    newlines inside a block are collapsed inline. For already-stripped plain text, non-empty
+    lines represent paragraphs.
+    """
+    if _HTML_ANY_TAG_RE.search(body_text):
+        step1 = _HTML_CELL_BOUNDARY_RE.sub(" ", body_text)
+        step2 = _HTML_BLOCK_BOUNDARY_RE.sub("\x00", step1)
+        step3 = _HTML_ANY_TAG_RE.sub("", step2)
+        if "\x00" in step2:
+            return [
+                re.sub(r"\s+", " ", chunk).strip()
+                for chunk in step3.split("\x00")
+                if re.sub(r"\s+", " ", chunk).strip()
+            ]
+        body_text = step3
+    return [line.strip() for line in body_text.splitlines() if line.strip()]
+
+
 def _classify_item_body_level(item: NormalizedItem) -> str:
     """Classify an item's body depth (`full`, `blurb`, or `headline`).
 
     - `metadata` sources are always `blurb` (catalog synopses, never counted as full articles).
     - Items whose body equals the title (or adds <= 15 characters beyond the title) are `headline`.
     - `full` requires an article body of >= 300 characters AND at least 2 distinct non-title
-      lines/paragraphs so a single-paragraph listing card or RSS summary blurb is never
-      misclassified as a full article.
+      block paragraphs so a single-paragraph listing card or RSS summary blurb (even with inline
+      markup such as `<em>` or `<a>`) is never misclassified as a full article.
     """
     if item.source_type == "metadata":
         return "blurb"
@@ -405,9 +436,7 @@ def _classify_item_body_level(item: NormalizedItem) -> str:
     if body_clean == title_clean or len(body_clean) <= len(title_clean) + 15:
         return "headline"
     non_title_paragraphs = [
-        line.strip()
-        for line in body_clean.splitlines()
-        if line.strip() and line.strip() != title_clean
+        para for para in _split_body_paragraphs(body_clean) if para != title_clean
     ]
     if len(body_clean) >= 300 and len(non_title_paragraphs) >= 2:
         return "full"
@@ -557,6 +586,7 @@ def publish_snapshot(
             "corporate_count": corporate_count,
             "coverage_complete": coverage_complete,
             "coverage_gaps": coverage_gaps,
+            "crawl_summary": list(built.ingest_report.get("crawl_summary") or []),
             "dedup_calibration_status": str(
                 built.ingest_report.get("dedup_calibration_status", "provisional_pending_g1b_sweep")
             ),

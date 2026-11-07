@@ -927,8 +927,26 @@ def test_parse_ann_article_html_and_offline_article_cache_enrichment(tmp_path: P
     )
     assert parsed.title == "Frieren Season 2 Premieres in January 2026"
     assert parsed.published_at == "2025-10-20T14:30:00Z"
+    assert parsed.paragraph_count == 2
     assert "Madhouse returns to animate" in parsed.body
     assert "\n" in parsed.body
+
+    # Regression (E Review #5810415231 Defect 2): a 500+ char single <p> containing inline <em>/<a>
+    # must NOT insert newlines around inline tags and must have paragraph_count == 1.
+    single_p_inline_html = (
+        "<html><body><h1 id='page_header'>Single Paragraph Brief</h1>"
+        "<div class='KonaBody'><p>"
+        + ("A" * 220)
+        + " <em>Inline Italic Title</em> and <a href='/anime/1'>inline link</a> "
+        + ("B" * 260)
+        + "</p></div></body></html>"
+    )
+    single_p_res = parse_ann_article_html(
+        single_p_inline_html, url="https://www.animenewsnetwork.com/news/2025-10-20/brief/.200099"
+    )
+    assert len(single_p_res.body) >= 500
+    assert single_p_res.paragraph_count == 1
+    assert "\n" not in single_p_res.body
 
     with pytest.raises(SelectorBrokenError, match=r"Empty div\.KonaBody"):
         parse_ann_article_html(
