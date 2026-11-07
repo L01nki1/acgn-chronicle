@@ -15,11 +15,14 @@ from typing import Annotated, Final, Protocol
 
 from pydantic import BaseModel, ConfigDict, StrictInt, StringConstraints, ValidationError
 
+from acgn_rag.config import LLMConfig
 from acgn_rag.core.ground.policy import MEDIA_SOURCE_RULE
 from acgn_rag.core.ground.validation import (
     ClaimEvidence,
     InvalidModelResponseError,
+    PromptBudgetError,
     allowed_media_quote,
+    contains_forbidden_reference,
     contains_numeric_citation_marker,
     source_exposure_exceeds_budget,
     validate_grounded_answer,
@@ -32,6 +35,10 @@ from acgn_rag.core.ports import GroundedAnswer, RetrievalQuery, RetrievedChunk
 # a floor, not an answer budget: the default below leaves room for reasoning *and* the
 # structured claims payload. Override with ACGN_ANSWER_MAX_TOKENS or per call.
 ANSWER_MAX_TOKENS: Final = 2048
+
+# Top-k full chunk texts are concatenated into one prompt; an unbounded prompt is a real
+# failure mode. Exceeding this ceiling raises instead of truncating the evidence silently.
+PROMPT_EVIDENCE_MAX_CHARS: Final = 12_000
 
 ABSTAIN_NO_EVIDENCE: Final = "no_retrieved_evidence"
 ABSTAIN_MODEL_EMPTY: Final = "model_returned_no_claims"
@@ -69,7 +76,8 @@ SYSTEM_PROMPT: Final = (
     'fields: "text", an atomic factual claim with no citation marker, and "evidence_indices", a '
     "non-empty array of integer evidence numbers supporting that claim. Omit every unsupported "
     'claim. If no claim is supported, return {"claims": []}. Never output chunk ids, URLs or '
-    "prose outside the JSON object. Never add citation markers to claim text; deterministic code "
+    "prose outside the JSON object. Never add citation markers or citation-like bracket groups "
+    "such as [1] or [1, 2] to claim text; deterministic code "
     "adds them after validating the evidence indices. Publisher names may be stated when they are "
     "part of the factual answer. " + MEDIA_SOURCE_RULE
 )
@@ -143,6 +151,11 @@ class GroundedAnswerer:
     ) -> GroundedAnswerRun:
         return generate_grounded_answer_run(query, chunks, self.client, max_tokens=self.max_tokens)
 
+    @classmethod
+    def from_config(cls, config: LLMConfig, client: AnswerClient) -> GroundedAnswerer:
+        """Build an answerer with the configured answer-token budget."""
+        return cls(client=client, max_tokens=config.answer_max_tokens)
+
 
 def build_grounding_prompt(
     query: RetrievalQuery,
@@ -194,6 +207,12 @@ def generate_grounded_answer_run(
     validate_retrieved_evidence(query, chunks)
 
     system, user = build_grounding_prompt(query, chunks)
+    prompt_size = len(system) + len(user)
+    if prompt_size > PROMPT_EVIDENCE_MAX_CHARS:
+        raise PromptBudgetError(
+            f"composed grounding prompt is {prompt_size} characters; "
+            f"the limit is {PROMPT_EVIDENCE_MAX_CHARS}"
+        )
     completion = client.complete(system, user, max_tokens=max_tokens)
     drafts, dropped_invalid = _parse_claims(completion.text)
 
@@ -205,6 +224,9 @@ def generate_grounded_answer_run(
     for claim in drafts:
         claim_text = " ".join(claim.text.split())
         if contains_numeric_citation_marker(claim_text):
+            dropped_filtered += 1
+            continue
+        if contains_forbidden_reference(claim_text):
             dropped_filtered += 1
             continue
         indices = list(dict.fromkeys(claim.evidence_indices))

@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from typing import Final
 
 from acgn_rag.core.ports import (
@@ -15,7 +16,13 @@ from acgn_rag.core.ports import (
     RetrievedChunk,
 )
 
-NUMERIC_CITATION_MARKER: Final = re.compile(r"\[\s*\d+(?:\s*(?:[,;]|[-\u2013\u2014])\s*\d+)*\s*\]")
+# Citation markers appended by this package are chunk indices. Reserve 1-2 digit bracket
+# groups (including comma/semicolon/range forms) as citation-shaped, so ordinary bracketed
+# years such as [2024] stay usable in answer text.
+_CITATION_SHAPE: Final = re.compile(
+    r"\[\s*(?:\d{1,2}|\d+(?:\s*(?:[,;]|[-\u2013\u2014])\s*\d+)+)\s*\]"
+)
+_SUSPICIOUS_CITATION_SHAPE: Final = re.compile(r"\[\s*\d+\s*(?:[;-\u2013\u2014])\s*\d+\s*\]")
 _GENERATED_CITATION_MARKER: Final = re.compile(r"\[\s*(?P<refs>\d+(?:\s*,\s*\d+)*)\s*\]")
 _QUOTE_PAIRS: Final = {
     '"': '"',
@@ -24,9 +31,9 @@ _QUOTE_PAIRS: Final = {
     "\u2018": "\u2019",
     "\u300c": "\u300d",
 }
-# Chunk text is bounded by the encoder window, but a synthetic or corrupted chunk must not
-# turn the contiguous-copy scan quadratic without limit; oversized sources are skipped.
-_BUDGET_SCAN_MAX_SOURCE_CHARS: Final = 20_000
+# Answer text must not carry URLs or chunk ids: citations are the only outbound reference.
+_URL_TEXT: Final = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
+_CHUNK_ID_TEXT: Final = re.compile(r"\S+::[A-Za-z0-9_'-]+::\d+")
 
 
 class GroundingComponentError(Exception):
@@ -49,6 +56,10 @@ class GroundingValidationError(GroundingComponentError):
     """The final payload is inconsistent with its request-local evidence."""
 
 
+class PromptBudgetError(GroundingComponentError):
+    """The composed grounding prompt exceeds the evidence-character budget."""
+
+
 @dataclass(frozen=True, slots=True)
 class ClaimEvidence:
     """One accepted claim before presentation markers are added."""
@@ -58,8 +69,13 @@ class ClaimEvidence:
 
 
 def contains_numeric_citation_marker(text: str) -> bool:
-    """Return whether untrusted model text contains a numeric citation-like marker."""
-    return NUMERIC_CITATION_MARKER.search(text) is not None
+    """Return whether untrusted model text contains a citation-shaped numeric marker."""
+    return _CITATION_SHAPE.search(text) is not None
+
+
+def contains_forbidden_reference(text: str) -> bool:
+    """Return whether untrusted answer text carries a URL or a chunk-id-shaped token."""
+    return _URL_TEXT.search(text) is not None or _CHUNK_ID_TEXT.search(text) is not None
 
 
 def validate_retrieved_evidence(
@@ -126,14 +142,16 @@ def source_exposure_exceeds_budget(
     exposure_by_source: dict[str, int] = {}
     for claim in claims:
         text = _normalize(claim.text)
-        matching_sources = {
-            find(chunk.chunk_id) for chunk in chunk_list if _is_verbatim(text, chunk.text)
-        }
-        for source in matching_sources:
-            exposure_by_source[source] = exposure_by_source.get(source, 0) + len(text)
-    return any(
-        exposure > MAX_QUOTE_CHARS for exposure in exposure_by_source.values()
-    ) or _contains_over_budget_contiguous_copy(claims, chunk_list)
+        overlap_by_source: dict[str, int] = {}
+        for chunk in chunk_list:
+            run = _longest_verbatim_run(text, _normalize(chunk.text))
+            if run == 0:
+                continue
+            source = find(chunk.chunk_id)
+            overlap_by_source[source] = max(overlap_by_source.get(source, 0), run)
+        for source, run in overlap_by_source.items():
+            exposure_by_source[source] = exposure_by_source.get(source, 0) + run
+    return any(exposure > MAX_QUOTE_CHARS for exposure in exposure_by_source.values())
 
 
 def validate_grounded_answer(
@@ -207,10 +225,13 @@ def _parse_answer_claims(
     citations: Sequence[Citation],
     retrieved: dict[str, RetrievedChunk],
 ) -> list[ClaimEvidence]:
-    broad_markers = list(NUMERIC_CITATION_MARKER.finditer(answer))
-    markers = list(_GENERATED_CITATION_MARKER.finditer(answer))
-    if [marker.span() for marker in broad_markers] != [marker.span() for marker in markers]:
+    if _SUSPICIOUS_CITATION_SHAPE.search(answer):
         raise GroundingValidationError("answer citation markers must use comma-separated indices")
+    markers = [
+        marker
+        for marker in _GENERATED_CITATION_MARKER.finditer(answer)
+        if _CITATION_SHAPE.fullmatch(marker.group(0)) is not None
+    ]
     if not markers:
         raise GroundingValidationError("a supported answer must reference its citations")
 
@@ -241,6 +262,8 @@ def _parse_answer_claims(
             raise GroundingValidationError(
                 "claims citing a media source must be attributed in-budget verbatim quotations"
             )
+        if contains_forbidden_reference(source_text):
+            raise GroundingValidationError("answer text must not contain URLs or chunk ids")
         claims.append(ClaimEvidence(text=source_text, chunks=evidence))
         segment_start = marker.end()
 
@@ -265,22 +288,12 @@ def _is_verbatim(claim_text: str, source_text: str) -> bool:
     return claim in source or claim.replace(" ", "") in source.replace(" ", "")
 
 
-def _contains_over_budget_contiguous_copy(
-    claims: Sequence[ClaimEvidence],
-    chunks: Sequence[RetrievedChunk],
-) -> bool:
-    run_length = MAX_QUOTE_CHARS + 1
-    for separator in (" ", ""):
-        answer = separator.join(claim.text for claim in claims)
-        answer = separator.join(answer.split())
-        for chunk in chunks:
-            source = separator.join(chunk.text.split())
-            if len(source) > _BUDGET_SCAN_MAX_SOURCE_CHARS:
-                continue
-            for start in range(len(source) - run_length + 1):
-                if source[start : start + run_length] in answer:
-                    return True
-    return False
+def _longest_verbatim_run(first: str, second: str) -> int:
+    """Length of the longest contiguous verbatim run between two normalized strings."""
+    if not first or not second:
+        return 0
+    matcher = SequenceMatcher(None, first, second, autojunk=False)
+    return matcher.find_longest_match(0, len(first), 0, len(second)).size
 
 
 def _normalize(text: str) -> str:
@@ -293,8 +306,10 @@ __all__ = [
     "GroundingValidationError",
     "InvalidModelResponseError",
     "InvalidRetrievedEvidenceError",
+    "PromptBudgetError",
     "ProviderResponseError",
     "allowed_media_quote",
+    "contains_forbidden_reference",
     "contains_numeric_citation_marker",
     "source_exposure_exceeds_budget",
     "validate_grounded_answer",

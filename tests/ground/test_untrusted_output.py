@@ -212,3 +212,24 @@ def test_final_guard_rejects_mixed_media_paraphrase() -> None:
 
     with pytest.raises(GroundingValidationError):
         validate_grounded_answer(answer, _query().snapshot_id, [official, media])
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "See https://evil.example/fake for details. [1]",
+        "See doc-1::A::2 for details. [1]",
+    ],
+)
+def test_final_guard_rejects_urls_and_chunk_ids(text: str) -> None:
+    chunk = _chunk("A supported fact.")
+    answer = GroundedAnswer(
+        answer=text,
+        citations=[chunk.citation],
+        cited_chunk_ids=[chunk.chunk_id],
+        abstained=False,
+        abstain_reason=None,
+    )
+
+    with pytest.raises(GroundingValidationError):
+        validate_grounded_answer(answer, _query().snapshot_id, [chunk])

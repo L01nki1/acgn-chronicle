@@ -8,7 +8,10 @@ import pytest
 
 from acgn_rag.config import LLMConfig
 from acgn_rag.core.ground import ProviderResponseError
-from acgn_rag.core.ground.provider import make_openai_answer_client
+from acgn_rag.core.ground.provider import (
+    make_grounded_answerer,
+    make_openai_answer_client,
+)
 
 type JsonValue = str | int | float | bool | list[JsonValue] | dict[str, JsonValue] | None
 
@@ -73,6 +76,94 @@ def test_openai_answer_adapter_uses_answer_settings_and_returns_wire_content() -
         assert [message["role"] for message in body["messages"]] == ["system", "user"]
 
 
+def test_truncated_content_is_returned_with_finish_reason_for_diagnostics() -> None:
+    pytest.importorskip("openai")
+    respx = pytest.importorskip("respx")
+    import httpx
+
+    config = LLMConfig(
+        answer_base_url="http://acgn-answer-test/v1",
+        answer_api_key="test-answer-key",
+        answer_model="test-answer-model",
+    )
+    with respx.mock:
+        respx.post("http://acgn-answer-test/v1/chat/completions").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "id": "chatcmpl-truncated",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": '{"claims":['},
+                            "finish_reason": "length",
+                        }
+                    ],
+                },
+            )
+        )
+        with httpx.Client(transport=httpx.MockTransport(respx.mock.handler)) as http_client:
+            client = make_openai_answer_client(config, http_client=http_client)
+            output = client.complete("system", "user", max_tokens=2048)
+
+    assert output.text == '{"claims":['
+    assert output.finish_reason == "length"
+    assert output.usage is None
+
+
+def test_openai_answer_adapter_maps_transport_errors() -> None:
+    pytest.importorskip("openai")
+    respx = pytest.importorskip("respx")
+    import httpx
+
+    config = LLMConfig(
+        answer_base_url="http://acgn-answer-test/v1",
+        answer_api_key="test-answer-key",
+        answer_model="test-answer-model",
+    )
+    with respx.mock:
+        respx.post("http://acgn-answer-test/v1/chat/completions").mock(
+            side_effect=httpx.ConnectError("answer provider unreachable")
+        )
+        with httpx.Client(transport=httpx.MockTransport(respx.mock.handler)) as http_client:
+            client = make_openai_answer_client(config, http_client=http_client)
+            with pytest.raises(ProviderResponseError):
+                client.complete("system", "user", max_tokens=2048)
+
+
+class _RecordingClient:
+    def __init__(self) -> None:
+        self.calls: list[int] = []
+
+    def complete(self, system: str, user: str, *, max_tokens: int):
+        from acgn_rag.core.ground import Completion
+
+        self.calls.append(max_tokens)
+        return Completion(text='{"claims": []}', finish_reason="stop")
+
+
+def test_grounded_answerer_factory_uses_the_configured_answer_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("openai")
+    monkeypatch.setenv("ACGN_ANSWER_MAX_TOKENS", "4096")
+    config = LLMConfig(
+        answer_base_url="http://acgn-answer-test/v1",
+        answer_api_key="test-answer-key",
+        answer_model="test-answer-model",
+    )
+    fake_client = _RecordingClient()
+    monkeypatch.setattr(
+        "acgn_rag.core.ground.provider.make_openai_answer_client",
+        lambda config, http_client=None: fake_client,
+    )
+
+    answerer = make_grounded_answerer(config)
+
+    assert answerer.max_tokens == 4096
+    assert answerer.client is fake_client
+
+
 @pytest.mark.parametrize(
     "payload",
     [
@@ -94,16 +185,6 @@ def test_openai_answer_adapter_uses_answer_settings_and_returns_wire_content() -
                     "index": 0,
                     "message": {"role": "assistant", "content": ""},
                     "finish_reason": "stop",
-                }
-            ],
-        },
-        {
-            "id": "chatcmpl-truncated",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": '{"claims":['},
-                    "finish_reason": "length",
                 }
             ],
         },

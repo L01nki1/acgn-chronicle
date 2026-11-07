@@ -16,6 +16,7 @@ from acgn_rag.core.ground import (
 from acgn_rag.core.ports import (
     MAX_QUOTE_CHARS,
     Citation,
+    GroundedAnswer,
     RetrievalQuery,
     RetrievedChunk,
     SourceType,
@@ -307,3 +308,35 @@ def test_long_paraphrase_across_sources_is_not_limited_by_answer_length() -> Non
     assert not answer.abstained
     assert len(answer.answer) > MAX_QUOTE_CHARS
     assert list(answer.cited_chunk_ids) == [f"chunk-{index}" for index in range(1, 5)]
+
+
+def test_split_verbatim_copies_cannot_bypass_the_source_budget() -> None:
+    first = "A" * 199
+    second = "B" * 199
+    source = first + " tail one. " + second + " tail two."
+    claims = [
+        {"text": f"{first} paraphrased tail one", "evidence_indices": [1]},
+        {"text": f"{second} paraphrased tail two", "evidence_indices": [1]},
+    ]
+
+    answer = GroundedAnswerer(FakeAnswerClient(claims)).answer(_query(), [_chunk(source)])
+
+    assert not answer.abstained
+    assert answer.answer == f"{first} paraphrased tail one [1]"
+
+
+def test_final_guard_rejects_split_copies_across_two_claims() -> None:
+    first = "A" * 199
+    second = "B" * 199
+    source = first + " tail one. " + second + " tail two."
+    chunk = _chunk(source)
+    answer = GroundedAnswer(
+        answer=f"{first} paraphrased tail one [1] {second} paraphrased tail two [1]",
+        citations=[chunk.citation],
+        cited_chunk_ids=[chunk.chunk_id],
+        abstained=False,
+        abstain_reason=None,
+    )
+
+    with pytest.raises(GroundingValidationError):
+        validate_grounded_answer(answer, _query().snapshot_id, [chunk])

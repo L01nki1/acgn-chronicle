@@ -7,6 +7,7 @@ from collections.abc import Sequence
 
 import pytest
 
+from acgn_rag.config import LLMConfig
 from acgn_rag.core.ground import (
     ABSTAIN_ALL_CLAIMS_REJECTED,
     ABSTAIN_MODEL_EMPTY,
@@ -16,6 +17,7 @@ from acgn_rag.core.ground import (
     GroundingValidationError,
     InvalidModelResponseError,
     InvalidRetrievedEvidenceError,
+    PromptBudgetError,
 )
 from acgn_rag.core.ground.generate import (
     NO_EVIDENCE_REASON,
@@ -417,3 +419,67 @@ def test_abstention_diagnostics_distinguish_the_abstention_causes() -> None:
     )
     assert rejected.diagnostics.abstain_code == ABSTAIN_ALL_CLAIMS_REJECTED
     assert rejected.diagnostics.dropped_claims == 1
+
+
+def test_from_config_passes_the_configured_answer_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ACGN_ANSWER_MAX_TOKENS", "4096")
+    config = LLMConfig(answer_base_url="http://example.invalid", answer_model="m")
+    client = FakeAnswerClient(_response([]))
+
+    answerer = GroundedAnswerer.from_config(config, client)
+    assert answerer.max_tokens == 4096
+    answerer.answer(_query(), [_chunk(1)])
+    assert client.calls[0][2] == 4096
+
+
+def test_bracketed_year_is_allowed_in_claim_text() -> None:
+    claim = "The [2024] edition launches in spring."
+
+    answer = generate_grounded_answer(
+        _query(),
+        [_chunk(1)],
+        FakeAnswerClient(_response([{"text": claim, "evidence_indices": [1]}])),
+    )
+
+    assert not answer.abstained
+    assert "[2024]" in answer.answer
+
+
+def test_prompt_evidence_budget_raises_instead_of_truncating() -> None:
+    chunks = [
+        RetrievedChunk(
+            chunk_id=f"chunk-{index}",
+            doc_id=f"doc-{index}",
+            snapshot_id=_query().snapshot_id,
+            text="x" * 5000,
+            score=0.5,
+            citation=_citation(index),
+        )
+        for index in range(1, 4)
+    ]
+    client = FakeAnswerClient(_response([{"text": "A claim.", "evidence_indices": [1]}]))
+
+    with pytest.raises(PromptBudgetError):
+        generate_grounded_answer(_query(), chunks, client)
+    assert client.calls == []
+
+
+@pytest.mark.parametrize(
+    "claim",
+    [
+        "See https://evil.example/fake for details.",
+        "See doc-1::A::2 for details.",
+    ],
+)
+def test_urls_and_chunk_ids_in_claim_text_are_dropped(claim: str) -> None:
+    answer = generate_grounded_answer(
+        _query(),
+        [_chunk(1)],
+        FakeAnswerClient(_response([{"text": claim, "evidence_indices": [1]}])),
+    )
+
+    assert answer.abstained
+    assert "evil.example" not in answer.answer
+    assert "doc-1::A::2" not in answer.answer

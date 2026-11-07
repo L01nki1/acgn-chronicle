@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 
 from acgn_rag.config import LLMConfig
-from acgn_rag.core.ground.generate import AnswerClient, Completion
+from acgn_rag.core.ground.generate import AnswerClient, Completion, GroundedAnswerer
 from acgn_rag.core.ground.validation import ProviderResponseError
 
 
@@ -16,7 +16,7 @@ def make_openai_answer_client(
 ) -> AnswerClient:
     """Build an answer client from the existing answer-specific vendor settings."""
     try:
-        from openai import OpenAI
+        from openai import OpenAI, OpenAIError
     except ImportError as exc:  # pragma: no cover - CI installs the optional llm extra
         raise ImportError(
             "the answer client needs the [llm] extra: pip install -e '.[llm]'"
@@ -36,25 +36,29 @@ def make_openai_answer_client(
 
     class _Adapter:
         def complete(self, system: str, user: str, *, max_tokens: int) -> Completion:
-            response = vendor.chat.completions.create(
-                model=config.answer_model,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                max_tokens=max_tokens,
-                temperature=config.temperature,
-            )
+            try:
+                response = vendor.chat.completions.create(
+                    model=config.answer_model,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    max_tokens=max_tokens,
+                    temperature=config.temperature,
+                )
+            except (OpenAIError, httpx.HTTPError) as exc:
+                raise ProviderResponseError(
+                    f"the answer provider transport failed: {type(exc).__name__}: {exc}"
+                ) from exc
             if not response.choices:
                 raise ProviderResponseError("the answer provider returned no completion choices")
             choice = response.choices[0]
-            if choice.finish_reason != "stop":
-                raise ProviderResponseError(
-                    f"the answer provider did not finish normally: {choice.finish_reason}"
-                )
             content = choice.message.content
             if content is None or not content.strip():
-                raise ProviderResponseError("the answer provider returned no completion content")
+                raise ProviderResponseError(
+                    "the answer provider returned no completion content "
+                    f"(finish_reason={choice.finish_reason})"
+                )
             usage = response.usage
             usage_counts = None
             if usage is not None:
@@ -70,3 +74,15 @@ def make_openai_answer_client(
             )
 
     return _Adapter()
+
+
+def make_grounded_answerer(
+    config: LLMConfig,
+    *,
+    http_client: httpx.Client | None = None,
+) -> GroundedAnswerer:
+    """Build the production answerer with the configured answer-token budget."""
+    return GroundedAnswerer.from_config(
+        config,
+        make_openai_answer_client(config, http_client=http_client),
+    )
