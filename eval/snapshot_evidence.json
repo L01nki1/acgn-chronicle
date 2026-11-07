@@ -8,7 +8,7 @@
     "body_sha256_recomputed_on_ingest": true,
     "cached_html_articles": 7873,
     "captured_at": "2026-11-02",
-    "paragraph_extraction": "block_level_elements_only_inline_tags_preserved_in_line"
+    "paragraph_extraction": "block_level_double_newline_br_soft_newline_inline_preserved"
   },
   "canonical_host_verification": {
     "nijimen-news": {
@@ -22,27 +22,27 @@
   },
   "catalog": {
     "current": null,
-    "latest_corpus": "20261105-7d99ed90c774",
+    "latest_corpus": "20261105-d797b5f0ae8e",
     "partial_publications": [],
     "publications": [
       {
-        "published_at": "2026-11-07T07:52:02.437181Z",
-        "snapshot_id": "20261105-7d99ed90c774"
+        "published_at": "2026-11-07T11:17:47.194844Z",
+        "snapshot_id": "20261105-d797b5f0ae8e"
       },
       {
-        "published_at": "2026-11-07T07:51:39.172486Z",
-        "snapshot_id": "20261028-93ff2c1a75c3"
+        "published_at": "2026-11-07T11:16:58.716508Z",
+        "snapshot_id": "20261028-5d2a0f3bf7ab"
       }
     ],
     "retained": [
-      "20261105-7d99ed90c774",
-      "20261028-93ff2c1a75c3"
+      "20261105-d797b5f0ae8e",
+      "20261028-5d2a0f3bf7ab"
     ],
     "retired": []
   },
   "compliance_note": "Committed metadata-only evidence artifact under COMPLIANCE C2 / Invariant #6 (contains no raw or normalized article bodies; data/ remains gitignored).",
   "daily_discovery_verification": {
-    "base_snapshot_id": "20261105-7d99ed90c774",
+    "base_snapshot_id": "20261105-d797b5f0ae8e",
     "discovered_raw_count": 418,
     "inserted_count": 54,
     "metadata_drift_count": 107,
@@ -158,8 +158,8 @@
       "description": "Built unified entities.json across both windows first, then minted 2023-10-28..2026-10-28 and 2023-11-05..2026-11-05, then rebuilt 2023-10-28..2026-10-28 in forward and reversed raw input order; all 7 required snapshot files (manifest.json, snapshot.json, entities.json, sources.json, items.jsonl, representatives.jsonl, clusters.jsonl) are byte-identical across rebuilds, and entities.json is byte-identical across both snapshots.",
       "entities_bytes": 164670,
       "entities_sha256": "c76c135da5c8b696feac4c5e6252f3ea626e1622e571e52b80ff68b5751f6593",
-      "manifest_sha256": "93ff2c1a75c3f290d56221ac3f619c5f313ea4b36413d42c196e9d15adcf1562",
-      "snapshot_id": "20261028-93ff2c1a75c3"
+      "manifest_sha256": "5d2a0f3bf7ab348274d2ecd85a879a3f42f0429dc3b852d01b6942d5c42cc1c9",
+      "snapshot_id": "20261028-5d2a0f3bf7ab"
     },
     "forward_vs_reversed_input_order": {
       "byte_diff_count": 0,
@@ -169,7 +169,7 @@
   },
   "schema_version": "1.0",
   "snapshots": {
-    "20261028-93ff2c1a75c3": {
+    "20261028-5d2a0f3bf7ab": {
       "body_level_by_source": {
         "anilist-graphql": {
           "blurb": 150,
@@ -177,8 +177,8 @@
           "headline": 0
         },
         "ann-news": {
-          "blurb": 1,
-          "full": 7811,
+          "blurb": 3,
+          "full": 7809,
           "headline": 12447
         },
         "bangumi-api": {
@@ -187,8 +187,8 @@
           "headline": 0
         },
         "bones-news": {
-          "blurb": 45,
-          "full": 14,
+          "blurb": 43,
+          "full": 16,
           "headline": 3
         },
         "capcom-news": {
@@ -197,8 +197,8 @@
           "headline": 83
         },
         "chuapp-news": {
-          "blurb": 0,
-          "full": 14,
+          "blurb": 3,
+          "full": 11,
           "headline": 0
         },
         "mappa-news": {
@@ -207,8 +207,8 @@
           "headline": 47
         },
         "nijimen-news": {
-          "blurb": 776,
-          "full": 12256,
+          "blurb": 724,
+          "full": 12308,
           "headline": 5
         },
         "paworks-news": {
@@ -233,21 +233,21 @@
         }
       },
       "body_level_counts": {
-        "blurb": 1510,
-        "full": 21716,
+        "blurb": 1461,
+        "full": 21765,
         "headline": 12639
       },
       "category_counts": {
-        "anime": 22460,
-        "game": 4513,
-        "light_novel": 2110,
-        "manga": 6782
+        "anime": 22428,
+        "game": 4507,
+        "light_novel": 2149,
+        "manga": 6781
       },
       "category_counts_heuristic": {
-        "anime": 22460,
-        "game": 4513,
-        "light_novel": 2110,
-        "manga": 6782
+        "anime": 22428,
+        "game": 4507,
+        "light_novel": 2149,
+        "manga": 6781
       },
       "corporate_count": 17,
       "coverage_complete": false,
@@ -279,8 +279,8 @@
         {
           "body_level": "mixed_full_and_headline",
           "body_level_counts": {
-            "blurb": 1,
-            "full": 7815,
+            "blurb": 3,
+            "full": 7813,
             "headline": 12447
           },
           "cached_article_bodies_applied": 7816,
@@ -330,8 +330,8 @@
         {
           "body_level": "blurb",
           "body_level_counts": {
-            "blurb": 45,
-            "full": 14,
+            "blurb": 43,
+            "full": 16,
             "headline": 3
           },
           "count": 62,
@@ -364,13 +364,14 @@
         {
           "body_level": "full",
           "body_level_counts": {
-            "blurb": 0,
-            "full": 14,
+            "blurb": 3,
+            "full": 11,
             "headline": 0
           },
           "count": 14,
           "coverage_mode": "rolling_tail_only",
           "earliest_observed_date": "2026-10-22",
+          "legacy_v1_scrolled_off_count": 3,
           "mode": "discover_tail",
           "note": "[chuapp-news] Source 'https://www.chuapp.com/feed' is a rolling feed and cannot page history",
           "raw_entries": 30,
@@ -414,8 +415,8 @@
         {
           "body_level": "full",
           "body_level_counts": {
-            "blurb": 776,
-            "full": 12256,
+            "blurb": 724,
+            "full": 12308,
             "headline": 5
           },
           "count": 13037,
@@ -533,55 +534,60 @@
         "version": "2",
         "window_hours": 72
       },
-      "deduped_count": 35824,
+      "deduped_count": 35819,
       "exact_duplicates_collapsed": 0,
       "file_digests": {
         "clusters.jsonl": {
-          "bytes": 11036703,
-          "sha256": "fb361b0e5d41c9a8c45282f9451f50d9349289dc428bc87b1b4d149d6baebd55"
+          "bytes": 11035518,
+          "sha256": "5fecb25b04f17075e1f836a2168878450d2db46a7a841118902a1340bacee489"
         },
         "entities.json": {
           "bytes": 164670,
           "sha256": "c76c135da5c8b696feac4c5e6252f3ea626e1622e571e52b80ff68b5751f6593"
         },
         "items.jsonl": {
-          "bytes": 104589849,
-          "sha256": "5e52266456ffe35adcb7d1bf899be6bbcedf1ee0372797ca298073ea04ba9f15"
+          "bytes": 105396975,
+          "sha256": "a7ea658e31bf0a8b00477c650ef6b4e5356810594d3c1ce9f2acef69f7f020da"
         },
         "manifest.json": {
-          "bytes": 21523627,
-          "sha256": "93ff2c1a75c3f290d56221ac3f619c5f313ea4b36413d42c196e9d15adcf1562"
+          "bytes": 21525646,
+          "sha256": "5d2a0f3bf7ab348274d2ecd85a879a3f42f0429dc3b852d01b6942d5c42cc1c9"
         },
         "quarantine.jsonl": {
           "bytes": 0,
           "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         },
         "representatives.jsonl": {
-          "bytes": 104503999,
-          "sha256": "b32954b720305f7d0cc80b09b69ef2ed73effdbe777858fdccd59c75d1b8d43d"
+          "bytes": 105283613,
+          "sha256": "ac9f054aaf74ce39e5bbee89e18877c6cd2c46363e827dc88fcfff78393bc01f"
         },
         "snapshot.json": {
-          "bytes": 5881974,
-          "sha256": "e9c193a816b82ebb06654ef2ab8805d577290aff5fc3f397a95e66a05e36b3cf"
+          "bytes": 5882040,
+          "sha256": "06d81c423f9073dc9714d16a7db824fe9364e259ea7f0ca260c1a0928a6677b1"
         },
         "sources.json": {
-          "bytes": 3480,
-          "sha256": "1a855242cea7d138a05475777a9b79d18c606d284ee17d8c2d345167e233764c"
+          "bytes": 2649,
+          "sha256": "675132a567b68ce0434237f89e54162a60c847445fedcef7c3689a6f026b0840"
         }
       },
-      "full_body_item_count": 21716,
+      "full_body_item_count": 21765,
       "idempotency_verified": true,
       "item_count": 35865,
-      "linking_stats": {},
+      "linking_stats": {
+        "ambiguous_hits": 0,
+        "linked_items": 5408,
+        "total_items": 35865,
+        "unresolved_items": 30457
+      },
       "out_of_window_count": 4,
       "partial": false,
       "quarantined_count": 0,
       "raw_sidecar_binding": {
-        "raw_bytes": 102902617,
-        "raw_sha256": "bd592a84794b8bb6d484cd0a206947dc9327dbf5d6383f0c95f287dc2fb3fc35",
+        "raw_bytes": 103707379,
+        "raw_sha256": "2522ed1b2a515473e1e9fc2a10a00a2daf5108ca2343b860efea964d79f1100d",
         "total_raw_items": 35869
       },
-      "snapshot_id": "20261028-93ff2c1a75c3",
+      "snapshot_id": "20261028-5d2a0f3bf7ab",
       "source_count": 12,
       "source_type_counts": {
         "media": 34861,
@@ -591,7 +597,7 @@
       "window_end": "2026-10-28",
       "window_start": "2023-10-28"
     },
-    "20261105-7d99ed90c774": {
+    "20261105-d797b5f0ae8e": {
       "body_level_by_source": {
         "anilist-graphql": {
           "blurb": 150,
@@ -599,8 +605,8 @@
           "headline": 0
         },
         "ann-news": {
-          "blurb": 7,
-          "full": 7797,
+          "blurb": 9,
+          "full": 7795,
           "headline": 12490
         },
         "bangumi-api": {
@@ -609,8 +615,8 @@
           "headline": 0
         },
         "bones-news": {
-          "blurb": 45,
-          "full": 14,
+          "blurb": 43,
+          "full": 16,
           "headline": 3
         },
         "capcom-news": {
@@ -619,8 +625,8 @@
           "headline": 83
         },
         "chuapp-news": {
-          "blurb": 0,
-          "full": 29,
+          "blurb": 3,
+          "full": 26,
           "headline": 1
         },
         "gcores-news": {
@@ -634,8 +640,8 @@
           "headline": 46
         },
         "nijimen-news": {
-          "blurb": 772,
-          "full": 12466,
+          "blurb": 721,
+          "full": 12517,
           "headline": 5
         },
         "paworks-news": {
@@ -654,32 +660,32 @@
           "headline": 0
         },
         "toei-news": {
-          "blurb": 1,
+          "blurb": 0,
           "full": 0,
           "headline": 47
         },
         "yystv-news": {
-          "blurb": 0,
-          "full": 12,
+          "blurb": 7,
+          "full": 5,
           "headline": 0
         }
       },
       "body_level_counts": {
-        "blurb": 1530,
-        "full": 21955,
+        "blurb": 1488,
+        "full": 21996,
         "headline": 12683
       },
       "category_counts": {
-        "anime": 22639,
-        "game": 4590,
-        "light_novel": 2112,
-        "manga": 6827
+        "anime": 22606,
+        "game": 4584,
+        "light_novel": 2152,
+        "manga": 6825
       },
       "category_counts_heuristic": {
-        "anime": 22639,
-        "game": 4590,
-        "light_novel": 2112,
-        "manga": 6827
+        "anime": 22606,
+        "game": 4584,
+        "light_novel": 2152,
+        "manga": 6825
       },
       "corporate_count": 17,
       "coverage_complete": false,
@@ -711,8 +717,8 @@
         {
           "body_level": "mixed_full_and_headline",
           "body_level_counts": {
-            "blurb": 7,
-            "full": 7797,
+            "blurb": 9,
+            "full": 7795,
             "headline": 12491
           },
           "cached_article_bodies_applied": 7799,
@@ -762,8 +768,8 @@
         {
           "body_level": "blurb",
           "body_level_counts": {
-            "blurb": 45,
-            "full": 14,
+            "blurb": 43,
+            "full": 16,
             "headline": 3
           },
           "count": 62,
@@ -796,13 +802,14 @@
         {
           "body_level": "full",
           "body_level_counts": {
-            "blurb": 0,
-            "full": 29,
+            "blurb": 3,
+            "full": 26,
             "headline": 1
           },
           "count": 30,
           "coverage_mode": "rolling_tail_only",
           "earliest_observed_date": "2026-10-22",
+          "legacy_v1_scrolled_off_count": 3,
           "mode": "discover_tail",
           "note": "[chuapp-news] Source 'https://www.chuapp.com/feed' is a rolling feed and cannot page history",
           "raw_entries": 30,
@@ -846,8 +853,8 @@
         {
           "body_level": "full",
           "body_level_counts": {
-            "blurb": 772,
-            "full": 12466,
+            "blurb": 721,
+            "full": 12517,
             "headline": 5
           },
           "count": 13243,
@@ -941,13 +948,14 @@
         {
           "body_level": "full",
           "body_level_counts": {
-            "blurb": 0,
-            "full": 12,
+            "blurb": 7,
+            "full": 5,
             "headline": 0
           },
           "count": 12,
           "coverage_mode": "rolling_tail_only",
           "earliest_observed_date": "2026-10-30",
+          "legacy_v1_scrolled_off_count": 7,
           "mode": "discover_tail",
           "note": "[yystv-news] Source 'https://www.yystv.cn/rss/feed' is a rolling feed and cannot page history",
           "raw_entries": 12,
@@ -965,60 +973,65 @@
         "version": "2",
         "window_hours": 72
       },
-      "deduped_count": 36127,
+      "deduped_count": 36121,
       "exact_duplicates_collapsed": 0,
       "file_digests": {
         "clusters.jsonl": {
-          "bytes": 11130027,
-          "sha256": "70fd6fbe5be82f0bc134bcf5c9bef6dc824a8c57344f91a62f23efb28e333045"
+          "bytes": 11128534,
+          "sha256": "9c61999aae6cf0d8c7ddb6362ce0138a952b54c44d18db1e54d6b86e1e4bee32"
         },
         "entities.json": {
           "bytes": 164670,
           "sha256": "c76c135da5c8b696feac4c5e6252f3ea626e1622e571e52b80ff68b5751f6593"
         },
         "items.jsonl": {
-          "bytes": 106701225,
-          "sha256": "9dfea492ef6b4a85f11452f3b04b19cc64ff9c279ef4f7e05039971fc927bff0"
+          "bytes": 107470445,
+          "sha256": "2dcedf584c26286f78b156833cd75a2f77aeb93acf0ff977fc721fc94dbfe66b"
         },
         "manifest.json": {
-          "bytes": 21706174,
-          "sha256": "7d99ed90c77427ccaee925ed7590cce009fc5a396fcba47de4e4161438aafbd8"
+          "bytes": 21707681,
+          "sha256": "d797b5f0ae8ef4197a093f66fdbbcabc111360f8c852520d34160d04e6198d2d"
         },
         "quarantine.jsonl": {
-          "bytes": 0,
-          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          "bytes": 184,
+          "sha256": "a4fdbd33a3a0666fba8c56a45d6f6a6f2ae710f40511689a559ac394932130cc"
         },
         "representatives.jsonl": {
-          "bytes": 106615375,
-          "sha256": "6de68ba38426b8dbdc96f12a2ccc5ea7e0cdc7e0349dc1388973e5bdafd056ae"
+          "bytes": 107357083,
+          "sha256": "58e656bbb303685c091f35fdc5c1e09f87b29d775d4f14da743a7ea35966a2a1"
         },
         "snapshot.json": {
-          "bytes": 5919485,
-          "sha256": "595a30333b07be4d87e4e31ef5b4c397e23e334a6588f4f3a5d4c8ffacc99c9a"
+          "bytes": 5919511,
+          "sha256": "7fd3ac7e2847546cb5dd48e5dc700df3487a43e03c17fcfb05909fb50371dd71"
         },
         "sources.json": {
-          "bytes": 3480,
-          "sha256": "1a855242cea7d138a05475777a9b79d18c606d284ee17d8c2d345167e233764c"
+          "bytes": 3046,
+          "sha256": "1c5f632cc17014860e3f76260fac25240b249e6b63df502604d024b7b0023e93"
         }
       },
-      "full_body_item_count": 21955,
+      "full_body_item_count": 21996,
       "idempotency_verified": true,
-      "item_count": 36168,
-      "linking_stats": {},
+      "item_count": 36167,
+      "linking_stats": {
+        "ambiguous_hits": 0,
+        "linked_items": 5430,
+        "total_items": 36167,
+        "unresolved_items": 30737
+      },
       "out_of_window_count": 1,
       "partial": false,
-      "quarantined_count": 0,
+      "quarantined_count": 1,
       "raw_sidecar_binding": {
-        "raw_bytes": 104987512,
-        "raw_sha256": "dfda51857721c7a2f0455251b5525c5b55e8a1d6bde20762813ffc7ff4fa43f8",
+        "raw_bytes": 105815746,
+        "raw_sha256": "605b7e4d8500953b5ea40ae124160f28fa43b1dbaa7c07d87d37688f02151631",
         "total_raw_items": 36169
       },
-      "snapshot_id": "20261105-7d99ed90c774",
+      "snapshot_id": "20261105-d797b5f0ae8e",
       "source_count": 14,
       "source_type_counts": {
         "media": 35148,
         "metadata": 549,
-        "official": 471
+        "official": 470
       },
       "window_end": "2026-11-05",
       "window_start": "2023-11-05"

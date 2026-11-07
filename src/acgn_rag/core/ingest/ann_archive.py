@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import csv
 import hashlib
-import html
 import io
 import json
 import re
@@ -30,10 +29,12 @@ from pathlib import Path
 import feedparser
 from selectolax.lexbor import LexborHTMLParser as HTMLParser
 
-from acgn_rag.core.ingest.http import PoliteHttpClient
+from acgn_rag.core.ingest.http import PoliteHttpClient, decode_bytes_checked
 from acgn_rag.core.ingest.normalize import (
+    PARAGRAPH_SEP,
     RawIngestItem,
     clean_title,
+    html_to_paragraphs,
     is_corporate_ir_text,
     normalize_text,
     normalize_url,
@@ -268,7 +269,9 @@ def parse_ann_day_html(
         cleaned_snippet = strip_html_boilerplate(snippet) if snippet else ""
         if cleaned_snippet and cleaned_snippet != title and len(cleaned_snippet) > len(title) + 30:
             body = (
-                f"{title}\n{cleaned_snippet}" if title not in cleaned_snippet else cleaned_snippet
+                f"{title}{PARAGRAPH_SEP}{cleaned_snippet}"
+                if title not in cleaned_snippet
+                else cleaned_snippet
             )
         else:
             body = title
@@ -306,33 +309,15 @@ def parse_ann_day_html(
     )
 
 
-_BLOCK_BOUNDARY_RE = re.compile(
-    r"</?(?:p|div|li|tr|h[1-6]|blockquote|pre|section|article|header|footer|table|ul|ol|dl|dt|dd)\b[^>]*>"
-    r"|<br\s*/?>|<hr\s*/?>",
-    re.IGNORECASE,
-)
-_CELL_BOUNDARY_RE = re.compile(r"</?(?:td|th)\b[^>]*>", re.IGNORECASE)
-_INLINE_OR_ANY_TAG_RE = re.compile(r"<[^>]+>")
-
-
 def _extract_block_paragraphs(body_node: object) -> list[str]:
     """Extract block-level paragraphs from a `selectolax` node while keeping inline markup
     (`<em>`, `<i>`, `<b>`, `<strong>`, `<a>`, `<cite>`, `<span>`, etc.) inline within its
-    enclosing paragraph.
+    enclosing paragraph and `<br>` as a soft line break (`\\n`) within its paragraph.
     """
-    for bad in body_node.css("script, style, noscript, instaread-player"):  # type: ignore[attr-defined]
+    for bad in body_node.css("script, style, noscript, instaread-player, iframe"):  # type: ignore[attr-defined]
         bad.decompose()
     raw_html = getattr(body_node, "html", None) or ""
-    step1 = _CELL_BOUNDARY_RE.sub(" ", raw_html)
-    step2 = _BLOCK_BOUNDARY_RE.sub("\x00", step1)
-    step3 = _INLINE_OR_ANY_TAG_RE.sub("", step2)
-    unescaped = normalize_text(html.unescape(step3))
-    paragraphs: list[str] = []
-    for chunk in unescaped.split("\x00"):
-        cleaned = re.sub(r"\s+", " ", chunk).strip()
-        if cleaned:
-            paragraphs.append(cleaned)
-    return paragraphs
+    return html_to_paragraphs(raw_html)
 
 
 @dataclass(frozen=True)
@@ -457,13 +442,13 @@ class AnnArchiveAdapter:
         init=False, default_factory=dict, repr=False
     )
     _article_cache_loaded: bool = field(init=False, default=False, repr=False)
-    _article_by_url: dict[str, tuple[str, str, str]] = field(
+    _article_by_url: dict[str, tuple[str, str, str, str | None]] = field(
         init=False, default_factory=dict, repr=False
     )
-    _article_by_id: dict[str, tuple[str, str, str]] = field(
+    _article_by_id: dict[str, tuple[str, str, str, str | None]] = field(
         init=False, default_factory=dict, repr=False
     )
-    _articles_by_date: dict[str, list[tuple[str, str, str]]] = field(
+    _articles_by_date: dict[str, list[tuple[str, str, str, str | None]]] = field(
         init=False, default_factory=dict, repr=False
     )
 
@@ -491,16 +476,17 @@ class AnnArchiveAdapter:
                     t = str(entry.get("title") or "").strip()
                     b = str(entry.get("body") or "").strip()
                     d = str(entry.get("date") or "").strip()
+                    pub = str(entry.get("published_at") or "").strip() or None
                     if not d:
                         m = url_date_re.search(norm_u)
                         d = m.group(1) if m else ""
                     if norm_u and b:
-                        self._article_by_url[norm_u] = (t, b, d)
+                        self._article_by_url[norm_u] = (t, b, d, pub)
                         aid = self._extract_article_id(norm_u)
                         if aid:
-                            self._article_by_id[aid] = (t, b, d)
+                            self._article_by_id[aid] = (t, b, d, pub)
                         if d:
-                            self._articles_by_date.setdefault(d, []).append((norm_u, t, b))
+                            self._articles_by_date.setdefault(d, []).append((norm_u, t, b, pub))
             return
 
         if path.suffix.lower() == ".zip":
@@ -516,8 +502,13 @@ class AnnArchiveAdapter:
                         str(r.get("cache_file") or "").replace("\\", "/").split("/")[-1]
                     )
                     html_bytes = zf.read(f"html/{cache_basename}")
+                    html_text, _, _ = decode_bytes_checked(
+                        html_bytes,
+                        url=norm_u,
+                        content_type="text/html; charset=utf-8",
+                    )
                     parsed_art = parse_ann_article_html(
-                        html_bytes.decode("utf-8", errors="replace"),
+                        html_text,
                         url=norm_u,
                         source_key=self.source_key,
                     )
@@ -525,13 +516,23 @@ class AnnArchiveAdapter:
                     if not d:
                         m = url_date_re.search(norm_u)
                         d = m.group(1) if m else ""
-                    self._article_by_url[norm_u] = (parsed_art.title, parsed_art.body, d)
+                    self._article_by_url[norm_u] = (
+                        parsed_art.title,
+                        parsed_art.body,
+                        d,
+                        parsed_art.published_at,
+                    )
                     aid = self._extract_article_id(norm_u)
                     if aid:
-                        self._article_by_id[aid] = (parsed_art.title, parsed_art.body, d)
+                        self._article_by_id[aid] = (
+                            parsed_art.title,
+                            parsed_art.body,
+                            d,
+                            parsed_art.published_at,
+                        )
                     if d:
                         self._articles_by_date.setdefault(d, []).append(
-                            (norm_u, parsed_art.title, parsed_art.body)
+                            (norm_u, parsed_art.title, parsed_art.body, parsed_art.published_at)
                         )
 
     def _apply_article_cache_to_day(
@@ -558,13 +559,9 @@ class AnnArchiveAdapter:
             if cached is None:
                 enriched.append(it)
                 continue
-            cached_title, cached_body, _ = cached
+            cached_title, cached_body, _, _ = cached
             eff_title = it.title or cached_title
-            eff_body = (
-                f"{eff_title}\n{cached_body}"
-                if eff_title and not cached_body.startswith(eff_title)
-                else cached_body
-            )
+            eff_body = cached_body
             ingest_cat = (
                 "corporate"
                 if is_corporate_ir_text(f"{eff_title}\n{eff_body}")
@@ -587,7 +584,9 @@ class AnnArchiveAdapter:
             )
 
         extra_for_day = self._articles_by_date.get(target_iso, [])
-        for cached_url, cached_title, cached_body in sorted(extra_for_day, key=lambda x: x[0]):
+        for cached_url, cached_title, cached_body, cached_pub in sorted(
+            extra_for_day, key=lambda x: x[0]
+        ):
             aid = self._extract_article_id(cached_url)
             if cached_url in seen_urls or (aid and aid in seen_ids):
                 continue
@@ -597,11 +596,7 @@ class AnnArchiveAdapter:
             eff_title = clean_title(cached_title)
             if not eff_title:
                 continue
-            eff_body = (
-                f"{eff_title}\n{cached_body}"
-                if not cached_body.startswith(eff_title)
-                else cached_body
-            )
+            eff_body = cached_body
             ingest_cat = "corporate" if is_corporate_ir_text(f"{eff_title}\n{eff_body}") else None
             self.last_cached_article_bodies_applied += 1
             enriched.append(
@@ -609,7 +604,7 @@ class AnnArchiveAdapter:
                     url=cached_url,
                     title=eff_title,
                     body=eff_body,
-                    published_at=f"{target_iso}T00:00:00Z",
+                    published_at=cached_pub or f"{target_iso}T00:00:00Z",
                     publisher=self.publisher,
                     source_type="media",
                     source_key=self.source_key,

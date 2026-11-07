@@ -26,6 +26,7 @@ from zoneinfo import ZoneInfo
 from acgn_rag.core.ports import SourceType
 
 NORMALIZATION_VERSION = "1"
+PARAGRAPH_SEP = "\n\n"
 VALID_SOURCE_TYPES: frozenset[str] = frozenset({"official", "media", "metadata"})
 KNOWN_LANGS: frozenset[str] = frozenset({"ja", "en", "zh", "und"})
 
@@ -90,7 +91,19 @@ _DATE_ONLY_RE = re.compile(
 )
 _EXPLICIT_UTC_RFC_RE = re.compile(r"(?:[+-]00:?00|\b(?:UTC|GMT|UT|Z)\b)\s*$", re.IGNORECASE)
 _HTML_TAG_RE = re.compile(r"<[A-Za-z!/][^>]*>")
-_SCRIPT_STYLE_RE = re.compile(r"<(script|style|nav|footer|noscript)\b[^>]*>.*?</\1>", re.I | re.S)
+_SCRIPT_STYLE_RE = re.compile(
+    r"<(script|style|nav|footer|noscript|iframe)\b[^>]*>.*?</\1>", re.I | re.S
+)
+_BLOCK_TAGS = (
+    r"p|div|li|tr|h[1-6]|blockquote|pre|section|article|header|footer|table|ul|ol|dl|dt|dd|figure"
+)
+HTML_BLOCK_BOUNDARY_RE = re.compile(rf"</?(?:{_BLOCK_TAGS})\b[^>]*>|<hr\s*/?>", re.I)
+_BR_RE = re.compile(r"<br\s*/?>", re.I)
+_CELL_RE = re.compile(r"</?(?:td|th)\b[^>]*>", re.I)
+_HSPACE_RE = re.compile(r"[ \t\f\v\u00a0\u3000]+")
+_ESCAPED_FROALA_RE = re.compile(r"<span\b[^>]*\bfr-mk\b[^>]*>.*?</span>", re.I | re.S)
+_MARKUP_ONLY_RE = re.compile(r"^(?:\s|&nbsp;|<[^>]*>)*$", re.I)
+_INDEX_PAGE_URL_RE = re.compile(r"/ja/press\.html$", re.I)
 _TITLE_SUFFIX_RE = re.compile(
     r"\s*(?:[|\-\u2013\u2014\uff5c]\s*(?:Anime News Network|東映アニメーション\s*Toei Animation|東映アニメーション|"
     r"株式会社カプコン|CAPCOM|机核\s*GCORES|GCORES|触乐|游研社|MAPPA|BONES|P\.A\.WORKS|"
@@ -139,16 +152,64 @@ def normalize_text(text: str) -> str:
     return nfc.replace("\r\n", "\n").replace("\r", "\n")
 
 
+def html_to_paragraphs(fragment: str) -> list[str]:
+    """Convert an HTML fragment (or plain-text fallback) into block-level paragraphs.
+
+    - Block boundaries (`<p>`, `<div>`, `<li>`, `<tr>`, `<h1-6>`, `<blockquote>`, `<pre>`,
+      `<section>`, `<article>`, `<header>`, `<footer>`, `<table>`, `<ul>`, `<ol>`, `<dl>`, `<dt>`,
+      `<dd>`, `<figure>`, `<hr>`) separate paragraphs.
+    - `<br>` becomes a soft line break `'\\n'` inside its enclosing paragraph (not a paragraph
+      boundary).
+    - When HTML tags are present, source newlines inside a block are collapsed to spaces (per HTML
+      whitespace rules), while `<br>` soft line breaks are preserved as `'\\n'`.
+    - When no HTML tags are present, blank lines (`\\n\\s*\\n`) split paragraphs and single `'\\n'`
+      is preserved as a soft line break.
+    - Escaped Froala marker spans (`fr-mk`) and markup-only/whitespace-only paragraphs are removed.
+    """
+    if not fragment or not fragment.strip():
+        return []
+    has_html = bool(_HTML_TAG_RE.search(fragment))
+    s = _SCRIPT_STYLE_RE.sub(" ", fragment)
+    s = _CELL_RE.sub(" ", s)
+    if has_html:
+        s = _BR_RE.sub("\x01", s)
+        s = HTML_BLOCK_BOUNDARY_RE.sub("\x00", s)
+        s = _HTML_TAG_RE.sub("", s)
+        s = normalize_text(html.unescape(s))
+        s = _ESCAPED_FROALA_RE.sub(" ", s)
+        # Collapse source newlines inside HTML blocks to spaces, then restore <br> (\x01) to \n
+        s = s.replace("\n", " ").replace("\x01", "\n")
+        raw_chunks = s.split("\x00")
+    else:
+        s = normalize_text(html.unescape(s))
+        s = _ESCAPED_FROALA_RE.sub(" ", s)
+        raw_chunks = re.split(r"\n[^\S\n]*\n", s)
+
+    paras: list[str] = []
+    for chunk in raw_chunks:
+        lines = [_HSPACE_RE.sub(" ", ln).strip() for ln in chunk.split("\n")]
+        text = "\n".join(ln for ln in lines if ln)
+        if text and not _MARKUP_ONLY_RE.match(text):
+            paras.append(text)
+    return paras
+
+
+def split_plain_paragraphs(body: str) -> list[str]:
+    """Split normalized plain-text `body` into paragraphs on blank lines (`\\n[^\\S\\n]*\\n`).
+
+    Single `'\\n'` soft line breaks (e.g. from `<br>`) remain within their paragraph.
+    """
+    if not body or not body.strip():
+        return []
+    return [p.strip() for p in re.split(r"\n[^\S\n]*\n", body) if p.strip()]
+
+
 def strip_html_boilerplate(raw_html_or_text: str) -> str:
-    """Strip script/style/nav/footer blocks and HTML tags before unescaping HTML entities."""
-    cleaned = _SCRIPT_STYLE_RE.sub(" ", raw_html_or_text)
-    cleaned = re.sub(r"<br\s*/?>|</p>|</div>|</li>|</h[1-6]>", "\n", cleaned, flags=re.I)
-    cleaned = _HTML_TAG_RE.sub("", cleaned)
-    cleaned = html.unescape(cleaned)
-    cleaned = normalize_text(cleaned)
-    lines = [re.sub(r"[ \t\f\v]+", " ", line).strip() for line in cleaned.split("\n")]
-    non_empty = [line for line in lines if line]
-    return "\n".join(non_empty)
+    """Strip script/style/nav/footer blocks and HTML tags before unescaping HTML entities,
+    joining block-level paragraphs with `PARAGRAPH_SEP` (`'\\n\\n'`) and preserving `<br>` as
+    single soft line breaks (`'\\n'`).
+    """
+    return PARAGRAPH_SEP.join(html_to_paragraphs(raw_html_or_text))
 
 
 def clean_title(title: str) -> str:
@@ -642,6 +703,10 @@ class NormalizationReport:
 def normalize_item(raw: RawIngestItem) -> NormalizedItem:
     """Convert one `RawIngestItem` into a validated `NormalizedItem`."""
     canonical_url = normalize_url(raw.url)
+    if _INDEX_PAGE_URL_RE.search(canonical_url):
+        raise NormalizationError(
+            f"index_page: listing index URL is not an article ({canonical_url!r})"
+        )
     doc_id = compute_doc_id(canonical_url)
     raw_cleaned_title = clean_title(raw.title)
     body = clean_body(raw.body)
@@ -793,9 +858,11 @@ def normalize_batch(
 
 
 __all__ = [
+    "HTML_BLOCK_BOUNDARY_RE",
     "IR_KEYWORDS",
     "IR_TOKEN_PATTERN",
     "NORMALIZATION_VERSION",
+    "PARAGRAPH_SEP",
     "ConflictingObservationError",
     "NormalizationError",
     "NormalizationReport",
@@ -808,6 +875,7 @@ __all__ = [
     "clean_body",
     "clean_title",
     "compute_doc_id",
+    "html_to_paragraphs",
     "infer_event_type",
     "is_corporate_ir_text",
     "is_fiscal_pr_boilerplate_title",
@@ -816,5 +884,6 @@ __all__ = [
     "normalize_text",
     "normalize_url",
     "parse_utc_timestamp",
+    "split_plain_paragraphs",
     "strip_html_boilerplate",
 ]

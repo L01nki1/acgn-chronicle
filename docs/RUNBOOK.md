@@ -42,6 +42,11 @@ pytest -q                                     # 4 tests
 4. Verify idempotency: rebuild once and compare `snapshot_id`.
 5. Post the `snapshot_id` + window in the group; every later run must use that id.
 
+> **Private snapshot distribution red-line (`#52` / `COMPLIANCE.md` C2 / `ROADMAP.md` §8 #6)**:
+> - **Never** commit `data/` (`data/raw/`, `data/snapshots/`, `data/index/`) to git, and **never** attach full-text snapshot archives (`items.jsonl`, `representatives.jsonl`) to public GitHub Releases, Issues, or PRs.
+> - Distribute frozen snapshot tarballs (`snapshots-YYYYMMDD*.tar.gz`) **only via the team's private channel** (e.g., course group / private Drive link shared out-of-band). Public GitHub comments may record only the archive filename, byte size, `sha256` digest, and verification command.
+> - After extracting `snapshots-YYYYMMDD*.tar.gz` into `data/snapshots/`, verify both the tarball `sha256` and each snapshot's `manifest.json` `sha256` against the committed metadata-only [`eval/snapshot_evidence.json`](../eval/snapshot_evidence.json) before running `build_index.py`, `extract_facts.py`, or `run_eval.py`.
+
 > When idempotency fails, the first suspects are always **manifest ordering / time zone / timestamp format**,
 > not the hash function.
 

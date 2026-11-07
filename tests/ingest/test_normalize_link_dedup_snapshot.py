@@ -1522,6 +1522,7 @@ def test_coverage_complete_false_when_coverage_gaps_present_and_strict_body_leve
     - _classify_item_body_level requires >= 300 chars AND >= 2 non-title paragraphs for 'full',
       and classifies single-paragraph 350-char blurbs and metadata synopses as 'blurb'.
     """
+    from acgn_rag.core.ingest.normalize import NormalizationError, strip_html_boilerplate
     from acgn_rag.core.ingest.snapshot import (
         _classify_item_body_level,
         build_snapshot_from_items,
@@ -1584,14 +1585,119 @@ def test_coverage_complete_false_when_coverage_gaps_present_and_strict_body_leve
     )
     assert _classify_item_body_level(raw_html_single_para) == "blurb"
 
+    # Regression (E Review #5811214782 Defect 1): a plain-text single paragraph containing a
+    # single soft newline '\n' (361 chars, no blank line '\n\n') must be classified as 'blurb'.
+    plain_soft_newline_blurb = normalize_item(
+        RawIngestItem(
+            url="https://www.animenewsnetwork.com/news/2026-10-20/soft-nl-brief/.100021",
+            title="Soft Newline Single Paragraph",
+            body=("A" * 180) + "\n" + ("B" * 180),
+            published_at="2026-10-20T10:50:00Z",
+            publisher="Anime News Network",
+            source_key="ann-news",
+            source_type="media",
+            lang="en",
+        )
+    )
+    assert len(plain_soft_newline_blurb.body) >= 360
+    assert _classify_item_body_level(plain_soft_newline_blurb) == "blurb"
+
+    # Regression (E Review #5811214782 Defect 2): a single <p> containing <br> line breaks
+    # (360+ chars) is 1 paragraph with soft '\n', never 'full'.
+    html_br_single_para = normalize_item(
+        RawIngestItem(
+            url="https://www.animenewsnetwork.com/news/2026-10-20/html-br-brief/.100022",
+            title="HTML BR Single Paragraph",
+            body=strip_html_boilerplate("<p>" + ("A" * 180) + "<br>" + ("B" * 180) + "</p>"),
+            published_at="2026-10-20T10:52:00Z",
+            publisher="Anime News Network",
+            source_key="ann-news",
+            source_type="media",
+            lang="en",
+        )
+    )
+    assert len(html_br_single_para.body) >= 360
+    assert "\n" in html_br_single_para.body
+    assert "\n\n" not in html_br_single_para.body
+    assert _classify_item_body_level(html_br_single_para) == "blurb"
+
+    # Regression (E Review #5811214782 Defect 4): HTML tag/attribute inflation past 300 raw chars
+    # when visible stripped text is < 300 chars must not classify as 'full' or bypass 'headline'.
+    html_inflated_two_para = normalize_item(
+        RawIngestItem(
+            url="https://www.animenewsnetwork.com/news/2026-10-20/html-inflated/.100023",
+            title="Inflated Markup Item",
+            body=(
+                f'<p class="{"x" * 200}">Short first paragraph.</p>'
+                f'<p class="{"y" * 200}">Short second paragraph.</p>'
+            ),
+            published_at="2026-10-20T10:55:00Z",
+            publisher="Anime News Network",
+            source_key="ann-news",
+            source_type="media",
+            lang="en",
+        )
+    )
+    assert len(html_inflated_two_para.body) >= 400
+    assert _classify_item_body_level(html_inflated_two_para) == "blurb"
+
+    html_inflated_headline = normalize_item(
+        RawIngestItem(
+            url="https://www.animenewsnetwork.com/news/2026-10-20/html-headline/.100024",
+            title="Inflated Headline",
+            body=f'<p class="{"z" * 320}">Inflated Headline</p>',
+            published_at="2026-10-20T10:56:00Z",
+            publisher="Anime News Network",
+            source_key="ann-news",
+            source_type="media",
+            lang="en",
+        )
+    )
+    assert len(html_inflated_headline.body) >= 340
+    assert _classify_item_body_level(html_inflated_headline) == "headline"
+
+    # Regression (B5 & B2): literal '<En.>' in plain text is not stripped as an HTML tag, and
+    # Toei's listing index page '/ja/press.html' is rejected into quarantine as 'index_page'.
+    literal_angle_article = normalize_item(
+        RawIngestItem(
+            url="https://realsound.jp/movie/2026/10/post-100025.html",
+            title="Real Sound Feature on <En.>",
+            body=(
+                ("First paragraph discussing artist <En.> and their new anime theme song. " * 3)
+                + "\n\n"
+                + ("Second paragraph covering production credits and release schedule. " * 3)
+            ),
+            published_at="2026-10-20T10:58:00Z",
+            publisher="Real Sound",
+            source_key="realsound-acgn",
+            source_type="media",
+            lang="ja",
+        )
+    )
+    assert _classify_item_body_level(literal_angle_article) == "full"
+
+    with pytest.raises(NormalizationError, match="index_page"):
+        normalize_item(
+            RawIngestItem(
+                url="https://corp.toei-anim.co.jp/ja/press.html",
+                title="プレスリリース | 東映アニメーション株式会社",
+                body="Index listing body " * 50,
+                published_at="2026-04-01T00:00:00Z",
+                publisher="Toei Animation",
+                source_key="toei-news",
+                source_type="official",
+                lang="ja",
+            )
+        )
+
     multi_para_article = normalize_item(
         RawIngestItem(
             url="https://www.animenewsnetwork.com/news/2026-10-20/full-article/.100011",
             title="Full Article Title",
             body=(
-                "Full Article Title\n"
+                "Full Article Title\n\n"
                 + ("First paragraph of full news article text with detailed reporting. " * 4)
-                + "\n"
+                + "\n\n"
                 + ("Second paragraph of full news article text with staff and cast details. " * 4)
             ),
             published_at="2026-10-20T11:00:00Z",
@@ -1719,6 +1825,25 @@ def test_committed_snapshot_evidence_internal_consistency() -> None:
         expected_complete = (len(snap.get("coverage_gaps") or []) == 0) and not snap["partial"]
         assert snap["coverage_complete"] is expected_complete
 
+        raw_binding = snap.get("raw_sidecar_binding") or {}
+        assert raw_binding, f"{snap_id} missing raw_sidecar_binding"
+        total_raw = int(raw_binding["total_raw_items"])
+        assert sum(int(r.get("count") or 0) for r in crawl_summary) == total_raw
+        assert (
+            item_count
+            + int(snap.get("out_of_window_count") or 0)
+            + int(snap.get("exact_duplicates_collapsed") or 0)
+            + int(snap.get("quarantined_count") or 0)
+        ) == total_raw
+
     assert len(entities_digests) == 1, (
         f"Mismatched entities.json across snapshots: {entities_digests}"
     )
+
+    from acgn_rag.core.ingest.normalize import strip_html_boilerplate
+
+    wp_mixed_html = "<p>First paragraph line 1<br>line 2</p><p>Second paragraph</p>"
+    wp_cleaned = strip_html_boilerplate(wp_mixed_html)
+    assert wp_cleaned == "First paragraph line 1\nline 2\n\nSecond paragraph"
+    assert "\n\n" in wp_cleaned
+    assert "\n" in wp_cleaned.replace("\n\n", "")

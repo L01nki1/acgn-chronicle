@@ -105,6 +105,7 @@ def build_default_registry(
             lang="ja",
             source_tz="Asia/Tokyo",
             max_pages=1,
+            link_pattern=r"(?:/ja/press/[^/]+\.html|/news/detail/[^/]+/?)$",
             http=client,
         ),
         "ann-news": AnnArchiveAdapter(

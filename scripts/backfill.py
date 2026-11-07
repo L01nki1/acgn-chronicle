@@ -35,9 +35,10 @@ from acgn_rag.core.ingest.adapters import (
     build_default_registry,
     validate_backfill_window,
 )
-from acgn_rag.core.ingest.normalize import RawIngestItem, canonical_json
+from acgn_rag.core.ingest.normalize import PARAGRAPH_SEP, RawIngestItem, canonical_json
 from acgn_rag.core.ingest.snapshot import (
     BuiltSnapshot,
+    _split_body_paragraphs,
     build_snapshot_from_raw,
     publish_snapshot,
 )
@@ -175,14 +176,16 @@ def _classify_raw_item_body_level(adapter: object, item: RawIngestItem) -> str:
         return "blurb"
     body_clean = item.body.strip()
     title_clean = item.title.strip()
-    if body_clean == title_clean or len(body_clean) <= len(title_clean) + 15:
+    paragraphs = _split_body_paragraphs(body_clean)
+    visible_body = PARAGRAPH_SEP.join(paragraphs).strip()
+    if (
+        not visible_body
+        or visible_body == title_clean
+        or len(visible_body) <= len(title_clean) + 15
+    ):
         return "headline"
-    non_title_paragraphs = [
-        line.strip()
-        for line in body_clean.splitlines()
-        if line.strip() and line.strip() != title_clean
-    ]
-    if len(body_clean) >= 300 and len(non_title_paragraphs) >= 2:
+    non_title_paragraphs = [para for para in paragraphs if para != title_clean]
+    if len(visible_body) >= 300 and len(non_title_paragraphs) >= 2:
         return "full"
     return "blurb"
 

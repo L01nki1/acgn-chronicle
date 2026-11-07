@@ -948,6 +948,29 @@ def test_parse_ann_article_html_and_offline_article_cache_enrichment(tmp_path: P
     assert single_p_res.paragraph_count == 1
     assert "\n" not in single_p_res.body
 
+    # Regression (E Review #5811214782 Defect 2 & B1): a single <p> containing <br> line breaks
+    # and a double-escaped Froala marker must stay 1 paragraph with soft '\n' (no '\n\n') and
+    # strip the Froala span.
+    single_p_br_html = (
+        "<html><body><h1 id='page_header'>Single Paragraph With Line Break</h1>"
+        "<div class='KonaBody'><p>"
+        + ("A" * 180)
+        + "<br/>"
+        + ("B" * 180)
+        + '&lt;span class="fr-mk" style="display: none;"&gt;&amp;nbsp;&lt;/span&gt;'
+        + "</p>"
+        + '<iframe class="fr-draggable">&lt;span class="fr-mk" style="display: none;"&gt;&amp;nbsp;&lt;/span&gt;</iframe>'
+        + "</div></body></html>"
+    )
+    single_p_br_res = parse_ann_article_html(
+        single_p_br_html, url="https://www.animenewsnetwork.com/news/2025-10-20/br-brief/.200100"
+    )
+    assert len(single_p_br_res.body) >= 360
+    assert single_p_br_res.paragraph_count == 1
+    assert "\n" in single_p_br_res.body
+    assert "\n\n" not in single_p_br_res.body
+    assert "fr-mk" not in single_p_br_res.body
+
     with pytest.raises(SelectorBrokenError, match=r"Empty div\.KonaBody"):
         parse_ann_article_html(
             "<html><body><h1 id='page_header'>Title</h1><div class='KonaBody'>   </div></body></html>"
@@ -965,7 +988,8 @@ def test_parse_ann_article_html_and_offline_article_cache_enrichment(tmp_path: P
         zf.writestr("html/article-1.html", article_html)
         zf.writestr(
             "html/article-2.html",
-            "<html><body><h1 id='page_header'><div class='sub-title'>News</div>Extra Daily Brief</h1>"
+            "<html><body><div id='page-title'><h1 id='page_header'><div class='sub-title'>News</div>Extra Daily Brief</h1>"
+            "<small>posted on <time datetime='2025-10-20T18:45:00-04:00'>2025-10-20</time></small></div>"
             "<div class='KonaBody'><p>Paragraph one of extra daily brief body text.</p>"
             "<p>Paragraph two of extra daily brief body text.</p></div></body></html>",
         )
@@ -989,13 +1013,11 @@ def test_parse_ann_article_html_and_offline_article_cache_enrichment(tmp_path: P
         assert len(items) == 2
         assert ann.last_cached_article_bodies_applied == 2
         by_url = {it.url: it for it in items}
-        assert (
-            "Madhouse returns to animate"
-            in by_url["https://www.animenewsnetwork.com/news/2025-10-20/frieren-s2/.200001"].body
-        )
-        assert (
-            "Paragraph two of extra daily brief"
-            in by_url[
-                "https://www.animenewsnetwork.com/daily-briefs/2025-10-20/extra-brief/.200002"
-            ].body
-        )
+        frieren_item = by_url["https://www.animenewsnetwork.com/news/2025-10-20/frieren-s2/.200001"]
+        assert "Madhouse returns to animate" in frieren_item.body
+        assert not frieren_item.body.startswith(frieren_item.title)
+        extra_item = by_url[
+            "https://www.animenewsnetwork.com/daily-briefs/2025-10-20/extra-brief/.200002"
+        ]
+        assert "Paragraph two of extra daily brief" in extra_item.body
+        assert extra_item.published_at == "2025-10-20T22:45:00Z"

@@ -36,14 +36,17 @@ from acgn_rag.core.ingest.facts_link import (
 )
 from acgn_rag.core.ingest.normalize import (
     NORMALIZATION_VERSION,
+    PARAGRAPH_SEP,
     NormalizedItem,
     QuarantinedItem,
     RawIngestItem,
     canonical_json,
     classify_content_category,
     compute_doc_id,
+    html_to_paragraphs,
     normalize_batch,
     normalize_url,
+    split_plain_paragraphs,
 )
 from acgn_rag.core.ports import CorpusSnapshot
 
@@ -389,56 +392,54 @@ def _next_unique_publish_timestamp(snapshots_root: Path) -> str:
     return now_dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
-_HTML_BLOCK_BOUNDARY_RE = re.compile(
-    r"</?(?:p|div|li|tr|h[1-6]|blockquote|pre|section|article|header|footer|table|ul|ol|dl|dt|dd)\b[^>]*>"
-    r"|<br\s*/?>|<hr\s*/?>",
+_KNOWN_HTML_TAG_RE = re.compile(
+    r"</?(?:p|div|span|a|em|i|b|strong|u|s|sub|sup|small|mark|cite|q|code|kbd|samp|var|time|abbr"
+    r"|dfn|br|hr|img|figure|figcaption|li|ul|ol|dl|dt|dd|table|thead|tbody|tfoot|tr|td|th|h[1-6]"
+    r"|blockquote|pre|section|article|header|footer|nav|aside|main|details|summary|ruby|rt|rp"
+    r"|font|center)\b[^>]*>",
     re.IGNORECASE,
 )
-_HTML_CELL_BOUNDARY_RE = re.compile(r"</?(?:td|th)\b[^>]*>", re.IGNORECASE)
-_HTML_ANY_TAG_RE = re.compile(r"<[a-zA-Z!/][^>]*>")
 
 
 def _split_body_paragraphs(body_text: str) -> list[str]:
     """Split an article body into distinct block-level paragraphs.
 
-    If `body_text` still contains HTML tags, block tags (`<p>`, `<div>`, `<li>`, etc.) become
-    paragraph boundaries while inline tags (`<em>`, `<a>`, `<cite>`, `<strong>`, etc.) and soft
-    newlines inside a block are collapsed inline. For already-stripped plain text, non-empty
-    lines represent paragraphs.
+    If `body_text` contains HTML tags, block tags (`<p>`, `<div>`, `<li>`, etc.) become
+    paragraph boundaries while `<br>` becomes a soft line break (`\\n`) within its enclosing
+    paragraph and inline tags (`<em>`, `<a>`, `<cite>`, `<strong>`, etc.) and source newlines
+    inside a block are collapsed inline. For already-stripped plain text, only blank lines
+    (`\\n\\n`) split paragraphs while single `\\n` is preserved as an intra-paragraph line break.
     """
-    if _HTML_ANY_TAG_RE.search(body_text):
-        step1 = _HTML_CELL_BOUNDARY_RE.sub(" ", body_text)
-        step2 = _HTML_BLOCK_BOUNDARY_RE.sub("\x00", step1)
-        step3 = _HTML_ANY_TAG_RE.sub("", step2)
-        if "\x00" in step2:
-            return [
-                re.sub(r"\s+", " ", chunk).strip()
-                for chunk in step3.split("\x00")
-                if re.sub(r"\s+", " ", chunk).strip()
-            ]
-        body_text = step3
-    return [line.strip() for line in body_text.splitlines() if line.strip()]
+    if _KNOWN_HTML_TAG_RE.search(body_text):
+        return html_to_paragraphs(body_text)
+    return split_plain_paragraphs(body_text)
 
 
 def _classify_item_body_level(item: NormalizedItem) -> str:
     """Classify an item's body depth (`full`, `blurb`, or `headline`).
 
     - `metadata` sources are always `blurb` (catalog synopses, never counted as full articles).
-    - Items whose body equals the title (or adds <= 15 characters beyond the title) are `headline`.
-    - `full` requires an article body of >= 300 characters AND at least 2 distinct non-title
-      block paragraphs so a single-paragraph listing card or RSS summary blurb (even with inline
-      markup such as `<em>` or `<a>`) is never misclassified as a full article.
+    - Items whose visible body equals the title (or adds <= 15 characters beyond the title) are
+      `headline`.
+    - `full` requires a visible article body of >= 300 characters AND at least 2 distinct
+      non-title block paragraphs so a single-paragraph listing card or RSS summary blurb (even
+      with `<br>` line breaks or inline markup such as `<em>` or `<a>`) is never misclassified
+      as a full article.
     """
     if item.source_type == "metadata":
         return "blurb"
     body_clean = item.body.strip()
     title_clean = item.title.strip()
-    if body_clean == title_clean or len(body_clean) <= len(title_clean) + 15:
+    paragraphs = _split_body_paragraphs(body_clean)
+    visible_body = PARAGRAPH_SEP.join(paragraphs).strip()
+    if (
+        not visible_body
+        or visible_body == title_clean
+        or len(visible_body) <= len(title_clean) + 15
+    ):
         return "headline"
-    non_title_paragraphs = [
-        para for para in _split_body_paragraphs(body_clean) if para != title_clean
-    ]
-    if len(body_clean) >= 300 and len(non_title_paragraphs) >= 2:
+    non_title_paragraphs = [para for para in paragraphs if para != title_clean]
+    if len(visible_body) >= 300 and len(non_title_paragraphs) >= 2:
         return "full"
     return "blurb"
 

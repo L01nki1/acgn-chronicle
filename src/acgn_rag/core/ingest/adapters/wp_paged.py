@@ -265,7 +265,7 @@ class WpPagedAdapter:
             return None
         try:
             payload = json.loads(cache_file.read_text(encoding="utf-8"))
-            if not isinstance(payload, dict) or payload.get("v") != 1:
+            if not isinstance(payload, dict) or payload.get("v") != 2:
                 return None
             if payload.get("page_cap_hit", True):
                 return None
@@ -314,7 +314,7 @@ class WpPagedAdapter:
             self.disk_cache_dir.mkdir(parents=True, exist_ok=True)
             cache_file = self.disk_cache_dir / f"{self.source_key}.json"
             payload = {
-                "v": 1,
+                "v": 2,
                 "source_key": self.source_key,
                 "covered_start": start_iso,
                 "covered_end": end_iso,
