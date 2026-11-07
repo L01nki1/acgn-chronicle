@@ -31,12 +31,14 @@ from acgn_rag.core.ingest.ann_archive import (
     ANN_SOURCE_KEY,
     AdapterError,
     AnnArchiveAdapter,
+    AnnArticleParseResult,
     AnnDayParseResult,
     BackfillNotSupportedError,
     EmptyBackfillWindowError,
     PaginationLoopError,
     SelectorBrokenError,
     ann_day_url,
+    parse_ann_article_html,
     parse_ann_day_html,
     validate_backfill_window,
 )
@@ -77,6 +79,7 @@ def build_default_registry(
     ann_max_days_per_call: int | None = None,
     conditional_cache_path: Path | None = None,
     ann_cache_dir: Path | None = None,
+    ann_article_cache_path: Path | None = None,
     wp_cache_dir: Path | None = None,
 ) -> dict[str, SourceAdapter]:
     """Build the W1 source adapter registry ordered highest-yield first (Issue #9)."""
@@ -85,6 +88,14 @@ def build_default_registry(
         if http is not None
         else PoliteHttpClient(conditional_cache_path=conditional_cache_path)
     )
+    resolved_ann_article_cache = ann_article_cache_path
+    if resolved_ann_article_cache is None and ann_cache_dir is not None:
+        json_candidate = ann_cache_dir.parent / "ann_articles_cache.json"
+        zip_candidate = ann_cache_dir.parents[1] / "raw" / "ann-article-cache-20261102.zip"
+        if json_candidate.exists():
+            resolved_ann_article_cache = json_candidate
+        elif zip_candidate.exists():
+            resolved_ann_article_cache = zip_candidate
     return {
         "toei-news": HtmlListAdapter(
             source_key="toei-news",
@@ -104,6 +115,7 @@ def build_default_registry(
             base_url=ANN_BASE_URL,
             max_days_per_call=ann_max_days_per_call,
             cache_dir=ann_cache_dir,
+            article_cache_path=resolved_ann_article_cache,
         ),
         "nijimen-news": WpPagedAdapter(
             source_key="nijimen-news",
@@ -285,6 +297,7 @@ __all__ = [
     "SYOSETU_NOVELAPI_URL",
     "AdapterError",
     "AnnArchiveAdapter",
+    "AnnArticleParseResult",
     "AnnDayParseResult",
     "BackfillNotSupportedError",
     "EmptyBackfillWindowError",
@@ -297,6 +310,7 @@ __all__ = [
     "WpPagedAdapter",
     "ann_day_url",
     "build_default_registry",
+    "parse_ann_article_html",
     "parse_ann_day_html",
     "parse_html_list_page",
     "validate_backfill_window",

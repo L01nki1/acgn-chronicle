@@ -894,3 +894,90 @@ def test_rss_duplicate_url_replaces_boilerplate_and_ann_recent_day_cache(tmp_pat
         assert ann.last_days_with_items == 1
         assert ann.last_empty_days == 0
         assert not (ann_cache_dir / f"{y_iso}.json").exists()
+
+
+def test_parse_ann_article_html_and_offline_article_cache_enrichment(tmp_path: Path) -> None:
+    """Verify parse_ann_article_html extracts #page_header, #page-title small time[datetime],
+    and div.KonaBody (raising SelectorBrokenError on empty body), and AnnArchiveAdapter enriches
+    archive days from an offline article cache (.zip or .json).
+    """
+    import zipfile
+
+    from acgn_rag.core.ingest.ann_archive import (
+        AnnArchiveAdapter,
+        SelectorBrokenError,
+        parse_ann_article_html,
+    )
+
+    article_html = """
+    <html><body>
+      <div id="page-title">
+        <h1 id="page_header"><div class="sub-title">News</div>Frieren Season 2 Premieres in January 2026</h1>
+        <small>posted on <time datetime="2025-10-20T10:30:00-04:00">2025-10-20</time></small>
+      </div>
+      <div class="KonaBody">
+        <p>The official website for the Frieren: Beyond Journey's End television anime announced on Monday that the second season will premiere in January 2026 on Nippon TV's Friday Anime Night block.</p>
+        <p>Madhouse returns to animate the new season with Keiichiro Saito supervising the production and Evan Call composing the music.</p>
+      </div>
+    </body></html>
+    """
+    parsed = parse_ann_article_html(
+        article_html,
+        url="https://www.animenewsnetwork.com/news/2025-10-20/frieren-s2/.200001",
+    )
+    assert parsed.title == "Frieren Season 2 Premieres in January 2026"
+    assert parsed.published_at == "2025-10-20T14:30:00Z"
+    assert "Madhouse returns to animate" in parsed.body
+    assert "\n" in parsed.body
+
+    with pytest.raises(SelectorBrokenError, match=r"Empty div\.KonaBody"):
+        parse_ann_article_html(
+            "<html><body><h1 id='page_header'>Title</h1><div class='KonaBody'>   </div></body></html>"
+        )
+
+    # Create a synthetic ANN article cache zip and verify AnnArchiveAdapter enriches day items
+    zip_path = tmp_path / "ann-cache.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr(
+            "articles_index.csv",
+            "url,published_date,cache_file\n"
+            "https://www.animenewsnetwork.com/news/2025-10-20/frieren-s2/.200001,2025-10-20,article-1.html\n"
+            "https://www.animenewsnetwork.com/daily-briefs/2025-10-20/extra-brief/.200002,2025-10-20,article-2.html\n",
+        )
+        zf.writestr("html/article-1.html", article_html)
+        zf.writestr(
+            "html/article-2.html",
+            "<html><body><h1 id='page_header'><div class='sub-title'>News</div>Extra Daily Brief</h1>"
+            "<div class='KonaBody'><p>Paragraph one of extra daily brief body text.</p>"
+            "<p>Paragraph two of extra daily brief body text.</p></div></body></html>",
+        )
+
+    day_html = """
+    <html><body><div id="content-zone"><ul class="article-list">
+      <li><a href="/news/2025-10-20/frieren-s2/.200001">Frieren Season 2 Premieres in January 2026</a> ( 10:30 )</li>
+    </ul></div></body></html>
+    """
+    clock = FakeClock()
+    http = PoliteHttpClient(clock=clock, sleep=clock.sleep, jitter_range=(0.0, 0.0))
+    ann = AnnArchiveAdapter(http=http, article_cache_path=zip_path)
+    with respx.mock(assert_all_called=True) as router:
+        router.get("https://www.animenewsnetwork.com/robots.txt").mock(
+            return_value=httpx.Response(404)
+        )
+        router.get("https://www.animenewsnetwork.com/news/2025/10/20").mock(
+            return_value=httpx.Response(200, text=day_html)
+        )
+        items = ann.backfill(("2025-10-20", "2025-10-20"))
+        assert len(items) == 2
+        assert ann.last_cached_article_bodies_applied == 2
+        by_url = {it.url: it for it in items}
+        assert (
+            "Madhouse returns to animate"
+            in by_url["https://www.animenewsnetwork.com/news/2025-10-20/frieren-s2/.200001"].body
+        )
+        assert (
+            "Paragraph two of extra daily brief"
+            in by_url[
+                "https://www.animenewsnetwork.com/daily-briefs/2025-10-20/extra-brief/.200002"
+            ].body
+        )

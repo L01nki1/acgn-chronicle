@@ -152,6 +152,7 @@ def _adapter_diagnostics(adapter: object) -> dict[str, Any]:
         ("last_empty_days", "empty_days"),
         ("last_total_pages_fetched", "total_pages_fetched"),
         ("last_truncated_days", "truncated_days"),
+        ("last_cached_article_bodies_applied", "cached_article_bodies_applied"),
         ("last_pages_fetched", "pages_fetched"),
     ):
         val = getattr(adapter, attr, None)
@@ -165,6 +166,35 @@ def _adapter_diagnostics(adapter: object) -> dict[str, Any]:
     return diag
 
 
+def _classify_raw_item_body_level(adapter: object, item: RawIngestItem) -> str:
+    if (
+        item.source_type == "metadata"
+        or getattr(adapter, "source_type", "") == "metadata"
+        or type(adapter).__name__ == "StructuredApiAdapter"
+    ):
+        return "blurb"
+    body_clean = item.body.strip()
+    title_clean = item.title.strip()
+    if body_clean == title_clean or len(body_clean) <= len(title_clean) + 15:
+        return "headline"
+    non_title_paragraphs = [
+        line.strip()
+        for line in body_clean.splitlines()
+        if line.strip() and line.strip() != title_clean
+    ]
+    if len(body_clean) >= 300 and len(non_title_paragraphs) >= 2:
+        return "full"
+    return "blurb"
+
+
+def _count_raw_body_levels(adapter: object, items: Sequence[RawIngestItem]) -> dict[str, int]:
+    counts = {"full": 0, "blurb": 0, "headline": 0}
+    for it in items:
+        lvl = _classify_raw_item_body_level(adapter, it)
+        counts[lvl] = counts.get(lvl, 0) + 1
+    return counts
+
+
 def _infer_source_body_level(adapter: object, items: Sequence[RawIngestItem]) -> str:
     if (
         getattr(adapter, "source_type", "") == "metadata"
@@ -173,13 +203,21 @@ def _infer_source_body_level(adapter: object, items: Sequence[RawIngestItem]) ->
         return "blurb"
     if not items:
         return "none"
+    counts = _count_raw_body_levels(adapter, items)
+    total = len(items)
+    if counts["full"] >= 50 and counts["headline"] >= 50:
+        return "mixed_full_and_headline"
+    if counts["full"] >= total * 0.5:
+        return "full"
+    if counts["headline"] >= total * 0.5:
+        return "headline"
     body_lens = [len(it.body.strip()) for it in items]
     extra_lens = [max(0, len(it.body.strip()) - len(it.title.strip())) for it in items]
     med_body = statistics.median(body_lens)
     med_extra = statistics.median(extra_lens)
-    if med_extra <= 10:
+    if med_extra <= 15:
         return "headline"
-    if med_body >= 300:
+    if med_body >= 300 and counts["full"] > 0:
         return "full"
     return "blurb"
 
@@ -282,6 +320,7 @@ def crawl_backfill_window(
                 page_cap_hit=page_cap_hit,
             )
             body_level = _infer_source_body_level(adapter, items)
+            body_level_counts = _count_raw_body_levels(adapter, items)
             status_str = (
                 "sampled_partial"
                 if is_sampled_src
@@ -289,6 +328,7 @@ def crawl_backfill_window(
             )
             per_source[name] = {
                 "body_level": body_level,
+                "body_level_counts": body_level_counts,
                 "count": len(items),
                 "coverage_mode": cov_mode,
                 "mode": "backfill",
@@ -307,6 +347,7 @@ def crawl_backfill_window(
                     not_mod = bool(getattr(adapter, "last_not_modified", False))
                     per_source[name] = {
                         "body_level": _infer_source_body_level(adapter, tail_items),
+                        "body_level_counts": _count_raw_body_levels(adapter, tail_items),
                         "count": len(tail_items),
                         "coverage_mode": "rolling_tail_only",
                         "mode": "discover_tail",
@@ -417,7 +458,7 @@ def crawl_backfill_window(
     summary = {
         "all_sources_full_window_archive": all_full_archive,
         "capped_sources": capped_sources,
-        "coverage_complete": not is_partial,
+        "coverage_complete": all_full_archive,
         "coverage_gaps": coverage_gaps,
         "errored_sources": errored_sources,
         "partial": is_partial,

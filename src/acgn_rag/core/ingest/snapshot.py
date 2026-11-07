@@ -320,7 +320,15 @@ def build_snapshot_from_raw(
         "raw_input_count": len(raw_items),
     }
     if crawl_summary is not None:
-        ingest_report["crawl_summary"] = [dict(row) for row in crawl_summary]
+        rows_list = [dict(row) for row in crawl_summary]
+        ingest_report["crawl_summary"] = rows_list
+        gaps = [
+            f"{row.get('source_key')}:{row.get('coverage_mode')}"
+            for row in rows_list
+            if row.get("coverage_mode") and row.get("coverage_mode") != "full_window_archive"
+        ]
+        ingest_report["coverage_gaps"] = gaps
+        ingest_report["coverage_complete"] = len(gaps) == 0 and not bool(partial)
 
     return build_snapshot_from_items(
         norm_report.items,
@@ -382,13 +390,26 @@ def _next_unique_publish_timestamp(snapshots_root: Path) -> str:
 
 
 def _classify_item_body_level(item: NormalizedItem) -> str:
+    """Classify an item's body depth (`full`, `blurb`, or `headline`).
+
+    - `metadata` sources are always `blurb` (catalog synopses, never counted as full articles).
+    - Items whose body equals the title (or adds <= 15 characters beyond the title) are `headline`.
+    - `full` requires an article body of >= 300 characters AND at least 2 distinct non-title
+      lines/paragraphs so a single-paragraph listing card or RSS summary blurb is never
+      misclassified as a full article.
+    """
     if item.source_type == "metadata":
         return "blurb"
-    body_len = len(item.body.strip())
-    title_len = len(item.title.strip())
-    if item.body.strip() == item.title.strip() or body_len <= title_len + 10:
+    body_clean = item.body.strip()
+    title_clean = item.title.strip()
+    if body_clean == title_clean or len(body_clean) <= len(title_clean) + 15:
         return "headline"
-    if body_len >= 300:
+    non_title_paragraphs = [
+        line.strip()
+        for line in body_clean.splitlines()
+        if line.strip() and line.strip() != title_clean
+    ]
+    if len(body_clean) >= 300 and len(non_title_paragraphs) >= 2:
         return "full"
     return "blurb"
 
@@ -490,6 +511,7 @@ def publish_snapshot(
         source_type_counts = {"official": 0, "media": 0, "metadata": 0}
         category_counts = {"anime": 0, "manga": 0, "game": 0, "light_novel": 0}
         body_level_counts = {"full": 0, "blurb": 0, "headline": 0}
+        body_level_by_source: dict[str, dict[str, int]] = {}
         corporate_count = 0
         for item in built.items:
             source_type_counts[item.source_type] = source_type_counts.get(item.source_type, 0) + 1
@@ -497,6 +519,10 @@ def publish_snapshot(
             category_counts[cat] = category_counts.get(cat, 0) + 1
             blevel = _classify_item_body_level(item)
             body_level_counts[blevel] = body_level_counts.get(blevel, 0) + 1
+            src_blevel = body_level_by_source.setdefault(
+                item.source_key, {"full": 0, "blurb": 0, "headline": 0}
+            )
+            src_blevel[blevel] = src_blevel.get(blevel, 0) + 1
             if item.ingest_category == "corporate":
                 corporate_count += 1
 
@@ -507,14 +533,30 @@ def publish_snapshot(
             for item in built.items
             if item.cluster_id in cluster_rep_map
         }
-        coverage_complete = bool(built.ingest_report.get("coverage_complete", not is_partial))
+        coverage_gaps = list(built.ingest_report.get("coverage_gaps") or [])
+        if not coverage_gaps:
+            for row in built.ingest_report.get("crawl_summary") or []:
+                if (
+                    isinstance(row, dict)
+                    and row.get("coverage_mode")
+                    and row.get("coverage_mode") != "full_window_archive"
+                ):
+                    coverage_gaps.append(f"{row.get('source_key')}:{row.get('coverage_mode')}")
+        coverage_complete = bool(
+            built.ingest_report.get(
+                "coverage_complete",
+                len(coverage_gaps) == 0 and not is_partial,
+            )
+        )
 
         snapshot_meta = built.corpus_snapshot.model_dump(mode="json") | {
+            "body_level_by_source": body_level_by_source,
             "body_level_counts": body_level_counts,
             "category_counts": category_counts,
             "category_counts_heuristic": category_counts,
             "corporate_count": corporate_count,
             "coverage_complete": coverage_complete,
+            "coverage_gaps": coverage_gaps,
             "dedup_calibration_status": str(
                 built.ingest_report.get("dedup_calibration_status", "provisional_pending_g1b_sweep")
             ),
@@ -845,74 +887,86 @@ def _validate_and_load_jsonl_items(
     manifest_by_doc_id: dict[str, dict[str, Any]] = {str(m["doc_id"]): m for m in manifest_items}
     verified_clusters = load_snapshot_clusters(snap_dir, data_root=data_root, verify=True)
 
-    if representatives_only:
-        expected_doc_ids = sorted(c.representative_doc_id for c in verified_clusters)
-        items_line_by_doc_id: dict[str, str] = {}
-        with (snap_dir / "items.jsonl").open("r", encoding="utf-8") as items_fh:
-            for raw_line in items_fh:
-                s = raw_line.strip()
-                if not s:
+    def _validate_single_file(
+        target_path: Path,
+        expected_ids: list[str],
+        *,
+        items_line_map: dict[str, str] | None = None,
+        record_lines_into: dict[str, str] | None = None,
+    ) -> list[NormalizedItem]:
+        rows: list[NormalizedItem] = []
+        seen_ids: list[str] = []
+        with target_path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                stripped = line.strip()
+                if not stripped:
                     continue
-                row_obj = json.loads(s)
-                did = str(row_obj.get("doc_id") or "")
-                items_line_by_doc_id[did] = s
-    else:
-        expected_doc_ids = [str(m["doc_id"]) for m in manifest_items]
-        items_line_by_doc_id = {}
-
-    validated: list[NormalizedItem] = []
-    seen_doc_ids: list[str] = []
-
-    with jsonl_path.open("r", encoding="utf-8") as fh:
-        for line in fh:
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                raw_row = json.loads(stripped)
-            except Exception as exc:
-                raise SnapshotError(f"Malformed JSON row in {jsonl_path}: {exc}") from exc
-            item = NormalizedItem.from_dict(raw_row)
-            raw_doc_id = raw_row.get("doc_id")
-            if raw_doc_id is not None and raw_doc_id != item.doc_id:
-                raise SnapshotError(
-                    f"Tampered doc_id in {jsonl_path}: {raw_doc_id!r} != {item.doc_id!r}"
-                )
-            raw_body_sha = raw_row.get("body_sha256")
-            if raw_body_sha is not None and raw_body_sha != item.body_sha256:
-                raise SnapshotError(
-                    f"Tampered body_sha256 for {item.doc_id} in {jsonl_path}: "
-                    f"{raw_body_sha!r} != {item.body_sha256!r}"
-                )
-            manifest_row = manifest_by_doc_id.get(item.doc_id)
-            if manifest_row is None:
-                raise SnapshotError(
-                    f"Tampered item {item.doc_id} in {jsonl_path}: missing from verified manifest.json"
-                )
-            if manifest_row != item.to_manifest_item():
-                raise SnapshotError(
-                    f"Tampered item {item.doc_id} in {jsonl_path}: row disagrees with verified manifest.json"
-                )
-            if representatives_only:
-                matching_items_line = items_line_by_doc_id.get(item.doc_id)
-                if matching_items_line is None or matching_items_line != stripped:
+                try:
+                    raw_row = json.loads(stripped)
+                except Exception as exc:
+                    raise SnapshotError(f"Malformed JSON row in {target_path}: {exc}") from exc
+                item = NormalizedItem.from_dict(raw_row)
+                raw_doc_id = raw_row.get("doc_id")
+                if raw_doc_id is not None and raw_doc_id != item.doc_id:
                     raise SnapshotError(
-                        f"Tampered representative {item.doc_id} in {jsonl_path}: "
-                        f"row is not byte-identical to items.jsonl"
+                        f"Tampered doc_id in {target_path}: {raw_doc_id!r} != {item.doc_id!r}"
                     )
-            seen_doc_ids.append(item.doc_id)
-            validated.append(item)
+                raw_body_sha = raw_row.get("body_sha256")
+                if raw_body_sha is not None and raw_body_sha != item.body_sha256:
+                    raise SnapshotError(
+                        f"Tampered body_sha256 for {item.doc_id} in {target_path}: "
+                        f"{raw_body_sha!r} != {item.body_sha256!r}"
+                    )
+                manifest_row = manifest_by_doc_id.get(item.doc_id)
+                if manifest_row is None:
+                    raise SnapshotError(
+                        f"Tampered item {item.doc_id} in {target_path}: missing from verified manifest.json"
+                    )
+                if manifest_row != item.to_manifest_item():
+                    raise SnapshotError(
+                        f"Tampered item {item.doc_id} in {target_path}: row disagrees with verified manifest.json"
+                    )
+                if items_line_map is not None:
+                    matching_items_line = items_line_map.get(item.doc_id)
+                    if matching_items_line is None or matching_items_line != stripped:
+                        raise SnapshotError(
+                            f"Tampered representative {item.doc_id} in {target_path}: "
+                            f"row is not byte-identical to items.jsonl"
+                        )
+                if record_lines_into is not None:
+                    record_lines_into[item.doc_id] = stripped
+                seen_ids.append(item.doc_id)
+                rows.append(item)
 
-    if seen_doc_ids != expected_doc_ids:
-        missing_ids = set(expected_doc_ids) - set(seen_doc_ids)
-        extra_ids = set(seen_doc_ids) - set(expected_doc_ids)
-        raise SnapshotError(
-            f"Incomplete, duplicate, or out-of-order rows in {jsonl_path}: "
-            f"expected {len(expected_doc_ids)} rows, got {len(seen_doc_ids)} "
-            f"(missing={len(missing_ids)}, extra={len(extra_ids)})"
-        )
+        if seen_ids != expected_ids:
+            missing_ids = set(expected_ids) - set(seen_ids)
+            extra_ids = set(seen_ids) - set(expected_ids)
+            raise SnapshotError(
+                f"Incomplete, duplicate, or out-of-order rows in {target_path}: "
+                f"expected {len(expected_ids)} rows, got {len(seen_ids)} "
+                f"(missing={len(missing_ids)}, extra={len(extra_ids)})"
+            )
+        return rows
 
-    return validated
+    # Always validate BOTH items.jsonl (all members) and representatives.jsonl (cluster
+    # representatives) on either read path so Config A/A'/A0 and Config B readers share an
+    # identical whole-snapshot completeness boundary (E Blocker 1, F #6666814959).
+    expected_all_doc_ids = [str(m["doc_id"]) for m in manifest_items]
+    expected_rep_doc_ids = sorted(c.representative_doc_id for c in verified_clusters)
+    items_line_by_doc_id: dict[str, str] = {}
+
+    validated_all = _validate_single_file(
+        snap_dir / "items.jsonl",
+        expected_all_doc_ids,
+        record_lines_into=items_line_by_doc_id,
+    )
+    validated_reps = _validate_single_file(
+        snap_dir / "representatives.jsonl",
+        expected_rep_doc_ids,
+        items_line_map=items_line_by_doc_id,
+    )
+
+    return validated_reps if representatives_only else validated_all
 
 
 def iter_snapshot_items(

@@ -1103,31 +1103,56 @@ def test_snapshot_reader_eager_completeness_and_tamper_detection(tmp_path: Path)
         for fname, data in pristine.items():
             (snap_dir / fname).write_bytes(data)
 
-    # (a) Truncated representatives.jsonl: must raise BEFORE yielding row 0!
+    # (a) Truncated representatives.jsonl: must raise BEFORE yielding row 0 on BOTH paths!
     rep_lines = pristine["representatives.jsonl"].decode("utf-8").splitlines()
     assert len(rep_lines) == 2
     (snap_dir / "representatives.jsonl").write_text(rep_lines[0] + "\n", encoding="utf-8")
-    yielded_before_err: list[str] = []
-    with pytest.raises(SnapshotError, match="Incomplete, duplicate, or out-of-order"):
-        for it in iter_snapshot_items(snap_dir, data_root=tmp_path, representatives_only=True):
-            yielded_before_err.append(it.doc_id)
-    assert yielded_before_err == []
+    for rep_mode in (True, False):
+        yielded_before_err: list[str] = []
+        with pytest.raises(SnapshotError, match="Incomplete, duplicate, or out-of-order"):
+            for it in iter_snapshot_items(
+                snap_dir, data_root=tmp_path, representatives_only=rep_mode
+            ):
+                yielded_before_err.append(it.doc_id)
+        assert yielded_before_err == []
     _restore()
 
-    # (b) Duplicated row in items.jsonl: must raise BEFORE yielding row 0!
+    # (a2) Removing a non-representative row from items.jsonl: must raise on BOTH paths! (E Blocker 1 / F)
     item_lines = pristine["items.jsonl"].decode("utf-8").splitlines()
+    assert len(item_lines) == 3
+    rep_doc_ids = {json.loads(line)["doc_id"] for line in rep_lines}
+    only_rep_item_lines = [line for line in item_lines if json.loads(line)["doc_id"] in rep_doc_ids]
+    assert len(only_rep_item_lines) == 2
+    (snap_dir / "items.jsonl").write_text("\n".join(only_rep_item_lines) + "\n", encoding="utf-8")
+    for rep_mode in (True, False):
+        with pytest.raises(SnapshotError, match="Incomplete, duplicate, or out-of-order"):
+            next(iter_snapshot_items(snap_dir, data_root=tmp_path, representatives_only=rep_mode))
+    _restore()
+
+    # (b) Duplicated row in items.jsonl or representatives.jsonl: must raise on BOTH paths!
     (snap_dir / "items.jsonl").write_text(
         "\n".join([item_lines[0], item_lines[0], *item_lines[1:]]) + "\n",
         encoding="utf-8",
     )
-    with pytest.raises(SnapshotError, match="Incomplete, duplicate, or out-of-order"):
-        next(iter_snapshot_items(snap_dir, data_root=tmp_path, representatives_only=False))
+    for rep_mode in (True, False):
+        with pytest.raises(SnapshotError, match="Incomplete, duplicate, or out-of-order"):
+            next(iter_snapshot_items(snap_dir, data_root=tmp_path, representatives_only=rep_mode))
     _restore()
 
-    # (c) Extra non-representative row added to representatives.jsonl
+    (snap_dir / "representatives.jsonl").write_text(
+        "\n".join([rep_lines[0], rep_lines[0], rep_lines[1]]) + "\n",
+        encoding="utf-8",
+    )
+    for rep_mode in (True, False):
+        with pytest.raises(SnapshotError, match="Incomplete, duplicate, or out-of-order"):
+            next(iter_snapshot_items(snap_dir, data_root=tmp_path, representatives_only=rep_mode))
+    _restore()
+
+    # (c) Extra non-representative row added to representatives.jsonl: must raise on BOTH paths!
     (snap_dir / "representatives.jsonl").write_bytes(pristine["items.jsonl"])
-    with pytest.raises(SnapshotError, match="Incomplete, duplicate, or out-of-order"):
-        next(iter_snapshot_items(snap_dir, data_root=tmp_path, representatives_only=True))
+    for rep_mode in (True, False):
+        with pytest.raises(SnapshotError, match="Incomplete, duplicate, or out-of-order"):
+            next(iter_snapshot_items(snap_dir, data_root=tmp_path, representatives_only=rep_mode))
     _restore()
 
     # (d) representatives.jsonl row formatting differs from items.jsonl byte-for-byte
@@ -1483,6 +1508,87 @@ def test_from_raw_missing_or_mismatched_sidecar_and_page_cap_partial(tmp_path: P
         registry={"capped-wp": _CappedWpAdapter()},
     )
     assert summary["partial"] is True
+    assert summary["coverage_complete"] is False
     assert summary["capped_sources"] == ["capped-wp"]
     assert summary["sources"]["capped-wp"]["status"] == "page_cap_partial"
     assert summary["sources"]["capped-wp"]["coverage_mode"] == "page_cap_partial"
+
+
+def test_coverage_complete_false_when_coverage_gaps_present_and_strict_body_level(
+    tmp_path: Path,
+) -> None:
+    """E Blocker 2 & D body_level constraint:
+    - coverage_complete must be False whenever coverage_gaps is non-empty (even if partial=False).
+    - _classify_item_body_level requires >= 300 chars AND >= 2 non-title paragraphs for 'full',
+      and classifies single-paragraph 350-char blurbs and metadata synopses as 'blurb'.
+    """
+    from acgn_rag.core.ingest.snapshot import (
+        _classify_item_body_level,
+        build_snapshot_from_items,
+    )
+
+    single_para_blurb = normalize_item(
+        RawIngestItem(
+            url="https://www.animenewsnetwork.com/news/2026-10-20/blurb-card/.100010",
+            title="Short Listing Card Title",
+            body="Short Listing Card Title\n" + ("A single paragraph card blurb text. " * 12),
+            published_at="2026-10-20T10:00:00Z",
+            publisher="Anime News Network",
+            source_key="ann-news",
+            source_type="media",
+            lang="en",
+        )
+    )
+    assert len(single_para_blurb.body) >= 300
+    assert _classify_item_body_level(single_para_blurb) == "blurb"
+
+    multi_para_article = normalize_item(
+        RawIngestItem(
+            url="https://www.animenewsnetwork.com/news/2026-10-20/full-article/.100011",
+            title="Full Article Title",
+            body=(
+                "Full Article Title\n"
+                + ("First paragraph of full news article text with detailed reporting. " * 4)
+                + "\n"
+                + ("Second paragraph of full news article text with staff and cast details. " * 4)
+            ),
+            published_at="2026-10-20T11:00:00Z",
+            publisher="Anime News Network",
+            source_key="ann-news",
+            source_type="media",
+            lang="en",
+        )
+    )
+    assert _classify_item_body_level(multi_para_article) == "full"
+
+    metadata_multi_para = normalize_item(
+        RawIngestItem(
+            url="https://anilist.co/anime/99999",
+            title="Metadata Entry",
+            body=("Paragraph one of synopsis. " * 8) + "\n" + ("Paragraph two of synopsis. " * 8),
+            published_at="2026-10-20T00:00:00Z",
+            publisher="AniList",
+            source_key="anilist-graphql",
+            source_type="metadata",
+            lang="en",
+        )
+    )
+    assert _classify_item_body_level(metadata_multi_para) == "blurb"
+
+    built = build_snapshot_from_items(
+        [single_para_blurb, multi_para_article, metadata_multi_para],
+        window_start=date(2023, 10, 28),
+        window_end=date(2026, 10, 28),
+        ingest_report={
+            "partial": False,
+            "coverage_gaps": ["anilist-graphql:catalog_top_n"],
+        },
+    )
+    snap_dir = publish_snapshot(built, snapshots_root=tmp_path)
+    meta = json.loads((snap_dir / "snapshot.json").read_text(encoding="utf-8"))
+    assert meta["partial"] is False
+    assert meta["coverage_complete"] is False
+    assert meta["body_level_counts"] == {"full": 1, "blurb": 2, "headline": 0}
+    assert meta["full_body_item_count"] == 1
+    assert meta["body_level_by_source"]["ann-news"] == {"full": 1, "blurb": 1, "headline": 0}
+    assert meta["body_level_by_source"]["anilist-graphql"] == {"full": 0, "blurb": 1, "headline": 0}
