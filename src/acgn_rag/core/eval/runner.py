@@ -26,6 +26,7 @@ from acgn_rag.core.ports import (
     RetrievedChunk,
 )
 from acgn_rag.core.retrieve.vector import search
+from acgn_rag.core.store.build_state import assert_no_incomplete_build
 
 CONFIG_TOKENS = {"A'": "A-prime"}
 BUILD_IDENTITY_KEYS = ("model", "backend", "device", "precision", "batch_size", "identity_slug")
@@ -133,6 +134,7 @@ def load_build_records(
     deduplicated documents the index covers and the chunks it holds. They are never divisors.
     """
     base = Path(index_dir) / snapshot_id / label
+    assert_no_incomplete_build(index_dir, snapshot_id, label)
     identity_payload = _read_json(base / "identity.json")
     build_payload = _read_json(base / "build.json")
 
@@ -184,6 +186,7 @@ def load_build_records(
         raise ValueError("build.json: chunker identity does not match identity.json")
     _validate_chunker(chunker, config)
 
+    assert_no_incomplete_build(index_dir, snapshot_id, label)
     counts = {"docs": docs, "chunks": chunks, "stored": stored}
     return dict(identity), collection, counts, dict(chunker)
 

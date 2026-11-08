@@ -131,6 +131,95 @@ def test_upsert_is_idempotent_on_chunk_ids(loaded: ChromaStore) -> None:
     assert loaded.count() == 2
 
 
+def test_bulk_upsert_respects_client_limit_and_preserves_rows(
+    store: ChromaStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    collection = store.bind(SNAP, "A")
+    monkeypatch.setattr(store.client, "get_max_batch_size", lambda: 2)
+    calls: list[list[str]] = []
+
+    class LimitedCollection:
+        def upsert(self, **kwargs: Any) -> None:
+            ids = kwargs["ids"]
+            calls.append(ids)
+            if len(ids) > 2:
+                raise ValueError("synthetic limit of two records")
+            collection.upsert(**kwargs)
+
+    store._collection = LimitedCollection()
+    payloads = [
+        _payload(f"doc-{index}::A::0", (7,), ingest_category="corporate") for index in range(5)
+    ]
+    vectors = [[float(index + 1), 1.0] for index in range(5)]
+    store.upsert_chunks(payloads, vectors)
+
+    assert [len(ids) for ids in calls] == [2, 2, 1]
+    result = collection.get(include=["documents", "metadatas", "embeddings"])
+    rows = {
+        row_id: (document, metadata, list(embedding))
+        for row_id, document, metadata, embedding in zip(
+            result["ids"],
+            result["documents"],
+            result["metadatas"],
+            result["embeddings"],
+            strict=True,
+        )
+    }
+    assert len(rows) == 5
+    for index, payload in enumerate(payloads):
+        document, metadata, embedding = rows[payload.chunk_id]
+        assert document == payload.body
+        assert metadata["media_ids"] == [7]
+        assert metadata["ingest_category"] == "corporate"
+        assert embedding == pytest.approx(vectors[index])
+
+    calls.clear()
+    cleared = [_payload(payload.chunk_id, ()) for payload in payloads]
+    store.upsert_chunks(cleared, vectors)
+    assert [len(ids) for ids in calls] == [2, 2, 1]
+    result = collection.get(include=["metadatas"])
+    assert all(
+        "media_ids" not in row and "ingest_category" not in row for row in result["metadatas"]
+    )
+
+
+def test_bulk_upsert_rejects_duplicate_ids_before_writing(
+    store: ChromaStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    collection = store.bind(SNAP, "A")
+    monkeypatch.setattr(store.client, "get_max_batch_size", lambda: 1)
+    duplicate = _payload("duplicate::A::0", (7,))
+
+    with pytest.raises((ValueError, chromadb.errors.DuplicateIDError), match="duplicate"):
+        store.upsert_chunks([duplicate, duplicate], VECTORS)
+    assert collection.count() == 0
+
+
+def test_bulk_upsert_rejects_an_invalid_client_limit_before_writing(
+    store: ChromaStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    collection = store.bind(SNAP, "A")
+    monkeypatch.setattr(store.client, "get_max_batch_size", lambda: 0)
+
+    with pytest.raises(ValueError, match="maximum batch size"):
+        store.upsert_chunks(_two_chunks(), VECTORS)
+    assert collection.count() == 0
+
+
+def test_incomplete_build_blocks_only_its_own_collection(store: ChromaStore) -> None:
+    store.bind(SNAP, "A")
+    store.upsert_chunks([_payload("doc-1::A::0", (1,))], [[1.0, 0.0]])
+    store.bind(SNAP, "A0")
+    store.upsert_chunks([_payload("doc-1::A0::0", (1,))], [[1.0, 0.0]])
+    marker = store.root.parent / SNAP / "A" / "build.incomplete"
+    marker.parent.mkdir(parents=True)
+    marker.write_text("interrupted\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="incomplete"):
+        store.bind_existing(SNAP, "A")
+    assert store.bind_existing(SNAP, "A0").count() == 1
+
+
 def test_mixed_empty_and_linked_media_ids_round_trip(store: ChromaStore) -> None:
     store.bind(SNAP, "A")
     empty = _payload("empty", ())

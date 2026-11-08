@@ -33,6 +33,17 @@ pytest -q                                     # 4 tests
 | Evaluation | `python scripts/run_eval.py --config A --snapshot <id>` | pending E |
 | Serve | `uvicorn acgn_rag.web.api:app --reload` | pending C |
 
+For both commands, `--limit` must be a positive integer. Limited index builds and limited
+fact-extraction writes require `--preview --preview-id <new-id>`.
+Each ID is single-use; outputs and the index cache live under `<data-root>/previews/<new-id>/`.
+Index previews write `preview-identity.json` and `preview-build.json` instead of formal build
+records. Preview builds do not accept `--embed-cache-dir`; fact-extraction `--dry-run` remains
+available without a preview. Snapshot names in fact extraction must be single safe path components.
+If a preview fails, its directory is retained and the next attempt needs a new ID.
+
+The preview boundary assumes no concurrent process replaces directories or links during a run.
+Unlimited raw input is still accepted but is not verified as a complete frozen snapshot.
+
 ## 2. Snapshot rebuild SOP
 
 1. Back up `data/` before any backfill.
@@ -53,6 +64,17 @@ pytest -q                                     # 4 tests
 > code 2 and writes nothing (no sidecar, no collection change). Recovery limit: `--fresh` replaces the
 > whole selected collection, not individual rows — rebuilding a subset into it means the subset is all it
 > will contain; the full input must be rebuilt again to restore the rest.
+
+> Index writes are split at the Chroma client's maximum batch size. Before a collection is changed,
+> the builder creates `build.incomplete` beside its records. The evaluation runner and `bind_existing`
+> reject that snapshot/config until all batches and both records have been written and the marker is
+> removed. After interruption, confirm no writer is active and rebuild the full input with
+> `--fresh --recover-incomplete`, selecting the intended `--config` (for example, `--config A`);
+> without `--config`, all three configurations are replaced, even if only one has a marker. Recovery
+> does not restore previous contents. Legacy collections whose ownership cannot be verified still fail
+> closed and need separate reconciliation. Preview IDs are single-use; retry a preview with a new ID.
+> This marker does not protect existing readers, implement the W2 catalog or leases, provide an atomic
+> generation switch, or verify that arbitrary input covers the full snapshot. Serialize writers.
 
 ## 3. Common failures
 
