@@ -16,8 +16,10 @@ from acgn_rag.core.eval.runner import (
     VECTOR_IDENTITY_KEYS,
     NullAnswerer,
     RunSpec,
+    _run_id,
     bind_existing_collection,
     build_evidence_resolver,
+    compare_tier1_runs,
     load_build_records,
     load_snapshot_member_urls,
     resolve_window,
@@ -397,7 +399,75 @@ def test_run_id_uses_a_prime_token(tmp_path: Path) -> None:
         embedder=FakeEmbedder(),
         qa_items=[_qa_item()],
     )
-    assert result.run_id == "20261030-A-prime-20261028abcdef"
+    assert result.run_id == ("20261030-A-prime-20261028abcdef-fake-torch-cuda-fp32-b32-12345678")
+
+
+def test_run_id_is_stable_for_same_identity(tmp_path: Path) -> None:
+    spec = _spec(tmp_path, run_id=None)
+    assert _run_id(spec) == _run_id(spec)
+
+
+def test_run_id_changes_with_identity_slug(tmp_path: Path) -> None:
+    base = _spec(tmp_path, run_id=None)
+    identity = dict(base.build_identity)
+    identity["identity_slug"] = "fake-torch-cpu-fp32-12345678"
+    other = _spec(tmp_path, run_id=None, build_identity=identity)
+
+    assert _run_id(base) != _run_id(other)
+    assert _run_id(other).endswith("fake-torch-cpu-fp32-12345678")
+
+
+def test_run_id_changes_with_config(tmp_path: Path) -> None:
+    assert _run_id(_spec(tmp_path, run_id=None, config="A")) != _run_id(
+        _spec(tmp_path, run_id=None, config="A'")
+    )
+
+
+def test_explicit_run_id_overrides_generated(tmp_path: Path) -> None:
+    assert _run_id(_spec(tmp_path, run_id="manual-run")) == "manual-run"
+
+
+def test_run_id_requires_identity_slug(tmp_path: Path) -> None:
+    spec = _spec(tmp_path, run_id=None)
+    identity = dict(spec.build_identity)
+    identity["identity_slug"] = ""
+    with pytest.raises(ValueError, match="identity_slug"):
+        _run_id(_spec(tmp_path, run_id=None, build_identity=identity))
+
+
+def test_run_id_rejects_unsafe_segments(tmp_path: Path) -> None:
+    for unsafe in ("../escape", "manual.", "manual/"):
+        with pytest.raises(ValueError, match="run_id"):
+            _run_id(_spec(tmp_path, run_id=unsafe))
+
+    spec = _spec(tmp_path, run_id=None)
+    identity = dict(spec.build_identity)
+    identity["identity_slug"] = "../escape"
+    with pytest.raises(ValueError, match="identity_slug"):
+        _run_id(_spec(tmp_path, run_id=None, build_identity=identity))
+
+
+def test_run_id_matches_meta_identity_slug(tmp_path: Path) -> None:
+    result = run(
+        _spec(tmp_path, run_id=None),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        answerer=NullAnswerer(),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["doc::A::1"] for url in urls},
+    )
+    meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
+
+    assert result.run_id.endswith(meta["build_identity"]["identity_slug"])
+    assert meta["build_identity"]["identity_slug"] in result.run_id
+
+
+def test_run_id_ignores_batch_size_change(tmp_path: Path) -> None:
+    base = _spec(tmp_path, run_id=None)
+    identity = dict(base.build_identity)
+    identity["batch_size"] = 64
+
+    assert _run_id(base) == _run_id(_spec(tmp_path, run_id=None, build_identity=identity))
 
 
 def test_run_requires_snapshot_and_window(tmp_path: Path) -> None:
@@ -1184,3 +1254,151 @@ def test_build_evidence_resolver_maps_normalized_urls_to_chunk_ids() -> None:
     assert resolve(["https://EXAMPLE.com/news/a"]) == {"https://EXAMPLE.com/news/a": ["c1", "c2"]}
     assert resolve(["https://example.com/news/b"]) == {"https://example.com/news/b": ["c3"]}
     assert resolve(["https://example.com/news/missing"]) == {"https://example.com/news/missing": []}
+
+
+def _tier1_archive(tmp_path: Path, name: str, **overrides: object) -> Path:
+    result = run(
+        _spec(tmp_path, run_id=name, **overrides),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        answerer=NullAnswerer(),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["doc::A::1"] for url in urls},
+    )
+    return result.out_dir
+
+
+def test_compare_tier1_runs_identical_archives(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is True
+    assert result["comparable"] is True
+    assert result["checked_items"] == 1
+    assert result["metric_mismatches"] == []
+    assert result["item_mismatches"] == []
+
+
+def test_compare_tier1_runs_reports_metric_drift(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    metrics_path = right / "metrics.json"
+    payload = json.loads(metrics_path.read_text(encoding="utf-8"))
+    payload["retrieval"]["hit"]["all"]["value"] = 0.123
+    metrics_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is False
+    assert result["comparable"] is True
+    assert result["metric_mismatches"][0]["field"] == "retrieval"
+
+
+def test_compare_tier1_runs_reports_item_order_drift(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    answers_path = right / "answers.jsonl"
+    rows = [json.loads(line) for line in answers_path.read_text(encoding="utf-8").splitlines()]
+    rows[0]["retrieved_chunk_ids"] = [*list(reversed(rows[0]["retrieved_chunk_ids"])), "c0"]
+    answers_path.write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is False
+    assert result["item_mismatches"][0]["field"] == "retrieved_chunk_ids"
+
+
+def test_compare_tier1_runs_handles_unicode_line_separators(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    answers_path = right / "answers.jsonl"
+    rows = [
+        json.loads(line)
+        for line in answers_path.read_text(encoding="utf-8").split("\n")
+        if line.strip()
+    ]
+    rows[0]["question"] = "line\u2028separator"
+    answers_path.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is True
+    assert result["checked_items"] == 1
+
+
+def test_compare_tier1_runs_ignores_generation_fields(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    answers_path = right / "answers.jsonl"
+    rows = [
+        json.loads(line)
+        for line in answers_path.read_text(encoding="utf-8").split("\n")
+        if line.strip()
+    ]
+    rows[0]["cited_chunk_ids"] = ["c1"]
+    rows[0]["status"] = "answered"
+    answers_path.write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is True
+    assert result["item_mismatches"] == []
+
+
+def test_compare_tier1_runs_warns_on_git_sha_drift(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right", git_sha="other-sha")
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is True
+    assert result["comparable"] is True
+    assert result["warnings"] == [{"field": "git_sha", "left": "test-sha", "right": "other-sha"}]
+
+
+def test_compare_tier1_runs_rejects_identity_mismatch(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    identity = dict(_spec(tmp_path, run_id=None).build_identity)
+    identity["identity_slug"] = "other-torch-cpu-fp32-12345678"
+    right = _tier1_archive(tmp_path, "right", build_identity=identity)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is False
+    assert result["comparable"] is False
+    assert result["reason"] == "identity mismatch"
+    assert result["identity_mismatches"][0]["field"] == "identity_slug"
+
+
+def test_compare_tier1_runs_rejects_different_snapshot(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    meta_path = right / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["snapshot_id"] = "20261029abcdef"
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["identity_mismatches"][0]["field"] == "snapshot_id"
+
+
+def test_compare_tier1_runs_rejects_missing_archive_file(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    (right / "answers.jsonl").unlink()
+
+    with pytest.raises(ValueError, match="invalid run archive"):
+        compare_tier1_runs(left, right)
