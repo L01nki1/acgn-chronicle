@@ -182,6 +182,13 @@ def test_unset_or_empty_env_keeps_the_threshold_disabled(
     assert config.answer_min_retrieval_score is None
 
 
+def test_zero_env_threshold_is_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(ENV_KEY, "0")
+    config = LLMConfig(answer_base_url="http://example.invalid", answer_model="m")
+
+    assert config.answer_min_retrieval_score == 0.0
+
+
 def test_provider_factory_respects_the_configured_threshold(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -353,3 +360,27 @@ def test_gate_runs_before_the_prompt_budget() -> None:
             FakeAnswerClient(_response()),
             min_retrieval_score=0.5,
         )
+
+
+def test_threshold_gate_does_not_build_a_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    from acgn_rag.core.ground import generate as generate_module
+
+    calls: list[tuple[object, object]] = []
+    real_builder = generate_module.build_grounding_prompt
+
+    def spy(query: object, chunks: object) -> tuple[str, str]:
+        calls.append((query, chunks))
+        return real_builder(query, chunks)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(generate_module, "build_grounding_prompt", spy)
+
+    refused = generate_module.generate_grounded_answer(
+        _query(), [_chunk(1, score=0.1)], FakeAnswerClient(_response()), min_retrieval_score=0.5
+    )
+    assert refused.abstained
+    assert calls == []
+
+    generate_module.generate_grounded_answer(
+        _query(), [_chunk(1, score=0.9)], FakeAnswerClient(_response()), min_retrieval_score=0.5
+    )
+    assert len(calls) == 1
