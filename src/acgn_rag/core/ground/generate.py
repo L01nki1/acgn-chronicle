@@ -302,41 +302,80 @@ def generate_grounded_answer_run(
 
 
 def _parse_claims(raw: str) -> tuple[list[ClaimDraft], int]:
-    """Parse the untrusted response, dropping malformed claims instead of the whole answer."""
-    payload = _extract_payload(raw)
-    try:
-        data = json.loads(payload)
-    except json.JSONDecodeError as exc:
-        raise InvalidModelResponseError("the provider answer is not valid JSON") from exc
-    if not isinstance(data, dict) or not isinstance(data.get("claims"), list):
-        raise InvalidModelResponseError(
-            'the provider answer must be a JSON object with a "claims" list'
-        )
-    claims: list[ClaimDraft] = []
-    dropped = 0
-    for item in data["claims"]:
+    """Parse the untrusted response, dropping malformed claims instead of the whole answer.
+
+    Candidates are tried in order: a broken code fence or a malformed leading object must not
+    hide a valid claims object that appears later in the same response.
+    """
+    for payload in _payload_candidates(raw):
         try:
-            claims.append(ClaimDraft.model_validate(item))
-        except ValidationError:
-            dropped += 1
-    if dropped and not claims:
-        raise InvalidModelResponseError("no claim in the provider answer matched the claim schema")
-    return claims, dropped
+            data = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(data, dict) or not isinstance(data.get("claims"), list):
+            continue
+        claims: list[ClaimDraft] = []
+        dropped = 0
+        for item in data["claims"]:
+            try:
+                claims.append(ClaimDraft.model_validate(item))
+            except ValidationError:
+                dropped += 1
+        if dropped and not claims:
+            continue
+        return claims, dropped
+    raise InvalidModelResponseError(
+        "the provider answer contains no valid JSON object with a claims list"
+    )
 
 
-def _extract_payload(raw: str) -> str:
-    """Find the JSON object even when the model wraps it in prose or a code fence."""
+def _payload_candidates(raw: str) -> list[str]:
+    """Return candidate JSON objects, fenced block first, then every balanced brace span."""
     candidates: list[str] = []
     fenced = _FENCED_BLOCK.search(raw)
     if fenced is not None:
-        candidates.append(fenced.group(1).strip())
-    candidates.append(raw.strip())
+        candidates.extend(_brace_spans(fenced.group(1).strip()))
+    candidates.extend(_brace_spans(raw))
+    seen: set[str] = set()
+    unique: list[str] = []
     for candidate in candidates:
-        start = candidate.find("{")
-        end = candidate.rfind("}")
-        if start != -1 and end > start:
-            return candidate[start : end + 1]
-    raise InvalidModelResponseError("the provider answer contains no JSON object")
+        if candidate not in seen:
+            seen.add(candidate)
+            unique.append(candidate)
+    if not unique:
+        raise InvalidModelResponseError("the provider answer contains no JSON object")
+    return unique[:20]
+
+
+def _brace_spans(text: str) -> list[str]:
+    """Return every balanced brace span, ignoring braces inside JSON strings."""
+    spans: list[str] = []
+    for start, character in enumerate(text):
+        if character != "{":
+            continue
+        depth = 0
+        in_string = False
+        escaping = False
+        for index in range(start, len(text)):
+            current = text[index]
+            if in_string:
+                if escaping:
+                    escaping = False
+                elif current == "\\":
+                    escaping = True
+                elif current == '"':
+                    in_string = False
+                continue
+            if current == '"':
+                in_string = True
+            elif current == "{":
+                depth += 1
+            elif current == "}":
+                depth -= 1
+                if depth == 0:
+                    spans.append(text[start : index + 1])
+                    break
+    return spans
 
 
 def _question_language(question: str) -> str:

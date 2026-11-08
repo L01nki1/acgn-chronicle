@@ -340,3 +340,35 @@ def test_final_guard_rejects_split_copies_across_two_claims() -> None:
 
     with pytest.raises(GroundingValidationError):
         validate_grounded_answer(answer, _query().snapshot_id, [chunk])
+
+
+def test_disjoint_verbatim_runs_in_one_claim_cannot_bypass_the_budget() -> None:
+    first = "A" * 199
+    second = "B" * 199
+    source = f"{first} x {second}"
+    claim = f"{first} q {second}"
+
+    answer = GroundedAnswerer(FakeAnswerClient([{"text": claim, "evidence_indices": [1]}])).answer(
+        _query(), [_chunk(source)]
+    )
+
+    assert answer.abstained
+    assert first not in answer.answer
+    assert second not in answer.answer
+
+
+def test_final_guard_rejects_disjoint_runs_in_one_claim() -> None:
+    first = "A" * 199
+    second = "B" * 199
+    source = f"{first} x {second}"
+    chunk = _chunk(source)
+    answer = GroundedAnswer(
+        answer=f"{first} q {second} [1]",
+        citations=[chunk.citation],
+        cited_chunk_ids=[chunk.chunk_id],
+        abstained=False,
+        abstain_reason=None,
+    )
+
+    with pytest.raises(GroundingValidationError):
+        validate_grounded_answer(answer, _query().snapshot_id, [chunk])

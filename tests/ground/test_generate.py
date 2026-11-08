@@ -483,3 +483,21 @@ def test_urls_and_chunk_ids_in_claim_text_are_dropped(claim: str) -> None:
     assert answer.abstained
     assert "evil.example" not in answer.answer
     assert "doc-1::A::2" not in answer.answer
+
+
+def test_broken_fence_before_a_valid_object_is_recovered() -> None:
+    raw = "\u0060\u0060\u0060json\n{broken\n\u0060\u0060\u0060\nHere is the answer:\n" + _response(
+        [{"text": "Fact one.", "evidence_indices": [1]}]
+    )
+
+    answer = generate_grounded_answer(_query(), [_chunk(1)], FakeAnswerClient(raw))
+
+    assert answer.answer == "Fact one. [1]"
+
+
+def test_malformed_first_object_does_not_hide_the_valid_one() -> None:
+    raw = '{"claims": [}\n' + _response([{"text": "Fact one.", "evidence_indices": [1]}])
+
+    answer = generate_grounded_answer(_query(), [_chunk(1)], FakeAnswerClient(raw))
+
+    assert answer.answer == "Fact one. [1]"

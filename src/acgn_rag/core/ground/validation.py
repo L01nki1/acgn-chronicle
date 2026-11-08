@@ -31,6 +31,9 @@ _QUOTE_PAIRS: Final = {
     "\u2018": "\u2019",
     "\u300c": "\u300d",
 }
+# A verbatim run shorter than this is an ordinary shared phrase, not a copied quotation.
+# Longer runs are summed per claim/source so disjoint copies cannot hide behind the longest one.
+_MIN_COPY_RUN_CHARS: Final = 16
 # Answer text must not carry URLs or chunk ids: citations are the only outbound reference.
 _URL_TEXT: Final = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
 _CHUNK_ID_TEXT: Final = re.compile(r"\S+::[A-Za-z0-9_'-]+::\d+")
@@ -144,13 +147,13 @@ def source_exposure_exceeds_budget(
         text = _normalize(claim.text)
         overlap_by_source: dict[str, int] = {}
         for chunk in chunk_list:
-            run = _longest_verbatim_run(text, _normalize(chunk.text))
-            if run == 0:
+            copied = _verbatim_exposure(text, _normalize(chunk.text))
+            if copied == 0:
                 continue
             source = find(chunk.chunk_id)
-            overlap_by_source[source] = max(overlap_by_source.get(source, 0), run)
-        for source, run in overlap_by_source.items():
-            exposure_by_source[source] = exposure_by_source.get(source, 0) + run
+            overlap_by_source[source] = max(overlap_by_source.get(source, 0), copied)
+        for source, copied in overlap_by_source.items():
+            exposure_by_source[source] = exposure_by_source.get(source, 0) + copied
     return any(exposure > MAX_QUOTE_CHARS for exposure in exposure_by_source.values())
 
 
@@ -288,12 +291,18 @@ def _is_verbatim(claim_text: str, source_text: str) -> bool:
     return claim in source or claim.replace(" ", "") in source.replace(" ", "")
 
 
-def _longest_verbatim_run(first: str, second: str) -> int:
-    """Length of the longest contiguous verbatim run between two normalized strings."""
-    if not first or not second:
+def _verbatim_exposure(claim_text: str, source_text: str) -> int:
+    """Total meaningful verbatim characters copied from one source into one claim.
+
+    Summing every block of at least _MIN_COPY_RUN_CHARS catches a single claim that copies
+    two disjoint passages; taking only the longest block would hide the second passage.
+    """
+    if not claim_text or not source_text:
         return 0
-    matcher = SequenceMatcher(None, first, second, autojunk=False)
-    return matcher.find_longest_match(0, len(first), 0, len(second)).size
+    matcher = SequenceMatcher(None, claim_text, source_text, autojunk=False)
+    return sum(
+        block.size for block in matcher.get_matching_blocks() if block.size >= _MIN_COPY_RUN_CHARS
+    )
 
 
 def _normalize(text: str) -> str:
