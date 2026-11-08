@@ -104,6 +104,10 @@ their owners.
 - encoding on the recorded lane with an identity-keyed cache (model policy: RUNBOOK §3.5); compliance tests green (`pytest tests/compliance -q`)
 - L0 fact extraction on a 30-item spot check ≥90% field accuracy, every row carries `chunkId` + `url`
 
+**G1b outbound guard (`KnowledgePort` §3.7):** code candidate in
+[#45](https://github.com/L01nki1/acgn-chronicle/pull/45) — not gate evidence; no real corpus, index or
+live LLM run yet.
+
 ### G2 · 2026-11-21 — Topic 5 complete (official brief, hard gate)
 
 > Topic 5 is a grounded QA system over a custom knowledge base, not a chatbot demo. The gate below reflects the course brief exactly: data prep + retrieval + grounded answer + evaluation, with traceable citations and explicit abstention.

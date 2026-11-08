@@ -35,7 +35,7 @@ import build_index  # noqa: E402
 from acgn_rag.config import StoreConfig  # noqa: E402
 from acgn_rag.core.chunk import chunk_text  # noqa: E402
 from acgn_rag.core.embed import build_header  # noqa: E402
-from acgn_rag.core.store.chroma_store import ChromaStore, collection_name  # noqa: E402
+from acgn_rag.core.store.chroma_store import ChromaStore, collection_name, media_filter  # noqa: E402
 
 SNAP = "20261028abcdef1234"
 LABELS = {"A": "A", "A'": "A-prime", "A0": "A0"}
@@ -409,6 +409,61 @@ def test_fresh_rebuild_replaces_stale_rows_only_in_the_target_collection(
     )
     assert build["mode"] == "replace"
     assert build["chunks"] == build["stored"] == expected_subset
+
+
+@pytest.mark.parametrize("omit_media_ids", [False, True], ids=["empty", "missing"])
+def test_fresh_rebuild_accepts_an_unresolved_item(
+    data_root: Path, tmp_path: Path, omit_media_ids: bool
+) -> None:
+    original = _write_docs(tmp_path / "original.jsonl", [_doc(1, 3) | {"media_ids": [7]}])
+    assert _run(["--snapshot", SNAP, "--input", str(original), "--config", "A0"]) == 0
+
+    unresolved = _doc(1, 3)
+    if omit_media_ids:
+        del unresolved["media_ids"]
+    else:
+        unresolved["media_ids"] = []
+    replacement = _write_docs(tmp_path / "replacement.jsonl", [unresolved])
+    assert _run(["--snapshot", SNAP, "--input", str(replacement), "--config", "A0", "--fresh"]) == 0
+
+    store = _store_at(data_root)
+    store.bind(SNAP, "A0")
+    assert store.count() == 1
+    assert store.query([1.0] * DIM, top_k=1)[0].payload.media_ids == ()
+    assert store.query([1.0] * DIM, top_k=1, where=media_filter([7])) == []
+    sidecars = data_root / "index" / SNAP / "A0"
+    build = json.loads((sidecars / "build.json").read_text(encoding="utf-8"))
+    identity = json.loads((sidecars / "identity.json").read_text(encoding="utf-8"))
+    assert build["mode"] == "replace"
+    assert build["chunks"] == build["stored"] == 1
+    assert build["snapshot_id"] == identity["snapshot_id"] == SNAP
+    assert build["config"] == identity["config"] == "A0"
+    assert build["collection"] == identity["collection"] == collection_name(SNAP, "A0")
+
+
+@pytest.mark.parametrize("omit_category", [False, True], ids=["null", "missing"])
+def test_rebuild_preserves_and_clears_ingest_category(
+    data_root: Path, tmp_path: Path, omit_category: bool
+) -> None:
+    original = _doc(1, 3) | {"media_ids": [7], "ingest_category": "corporate"}
+    original_path = _write_docs(tmp_path / "tagged.jsonl", [original])
+    assert _run(["--snapshot", SNAP, "--input", str(original_path), "--config", "A0"]) == 0
+
+    store = _store_at(data_root)
+    store.bind(SNAP, "A0")
+    assert store.query([1.0] * DIM, top_k=1)[0].payload.ingest_category == "corporate"
+
+    updated = _doc(1, 3) | {"media_ids": [7]}
+    if not omit_category:
+        updated["ingest_category"] = None
+    updated_path = _write_docs(tmp_path / "untagged.jsonl", [updated])
+    assert _run(["--snapshot", SNAP, "--input", str(updated_path), "--config", "A0"]) == 0
+
+    stored = store.query([1.0] * DIM, top_k=1)[0].payload
+    assert stored.ingest_category is None
+    assert stored.media_ids == (7,)
+    assert store.query([1.0] * DIM, top_k=1, where={"ingest_category": {"$eq": "corporate"}}) == []
+    assert store.query([1.0] * DIM, top_k=1, where=media_filter([7]))[0].payload == stored
 
 
 def test_fresh_rejects_invalid_input_without_deleting_the_collection(

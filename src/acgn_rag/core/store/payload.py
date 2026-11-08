@@ -1,8 +1,8 @@
 """Chroma metadata payload: the flat, typed shape one chunk takes inside a collection.
 
-Owner: F | Spec: 04 §7 D4, docs/RUNBOOK.md §3.1 (chromadb >=1.0,<2)
+Owner: F | Spec: 04 §7 D4, docs/RUNBOOK.md §3.1 (chromadb >=1.5.0,<2)
 
-Chroma 1.x metadata accepts scalars or flat same-type arrays - nesting is still forbidden -
+Chroma 1.5.0 metadata accepts scalars or flat same-type arrays - nesting is still forbidden -
 so a chunk is stored as `documents=<body>` plus a flat metadata dict built by `to_payload`:
 `published_ts` is an int epoch (never an ISO string) and `media_ids` stays a native `int[]`
 filtered with `$contains` (see `chroma_store.media_filter`).
@@ -58,8 +58,8 @@ def to_payload(payload: ChunkPayload) -> dict[str, Any]:
     `body` is deliberately absent: it is stored as the Chroma document (`documents=`), and
     copying it into the metadata would double every row for zero query value. `to_payload`
     and `payload_from_metadata` are inverses, so a query round-trips the full payload.
-    `ingest_category` is omitted when None - Chroma has no null metadata value, and the
-    absent key maps back to None on reconstruction.
+    Empty `media_ids` and a None `ingest_category` are omitted; missing keys reconstruct as
+    an empty tuple and None respectively. Chroma does not store empty metadata arrays.
     """
     meta: dict[str, Any] = {
         "chunk_id": payload.chunk_id,
@@ -71,8 +71,9 @@ def to_payload(payload: ChunkPayload) -> dict[str, Any]:
         "source_type": payload.source_type,
         "published_ts": payload.published_ts,
         "lang": payload.lang,
-        "media_ids": list(payload.media_ids),
     }
+    if payload.media_ids:
+        meta["media_ids"] = list(payload.media_ids)
     if payload.ingest_category is not None:
         meta["ingest_category"] = payload.ingest_category
     return meta

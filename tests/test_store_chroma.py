@@ -1,10 +1,8 @@
 """ChromaStore on an embedded chromadb 1.x instance: offline, tmp_path, telemetry off.
 
 Requires the [store] extra; skipped whole-module without it, so a bare
-`pip install -e ".[dev]"` clone still passes (RUNBOOK §1). Written for the 1.x API
-(`configuration=`, typed array metadata): the drafting venv still carries the old 0.6.3
-band, where only the version anchor fails by design - see NOTES.md (verification) for what
-was exercised on which band.
+`pip install -e ".[dev]"` clone still passes (RUNBOOK §1). The supported band starts at
+1.5.0 for typed array metadata and the `$contains` filter.
 """
 
 from __future__ import annotations
@@ -69,9 +67,9 @@ def loaded(store: ChromaStore) -> ChromaStore:
     return store
 
 
-def test_chromadb_is_1x() -> None:
-    # The store is written for the 1.x API (configuration=, typed array metadata); see NOTES.
-    assert int(chromadb.__version__.split(".")[0]) == 1
+def test_chromadb_is_in_supported_band() -> None:
+    major, minor = (int(part) for part in chromadb.__version__.split(".")[:2])
+    assert (1, 5) <= (major, minor) < (2, 0)
 
 
 def test_collection_name_format() -> None:
@@ -131,6 +129,77 @@ def test_upsert_is_idempotent_on_chunk_ids(loaded: ChromaStore) -> None:
     assert loaded.count() == 2
     loaded.upsert_chunks(_two_chunks(), VECTORS)  # same chunk_ids: upsert, not duplicate add
     assert loaded.count() == 2
+
+
+def test_mixed_empty_and_linked_media_ids_round_trip(store: ChromaStore) -> None:
+    store.bind(SNAP, "A")
+    empty = _payload("empty", ())
+    linked = _payload("linked", (7,))
+    store.upsert_chunks([empty, linked], VECTORS)
+
+    hits = store.query([1.0, 0.0], top_k=2)
+    assert {hit.payload.chunk_id: hit.payload for hit in hits} == {
+        "empty": empty,
+        "linked": linked,
+    }
+    assert [hit.payload for hit in store.query([1.0, 0.0], top_k=2, where=media_filter([7]))] == [
+        linked
+    ]
+
+
+def test_upsert_clears_and_relinks_optional_metadata(store: ChromaStore) -> None:
+    store.bind(SNAP, "A")
+    original = _payload("changed", (7,), ingest_category="corporate")
+    unaffected = _payload("other", (42,), ingest_category="other")
+    store.upsert_chunks([original, unaffected], VECTORS)
+
+    cleared = _payload("changed", ())
+    store.upsert_chunks([cleared], [VECTORS[0]])
+    hits = store.query([1.0, 0.0], top_k=2)
+    assert {hit.payload.chunk_id: hit.payload for hit in hits} == {
+        "changed": cleared,
+        "other": unaffected,
+    }
+    stored = store.client.get_collection(collection_name(SNAP, "A")).get(
+        ids=["changed"], include=["metadatas"]
+    )["metadatas"][0]
+    assert "media_ids" not in stored
+    assert "ingest_category" not in stored
+    assert store.query([1.0, 0.0], top_k=2, where=media_filter([7])) == []
+    assert store.query([1.0, 0.0], top_k=2, where={"ingest_category": {"$eq": "corporate"}}) == []
+    assert [hit.payload for hit in store.query([1.0, 0.0], top_k=2, where=media_filter([42]))] == [
+        unaffected
+    ]
+
+    relinked = _payload("changed", (9,), ingest_category="relinked")
+    store.upsert_chunks([relinked], [VECTORS[0]])
+    assert [hit.payload for hit in store.query([1.0, 0.0], top_k=2, where=media_filter([9]))] == [
+        relinked
+    ]
+    assert store.query([1.0, 0.0], top_k=2, where=media_filter([7])) == []
+    assert store.count() == 2
+
+
+@pytest.mark.parametrize(
+    ("media_ids", "category"),
+    [((7,), None), ((), "corporate")],
+    ids=["clear-category-only", "clear-ids-only"],
+)
+def test_upsert_clears_only_the_requested_metadata(
+    store: ChromaStore, media_ids: tuple[int, ...], category: str | None
+) -> None:
+    store.bind(SNAP, "A")
+    store.upsert_chunks([_payload("changed", (7,), ingest_category="corporate")], [VECTORS[0]])
+    updated = _payload("changed", media_ids, ingest_category=category)
+    store.upsert_chunks([updated], [VECTORS[0]])
+
+    assert store.query([1.0, 0.0], top_k=1)[0].payload == updated
+    id_hits = store.query([1.0, 0.0], top_k=1, where=media_filter([7]))
+    category_hits = store.query(
+        [1.0, 0.0], top_k=1, where={"ingest_category": {"$eq": "corporate"}}
+    )
+    assert [hit.payload for hit in id_hits] == ([updated] if media_ids else [])
+    assert [hit.payload for hit in category_hits] == ([updated] if category else [])
 
 
 def test_media_filter_contains_actually_filters(loaded: ChromaStore) -> None:

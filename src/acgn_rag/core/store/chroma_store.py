@@ -1,8 +1,8 @@
 """Chroma 1.x embedded vector store: one collection per (snapshot, chunk config).
 
-Owner: F | Spec: 04 §7 D4, docs/RUNBOOK.md §3.1 (chromadb >=1.0,<2 rewrite), PLAN PR3
+Owner: F | Spec: 04 §7 D4, docs/RUNBOOK.md §3.1 (chromadb >=1.5.0,<2), PLAN PR3
 
-API surface used (all 1.x; nothing here runs on 0.5.x):
+API surface used (the supported store extra starts at 1.5.0):
   - ``PersistentClient(path=..., settings=Settings(anonymized_telemetry=False))``: embedded,
     offline, telemetry off; the client is created lazily so importing this module costs
     nothing without the ``[store]`` extra.
@@ -434,8 +434,8 @@ class ChromaStore:
     ) -> None:
         """Upsert chunks into the bound collection: ids = chunk_id, documents = body.
 
-        Metadata rows come from ``to_payload`` (flat scalars + media_ids as int[]). Upsert,
-        not add: rebuilding the same snapshot must be idempotent, not duplicate-keyed.
+        Metadata rows come from ``to_payload``. Upsert merges metadata, so absent optional
+        values use Chroma's None removal marker to clear values from an earlier row.
         """
         collection = self._require_collection()
         if len(payloads) != len(embeddings):
@@ -446,11 +446,19 @@ class ChromaStore:
             return
         if any(payload.snapshot_id != self._bound_snapshot_id for payload in payloads):
             raise ValueError("payload snapshot_id must match the bound snapshot")
+        metadatas = []
+        for payload in payloads:
+            metadata = to_payload(payload)
+            if not payload.media_ids:
+                metadata["media_ids"] = None
+            if payload.ingest_category is None:
+                metadata["ingest_category"] = None
+            metadatas.append(metadata)
         collection.upsert(
             ids=[payload.chunk_id for payload in payloads],
             embeddings=[_floats(embedding) for embedding in embeddings],
             documents=[payload.body for payload in payloads],
-            metadatas=[to_payload(payload) for payload in payloads],
+            metadatas=metadatas,
         )
 
     def _fetch_rows(

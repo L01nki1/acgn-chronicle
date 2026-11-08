@@ -72,15 +72,20 @@ pytest -q                                     # 4 tests
 | Committing shows no `[pre-commit]` line at all | `core.hooksPath` is not set in this clone (it is a local setting) | `python scripts/install_hooks.py` |
 | `hooks/pre-commit: bad interpreter` | The hook file picked up CRLF | `.gitattributes` forces LF for `.githooks/*`; re-checkout the file (`git checkout -- .githooks`) |
 
-### 3.1 Chroma specifics — three pitfalls to verify before building the index (chromadb >=1.0,<2)
+### 3.1 Chroma specifics — three pitfalls to verify before building the index (chromadb >=1.5.0,<2)
 
-1. **Metadata holds scalars or flat typed arrays.** Since 1.0 Chroma accepts `str / int /
-   float / bool` and one-type, one-dimensional arrays (`int[]` works, nesting is still
+1. **Metadata holds scalars or flat typed arrays.** The minimum supported Chroma 1.5.0 accepts
+   `str / int / float / bool` and one-type, one-dimensional arrays (`int[]` works, nesting is still
    forbidden). `media_ids` is stored natively as `int[]` and filtered with
    `{"$or": [{"media_ids": {"$contains": id}}, ...]}` — measured adequate for the small
    any-of lists `RetrievalFilters.media_ids` implies. Long any-of lists may still justify a
    SQLite reverse table `doc_id ↔ media_id` translated into `{"doc_id": {"$in": [...]}}`;
    that stays a recorded future option, not the current path.
+   An unresolved item has no `media_ids` key in stored metadata, rather than an empty array;
+   reads reconstruct an empty tuple. Chroma upserts merge metadata, so the store sends a
+   `None` removal marker for empty `media_ids` and absent `ingest_category` to clear any old
+   values on that row. The marker is not retained as a stored value. The current build CLI
+   passes an optional input `ingest_category` through to the stored payload.
 2. **Store time as an integer epoch** (`published_ts`), not an ISO string. Range filters then compare
    numbers, which avoids format and time-zone ambiguity.
 3. **Filtering is pre-KNN in 1.x** — the old "the filter trims the top-k after the search"
