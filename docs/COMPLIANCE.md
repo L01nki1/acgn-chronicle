@@ -91,4 +91,4 @@ Never: serve full text | paraphrase media commentary | train models | commercial
 |---|---|
 | `test_serialize_limits.py` | <=200 chars (CJK and ASCII), ellipsis inside the budget, whitespace collapsed, payload carries a url |
 | `test_media_no_paraphrase.py` | the no-paraphrase clause exists in the prompt |
-| `test_no_raw_export.py` | no serialized answer/refusal carries raw-zone body text; citations expose metadata only; an over-budget copied body is rejected (HTTP `/ask` end-to-end check is deferred until the real retrieval+generation backend replaces the mock) |
+| `test_no_raw_export.py` | no serialized answer/refusal carries the full raw-zone body; citations expose metadata only; an over-budget copied body is rejected (HTTP `/ask` end-to-end check is deferred until the real retrieval+generation backend replaces the mock) |
