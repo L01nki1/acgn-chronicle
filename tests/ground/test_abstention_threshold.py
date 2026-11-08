@@ -16,13 +16,14 @@ from acgn_rag.config import LLMConfig
 from acgn_rag.core.ground import (
     ABSTAIN_NO_EVIDENCE,
     ABSTAIN_RETRIEVAL_BELOW_THRESHOLD,
+    RETRIEVAL_BELOW_THRESHOLD_REASON,
     Completion,
     GroundedAnswerer,
     InvalidRetrievedEvidenceError,
+    PromptBudgetError,
     generate_grounded_answer,
     generate_grounded_answer_run,
 )
-from acgn_rag.core.ground.generate import RETRIEVAL_BELOW_THRESHOLD_REASON
 from acgn_rag.core.ground.provider import make_grounded_answerer
 from acgn_rag.core.ports import Citation, RetrievalQuery, RetrievedChunk
 
@@ -249,3 +250,95 @@ def test_threshold_refusal_is_deterministic() -> None:
 
     assert first.answer.model_dump() == second.answer.model_dump()
     assert first.diagnostics == second.diagnostics
+
+
+@pytest.mark.parametrize("raw", ["nan", "inf", "-inf"])
+def test_non_finite_env_threshold_fails_loudly(monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
+    monkeypatch.setenv(ENV_KEY, raw)
+
+    with pytest.raises(ValueError, match=ENV_KEY):
+        LLMConfig(answer_base_url="http://example.invalid", answer_model="m")
+
+
+@pytest.mark.parametrize("threshold", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_threshold_argument_is_rejected(threshold: float) -> None:
+    client = FakeAnswerClient(_response())
+
+    with pytest.raises(ValueError, match="min_retrieval_score"):
+        generate_grounded_answer_run(
+            _query(), [_chunk(1, score=0.5)], client, min_retrieval_score=threshold
+        )
+
+    assert client.calls == []
+
+
+def test_non_finite_retrieval_score_is_rejected() -> None:
+    client = FakeAnswerClient(_response())
+
+    with pytest.raises(ValueError, match="finite"):
+        generate_grounded_answer_run(_query(), [_chunk(1, score=float("nan"))], client)
+
+    assert client.calls == []
+
+
+def test_straddling_scores_use_the_best_request_local_score() -> None:
+    client = FakeAnswerClient(_response())
+    answered = generate_grounded_answer_run(
+        _query(),
+        [_chunk(1, score=0.1), _chunk(2, score=0.9)],
+        client,
+        min_retrieval_score=0.5,
+    )
+
+    assert not answered.answer.abstained
+    assert answered.diagnostics.retrieval_top_score == pytest.approx(0.9)
+    assert len(client.calls) == 1
+
+    refused = generate_grounded_answer_run(
+        _query(),
+        [_chunk(1, score=0.2), _chunk(2, score=0.4)],
+        FakeAnswerClient(_response()),
+        min_retrieval_score=0.5,
+    )
+
+    assert refused.answer.abstained
+    assert refused.diagnostics.retrieval_top_score == pytest.approx(0.4)
+
+
+def test_zero_threshold_is_not_treated_as_disabled() -> None:
+    answered = generate_grounded_answer(
+        _query(), [_chunk(1, score=0.0)], FakeAnswerClient(_response()), min_retrieval_score=0.0
+    )
+    assert not answered.abstained
+
+    refused = generate_grounded_answer(
+        _query(), [_chunk(1, score=-0.1)], FakeAnswerClient(_response()), min_retrieval_score=0.0
+    )
+    assert refused.abstained
+
+
+def test_gate_runs_before_the_prompt_budget() -> None:
+    def large_chunk(*, score: float) -> RetrievedChunk:
+        return RetrievedChunk(
+            chunk_id="chunk-1",
+            doc_id="doc-1",
+            snapshot_id=SNAPSHOT_ID,
+            text="x" * 15_000,
+            score=score,
+            citation=_citation(1),
+        )
+
+    client = FakeAnswerClient(_response())
+    answer = generate_grounded_answer(
+        _query(), [large_chunk(score=0.1)], client, min_retrieval_score=0.5
+    )
+    assert answer.abstained
+    assert client.calls == []
+
+    with pytest.raises(PromptBudgetError):
+        generate_grounded_answer(
+            _query(),
+            [large_chunk(score=0.9)],
+            FakeAnswerClient(_response()),
+            min_retrieval_score=0.5,
+        )

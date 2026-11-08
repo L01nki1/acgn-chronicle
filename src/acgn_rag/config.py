@@ -12,6 +12,7 @@ Design constraints:
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,7 +32,12 @@ def _env_int(key: str, default: int) -> int:
 
 def _env_float(key: str, default: float | None = None) -> float | None:
     raw = _env(key)
-    return float(raw) if raw is not None else default
+    if raw is None:
+        return default
+    value = float(raw)
+    if not math.isfinite(value):
+        raise ValueError(f"{key} must be a finite number, got {raw!r}")
+    return value
 
 
 @dataclass(frozen=True)

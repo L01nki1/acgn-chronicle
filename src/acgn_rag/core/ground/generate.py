@@ -8,6 +8,7 @@ payload before it can leave the process.
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -229,6 +230,8 @@ def generate_grounded_answer_run(
     min_retrieval_score: float | None = None,
 ) -> GroundedAnswerRun:
     """Generate one answer and keep the diagnostics a calibration run must record."""
+    if min_retrieval_score is not None and not math.isfinite(min_retrieval_score):
+        raise ValueError(f"min_retrieval_score must be finite, got {min_retrieval_score!r}")
     if not chunks:
         return _abstain_run(
             ABSTAIN_NO_EVIDENCE,
@@ -245,6 +248,8 @@ def generate_grounded_answer_run(
     # the provider. Compare the best request-local score and refuse before building a prompt or
     # calling the model. The comparison is strict: a score equal to the threshold is answerable.
     retrieval_top_score = max(chunk.score for chunk in chunks)
+    if not math.isfinite(retrieval_top_score):
+        raise ValueError(f"retrieved chunk scores must be finite, got {retrieval_top_score!r}")
     if min_retrieval_score is not None and retrieval_top_score < min_retrieval_score:
         return _abstain_run(
             ABSTAIN_RETRIEVAL_BELOW_THRESHOLD,
