@@ -261,6 +261,15 @@ this section is only the decision.
 
 ### 3.6 L0 facts-extraction SOP
 
+`python scripts/export_fact_chunks.py --snapshot <id> --config A --data-root <root> --output <relative-path>.jsonl`
+exports every indexed chunk of the explicitly selected configuration under `<root>/chunks/`. Pass that
+file to `extract_facts.py --input`; this is not an announcement selector and does not choose a default
+configuration. Keep exported source text out of Git. The adjacent `.receipt.json` records the selected
+build and JSONL SHA-256: verify the hash yourself before using the output, because the extraction CLI
+does not read the receipt. The receipt and JSONL are replaced separately; an interruption can leave
+them inconsistent. Serialize builds and exports: count/record checks are not a lock. Existing build
+records do not establish that an unmarked raw input is the complete frozen snapshot.
+
 - **Batch 10 announcements per LLM call** with numbered output; measured pattern from the pilot cuts
   cost 3–5× vs one-per-call, and JSON per numbered slot is easier to validate. ~9.5k L0 items ⇒ ~950
   calls, not 9,500.
