@@ -20,8 +20,9 @@ names accept ``[a-zA-Z0-9._-]`` only), while chunk ids keep the variant name.
 
 TODO(snapshot reader): A owns the snapshot/doc reader. Until that interface lands this script
 reads a raw docs.jsonl via ``--input`` (rows: doc_id / title / publisher / published_at /
-url / source_type / lang / media_ids / body, validated by ``IndexDoc``); replace ``_load_docs``
-with the reader and drop ``--input`` when it exists. The RUNBOOK §1 row keeps ``--input``
+url / source_type / lang / media_ids / optional ingest_category / body, validated by
+``IndexDoc``); replace ``_load_docs`` with the reader and drop ``--input`` when it exists.
+The RUNBOOK §1 row keeps ``--input``
 until then (same pattern as scripts/extract_facts.py).
 
 Model loading is the caller's concern - this script downloads nothing itself. Real runs need
@@ -103,8 +104,9 @@ class IndexDoc(BaseModel):
 
     Required: doc_id / published_at / url / source_type / lang / body. The header fields
     title and publisher default to empty because ``build_header`` drops empty fields anyway;
-    ``media_ids`` defaults to no media binding. ``published_at`` must parse as ISO 8601 - the
-    check runs at load time, so a malformed stamp aborts with the input line in hand instead
+    ``media_ids`` defaults to no media binding and ``ingest_category`` to None. ``published_at``
+    must parse as ISO 8601. The check runs at load time, so a malformed stamp aborts with the
+    input line in hand instead
     of failing mid-upsert inside ``payload_from_fields``.
     """
 
@@ -116,6 +118,7 @@ class IndexDoc(BaseModel):
     source_type: SourceType
     lang: str = Field(min_length=1)
     media_ids: list[int] = Field(default_factory=list)
+    ingest_category: str | None = None
     body: str
 
     @field_validator("published_at")
@@ -282,6 +285,7 @@ def _build_config(ctx: _BuildContext, config: str, docs: Sequence[IndexDoc]) -> 
                     lang=doc.lang,
                     body=chunk.text,
                     media_ids=doc.media_ids,
+                    ingest_category=doc.ingest_category,
                 )
             )
 
@@ -384,7 +388,8 @@ def main(
         required=True,
         help=(
             "docs.jsonl rows (doc_id/title/publisher/published_at/url/source_type/lang/"
-            "media_ids/body); required until A's snapshot reader lands (module TODO)"
+            "media_ids/optional ingest_category/body); required until A's snapshot reader "
+            "lands (module TODO)"
         ),
     )
     parser.add_argument(

@@ -434,8 +434,8 @@ class ChromaStore:
     ) -> None:
         """Upsert chunks into the bound collection: ids = chunk_id, documents = body.
 
-        Metadata rows come from ``to_payload`` (flat scalars + media_ids as int[]). Upsert,
-        not add: rebuilding the same snapshot must be idempotent, not duplicate-keyed.
+        Metadata rows come from ``to_payload``. Upsert merges metadata, so absent optional
+        values use Chroma's None removal marker to clear values from an earlier row.
         """
         collection = self._require_collection()
         if len(payloads) != len(embeddings):
@@ -446,11 +446,19 @@ class ChromaStore:
             return
         if any(payload.snapshot_id != self._bound_snapshot_id for payload in payloads):
             raise ValueError("payload snapshot_id must match the bound snapshot")
+        metadatas = []
+        for payload in payloads:
+            metadata = to_payload(payload)
+            if not payload.media_ids:
+                metadata["media_ids"] = None
+            if payload.ingest_category is None:
+                metadata["ingest_category"] = None
+            metadatas.append(metadata)
         collection.upsert(
             ids=[payload.chunk_id for payload in payloads],
             embeddings=[_floats(embedding) for embedding in embeddings],
             documents=[payload.body for payload in payloads],
-            metadatas=[to_payload(payload) for payload in payloads],
+            metadatas=metadatas,
         )
 
     def _fetch_rows(
