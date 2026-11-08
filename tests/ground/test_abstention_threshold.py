@@ -272,11 +272,22 @@ def test_non_finite_threshold_argument_is_rejected(threshold: float) -> None:
     assert client.calls == []
 
 
-def test_non_finite_retrieval_score_is_rejected() -> None:
+@pytest.mark.parametrize(
+    "scores",
+    [
+        (float("nan"),),
+        (float("nan"), 0.9),
+        (0.9, float("nan")),
+        (-float("inf"), 0.9),
+        (0.9, float("inf")),
+    ],
+)
+def test_non_finite_retrieval_score_is_rejected(scores: tuple[float, ...]) -> None:
     client = FakeAnswerClient(_response())
+    chunks = [_chunk(index, score=score) for index, score in enumerate(scores, 1)]
 
     with pytest.raises(ValueError, match="finite"):
-        generate_grounded_answer_run(_query(), [_chunk(1, score=float("nan"))], client)
+        generate_grounded_answer_run(_query(), chunks, client)
 
     assert client.calls == []
 

@@ -247,9 +247,9 @@ def generate_grounded_answer_run(
     # EVAL_PROTOCOL §6/§8: the calibration set sweeps this decision, so it must not depend on
     # the provider. Compare the best request-local score and refuse before building a prompt or
     # calling the model. The comparison is strict: a score equal to the threshold is answerable.
+    if not all(math.isfinite(chunk.score) for chunk in chunks):
+        raise ValueError("retrieved chunk scores must be finite")
     retrieval_top_score = max(chunk.score for chunk in chunks)
-    if not math.isfinite(retrieval_top_score):
-        raise ValueError(f"retrieved chunk scores must be finite, got {retrieval_top_score!r}")
     if min_retrieval_score is not None and retrieval_top_score < min_retrieval_score:
         return _abstain_run(
             ABSTAIN_RETRIEVAL_BELOW_THRESHOLD,
