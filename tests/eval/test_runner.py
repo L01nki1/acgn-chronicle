@@ -429,6 +429,35 @@ def test_load_build_records_reads_both(tmp_path: Path) -> None:
     assert chunker["header_version"] == "h1"
 
 
+def test_load_build_records_rejects_an_incomplete_build(tmp_path: Path) -> None:
+    root = tmp_path / "index"
+    base = _write_build_records(root)
+    (base / "build.incomplete").write_text("interrupted\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="incomplete"):
+        load_build_records(root, snapshot_id=SNAPSHOT, config="A", label="A")
+
+
+def test_load_build_records_rechecks_build_state_after_reading(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from acgn_rag.core.eval import runner
+
+    root = tmp_path / "index"
+    base = _write_build_records(root)
+    read_json = runner._read_json
+
+    def interrupt_during_read(path: Path) -> dict[str, Any]:
+        result = read_json(path)
+        if path.name == "build.json":
+            (base / "build.incomplete").write_text("interrupted\n", encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(runner, "_read_json", interrupt_during_read)
+    with pytest.raises(ValueError, match="incomplete"):
+        load_build_records(root, snapshot_id=SNAPSHOT, config="A", label="A")
+
+
 def test_load_build_records_requires_build_json(tmp_path: Path) -> None:
     root = tmp_path / "index"
     base = _write_build_records(root)

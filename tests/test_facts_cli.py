@@ -109,6 +109,104 @@ def test_limit_caps_the_input_before_anything_else(
     assert "chunks=5" in out and "batches=1" in out
 
 
+def test_limited_write_requires_preview_and_preserves_existing_facts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "data"
+    monkeypatch.setenv("ACGN_DATA_DIR", str(root))
+    chunks_path = tmp_path / "chunks.jsonl"
+    _write_chunks(chunks_path, [_row(1), _row(2)])
+    formal = root / "facts" / "snap-lim"
+    formal.mkdir(parents=True)
+    (formal / "facts.jsonl").write_text("old facts\n", encoding="utf-8")
+    (formal / "ir_skipped.jsonl").write_text("old skipped\n", encoding="utf-8")
+    client = FakeLLMClient([_payload(1)])
+    argv = ["--snapshot", "snap-lim", "--input", str(chunks_path), "--limit", "1"]
+    assert _main(argv, client=client) == 2
+    assert "--preview" in capsys.readouterr().err
+    assert client.calls == []
+    assert (formal / "facts.jsonl").read_text(encoding="utf-8") == "old facts\n"
+    assert (formal / "ir_skipped.jsonl").read_text(encoding="utf-8") == "old skipped\n"
+
+
+def test_limited_fact_previews_use_distinct_paths_and_preserve_formal_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "data"
+    monkeypatch.setenv("ACGN_DATA_DIR", str(root))
+    chunks_path = tmp_path / "chunks.jsonl"
+    _write_chunks(chunks_path, [_row(1), _row(2)])
+    formal = root / "facts" / "snap-lim"
+    formal.mkdir(parents=True)
+    (formal / "facts.jsonl").write_text("old facts\n", encoding="utf-8")
+    (formal / "ir_skipped.jsonl").write_text("old skipped\n", encoding="utf-8")
+    argv = ["--snapshot", "snap-lim", "--input", str(chunks_path), "--limit", "1"]
+    for preview_id in ("fact-one", "fact-two"):
+        client = FakeLLMClient([_payload(1)])
+        assert _main([*argv, "--preview", "--preview-id", preview_id], client=client) == 0
+        preview = root / "previews" / preview_id / "facts" / "snap-lim"
+        rows = [json.loads(line) for line in (preview / "facts.jsonl").read_text().splitlines()]
+        assert rows and {row["chunk_id"] for row in rows} == {_row(1)["chunk_id"]}
+        assert (preview / "ir_skipped.jsonl").exists()
+        assert len(client.calls) == 1
+    client = FakeLLMClient([])
+    assert _main([*argv, "--preview", "--preview-id", "fact-one"], client=client) == 2
+    assert client.calls == []
+    assert (formal / "facts.jsonl").read_text(encoding="utf-8") == "old facts\n"
+    assert (formal / "ir_skipped.jsonl").read_text(encoding="utf-8") == "old skipped\n"
+
+
+@pytest.mark.parametrize("snapshot", ["../../../facts/snap", "../snap", "C:\\outside", ".", ".."])
+def test_preview_rejects_snapshot_path_escape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, snapshot: str
+) -> None:
+    root = tmp_path / "data"
+    monkeypatch.setenv("ACGN_DATA_DIR", str(root))
+    chunks_path = tmp_path / "chunks.jsonl"
+    _write_chunks(chunks_path, [_row(1)])
+    client = FakeLLMClient([])
+    argv = [
+        "--snapshot",
+        snapshot,
+        "--input",
+        str(chunks_path),
+        "--limit",
+        "1",
+        "--preview",
+        "--preview-id",
+        "trial",
+    ]
+    assert _main(argv, client=client) == 2
+    assert client.calls == []
+    assert not (root / "previews").exists()
+
+
+@pytest.mark.parametrize("snapshot", ["../outside", "nested/name", "C:\\outside", ".", ".."])
+@pytest.mark.parametrize("dry_run", [False, True], ids=["write", "dry-run"])
+def test_fact_extraction_rejects_snapshot_path_escape_without_preview(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, snapshot: str, dry_run: bool
+) -> None:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+    import extract_facts
+
+    root = tmp_path / "data"
+    monkeypatch.setenv("ACGN_DATA_DIR", str(root))
+    chunks_path = tmp_path / "chunks.jsonl"
+    _write_chunks(chunks_path, [_row(1)])
+
+    def unexpected(*_args: Any, **_kwargs: Any) -> None:
+        pytest.fail("invalid snapshot reached a write")
+
+    monkeypatch.setattr(extract_facts, "_atomic_write_jsonl", unexpected)
+    client = FakeLLMClient([_payload(1)])
+    argv = ["--snapshot", snapshot, "--input", str(chunks_path)]
+    if dry_run:
+        argv.append("--dry-run")
+    assert extract_facts.main(argv, client=client) == 2
+    assert client.calls == []
+    assert not root.exists()
+
+
 def test_real_run_writes_facts_jsonl_atomically(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -239,3 +337,58 @@ def test_outcome_counters_success_retry_degrade_ir_and_mixed(
     assert _summary_field(out, "extracted_chunks") + _summary_field(
         out, "degraded"
     ) + _summary_field(out, "ir_skipped") == _summary_field(out, "chunks")
+
+
+@pytest.mark.parametrize("limit", ["0", "-1"])
+@pytest.mark.parametrize("dry_run", [False, True], ids=["write", "dry-run"])
+def test_nonpositive_limit_preserves_existing_fact_outputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    limit: str,
+    dry_run: bool,
+) -> None:
+    monkeypatch.setenv("ACGN_DATA_DIR", str(tmp_path / "data"))
+    chunks_path = tmp_path / "chunks.jsonl"
+    _write_chunks(chunks_path, [_row(1), _row(2)])
+    facts_dir = tmp_path / "data" / "facts" / "snap-lim"
+    facts_dir.mkdir(parents=True)
+    facts_path = facts_dir / "facts.jsonl"
+    skipped_path = facts_dir / "ir_skipped.jsonl"
+    facts_path.write_text("prior facts\n", encoding="utf-8")
+    skipped_path.write_text("prior skipped\n", encoding="utf-8")
+    client = FakeLLMClient([_payload(1)])
+    argv = ["--snapshot", "snap-lim", "--input", str(chunks_path), "--limit", limit]
+    if dry_run:
+        argv.append("--dry-run")
+
+    assert _main(argv, client=client) == 2
+    assert "--limit must be a positive integer" in capsys.readouterr().err
+    assert client.calls == []
+    assert facts_path.read_text(encoding="utf-8") == "prior facts\n"
+    assert skipped_path.read_text(encoding="utf-8") == "prior skipped\n"
+
+
+@pytest.mark.parametrize("limit", ["0", "-1"])
+def test_nonpositive_limit_rejected_before_input_or_settings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    limit: str,
+) -> None:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+    import extract_facts
+
+    chunks_path = tmp_path / "chunks.jsonl"
+    _write_chunks(chunks_path, [_row(1)])
+
+    def unexpected(*_args: Any, **_kwargs: Any) -> None:
+        pytest.fail("invalid limit reached input or settings")
+
+    monkeypatch.setattr(extract_facts, "_load_chunks", unexpected)
+    monkeypatch.setattr(extract_facts, "load_settings", unexpected)
+    code = extract_facts.main(
+        ["--snapshot", "snap-lim", "--input", str(chunks_path), "--limit", limit]
+    )
+    assert code == 2
+    assert "--limit must be a positive integer" in capsys.readouterr().err

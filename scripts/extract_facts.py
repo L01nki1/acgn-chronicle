@@ -2,7 +2,7 @@
 
 Usage:
     python scripts/extract_facts.py --snapshot <id> --input chunks.jsonl --dry-run
-    python scripts/extract_facts.py --snapshot <id> --input chunks.jsonl [--limit 100]
+    python scripts/extract_facts.py --snapshot <id> --input chunks.jsonl --limit 100 --preview --preview-id trial1
 
 Input rows (JSONL): chunk_id / text / url / publisher. Output goes to
 ``data/facts/<snapshot>/facts.jsonl`` (FactUpdate rows, written through a temp file and an
@@ -52,6 +52,11 @@ from acgn_rag.core.facts import (
     make_openai_client,
 )
 from acgn_rag.core.ports import FactUpdate
+from acgn_rag.core.preview import (
+    create_preview_root,
+    validate_preview_options,
+    validate_snapshot_component,
+)
 
 
 def _load_chunks(path: Path, limit: int | None) -> list[AnnouncementChunk]:
@@ -99,14 +104,29 @@ def main(argv: list[str] | None = None, *, client: LLMClient | None = None) -> i
         "--limit",
         type=int,
         default=None,
-        help="process at most N chunks (applied before the IR prefilter)",
+        help="process at most N chunks (N must be positive; applied before the IR prefilter)",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
         help="count batches and IR-skipped items; no LLM call, nothing written",
     )
+    parser.add_argument("--preview", action="store_true", help="write to an isolated preview")
+    parser.add_argument("--preview-id", help="new preview ID under <data-root>/previews")
     args = parser.parse_args(argv)
+    if args.limit is not None and args.limit <= 0:
+        print("--limit must be a positive integer", file=sys.stderr)
+        return 2
+    try:
+        validate_preview_options(
+            preview=args.preview,
+            preview_id=args.preview_id,
+            limited=args.limit is not None and not args.dry_run,
+        )
+        validate_snapshot_component(args.snapshot)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
 
     input_path = (
         Path(args.input) if args.input else Path("data/chunks") / args.snapshot / "chunks.jsonl"
@@ -121,10 +141,6 @@ def main(argv: list[str] | None = None, *, client: LLMClient | None = None) -> i
         return 2
 
     settings = load_settings()
-    out_dir = settings.paths.facts / args.snapshot
-    facts_path = out_dir / "facts.jsonl"
-    ir_path = out_dir / "ir_skipped.jsonl"
-
     if args.dry_run:
         batches = planned_calls = ir_skipped = 0
         for start in range(0, len(chunks), BATCH_SIZE):
@@ -140,6 +156,18 @@ def main(argv: list[str] | None = None, *, client: LLMClient | None = None) -> i
         )
         print("dry-run: no LLM call was made and nothing was written")
         return 0
+
+    if args.preview:
+        try:
+            data_root = create_preview_root(settings.paths.root, args.preview_id)
+        except (OSError, ValueError) as exc:
+            print(f"cannot create preview: {exc}", file=sys.stderr)
+            return 2
+        out_dir = data_root / "facts" / args.snapshot
+    else:
+        out_dir = settings.paths.facts / args.snapshot
+    facts_path = out_dir / "facts.jsonl"
+    ir_path = out_dir / "ir_skipped.jsonl"
 
     if client is None:
         if not settings.llm.extract_model:
