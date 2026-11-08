@@ -29,6 +29,11 @@ def _env_int(key: str, default: int) -> int:
     return int(raw) if raw is not None else default
 
 
+def _env_float(key: str, default: float | None = None) -> float | None:
+    raw = _env(key)
+    return float(raw) if raw is not None else default
+
+
 @dataclass(frozen=True)
 class Paths:
     root: Path = field(default_factory=lambda: Path(_env("ACGN_DATA_DIR", "data") or "data"))
@@ -98,6 +103,12 @@ class LLMConfig:
     # RUNBOOK §3.4: 1024 is a reasoning-token floor, not an answer budget; the default
     # leaves room for reasoning plus the structured claims payload.
     answer_max_tokens: int = field(default_factory=lambda: _env_int("ACGN_ANSWER_MAX_TOKENS", 2048))
+    # EVAL_PROTOCOL §6/§8: the calibration set exists to sweep this threshold, and abstention
+    # decisions must be identical at a fixed threshold. Unset disables the pre-generation
+    # check and keeps the existing behavior (abstention only after claim validation).
+    answer_min_retrieval_score: float | None = field(
+        default_factory=lambda: _env_float("ACGN_ANSWER_MIN_RETRIEVAL_SCORE")
+    )
 
 
 @dataclass(frozen=True)

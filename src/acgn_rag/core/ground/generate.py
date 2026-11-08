@@ -43,11 +43,16 @@ PROMPT_EVIDENCE_MAX_CHARS: Final = 12_000
 ABSTAIN_NO_EVIDENCE: Final = "no_retrieved_evidence"
 ABSTAIN_MODEL_EMPTY: Final = "model_returned_no_claims"
 ABSTAIN_ALL_CLAIMS_REJECTED: Final = "all_claims_rejected"
+ABSTAIN_RETRIEVAL_BELOW_THRESHOLD: Final = "retrieval_below_threshold"
 
 NO_EVIDENCE_REASON: Final = "No retrieved evidence was available for this request."
 UNSUPPORTED_REASON: Final = "No retrieved evidence supports a grounded answer to this question."
 REJECTED_CLAIMS_REASON: Final = (
     "The retrieved evidence could not support a validated answer to this question."
+)
+RETRIEVAL_BELOW_THRESHOLD_REASON: Final = (
+    "The retrieved evidence scored below the configured retrieval threshold, "
+    "so no grounded answer was attempted."
 )
 
 _REFUSALS: Final = {
@@ -55,16 +60,19 @@ _REFUSALS: Final = {
         ABSTAIN_NO_EVIDENCE: NO_EVIDENCE_REASON,
         ABSTAIN_MODEL_EMPTY: UNSUPPORTED_REASON,
         ABSTAIN_ALL_CLAIMS_REJECTED: REJECTED_CLAIMS_REASON,
+        ABSTAIN_RETRIEVAL_BELOW_THRESHOLD: RETRIEVAL_BELOW_THRESHOLD_REASON,
     },
     "zh": {
         ABSTAIN_NO_EVIDENCE: "本次请求没有可用的检索证据。",
         ABSTAIN_MODEL_EMPTY: "检索到的证据不足以支持有依据的回答。",
         ABSTAIN_ALL_CLAIMS_REJECTED: "检索到的证据无法组成通过校验的回答。",
+        ABSTAIN_RETRIEVAL_BELOW_THRESHOLD: "检索到的最佳证据得分低于配置的检索阈值。未尝试作答。",
     },
     "ja": {
         ABSTAIN_NO_EVIDENCE: "このリクエストには検索で得られた根拠がありません。",
         ABSTAIN_MODEL_EMPTY: "取得した根拠は根拠のある回答を支持していません。",
         ABSTAIN_ALL_CLAIMS_REJECTED: "取得した根拠から検証済みの回答を作成できませんでした。",
+        ABSTAIN_RETRIEVAL_BELOW_THRESHOLD: "取得した根拠の最高スコアが設定された検索しきい値を下回ったため、回答は試みていません。",
     },
 }
 
@@ -105,6 +113,10 @@ class AnswerDiagnostics:
     usage: dict[str, int] | None = None
     dropped_claims: int = 0
     abstain_code: str | None = None
+    # Non-wire calibration record: the configured threshold (None disables the check) and the
+    # best retrieved score this request actually had, so a sweep never needs a second run.
+    min_retrieval_score: float | None = None
+    retrieval_top_score: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +148,7 @@ class GroundedAnswerer:
 
     client: AnswerClient
     max_tokens: int = ANSWER_MAX_TOKENS
+    min_retrieval_score: float | None = None
 
     def answer(
         self,
@@ -149,12 +162,22 @@ class GroundedAnswerer:
         query: RetrievalQuery,
         chunks: Sequence[RetrievedChunk],
     ) -> GroundedAnswerRun:
-        return generate_grounded_answer_run(query, chunks, self.client, max_tokens=self.max_tokens)
+        return generate_grounded_answer_run(
+            query,
+            chunks,
+            self.client,
+            max_tokens=self.max_tokens,
+            min_retrieval_score=self.min_retrieval_score,
+        )
 
     @classmethod
     def from_config(cls, config: LLMConfig, client: AnswerClient) -> GroundedAnswerer:
-        """Build an answerer with the configured answer-token budget."""
-        return cls(client=client, max_tokens=config.answer_max_tokens)
+        """Build an answerer with the configured answer-token budget and abstention threshold."""
+        return cls(
+            client=client,
+            max_tokens=config.answer_max_tokens,
+            min_retrieval_score=config.answer_min_retrieval_score,
+        )
 
 
 def build_grounding_prompt(
@@ -185,9 +208,16 @@ def generate_grounded_answer(
     client: AnswerClient,
     *,
     max_tokens: int = ANSWER_MAX_TOKENS,
+    min_retrieval_score: float | None = None,
 ) -> GroundedAnswer:
     """Generate, map and validate one grounded answer without trusting model-authored ids."""
-    return generate_grounded_answer_run(query, chunks, client, max_tokens=max_tokens).answer
+    return generate_grounded_answer_run(
+        query,
+        chunks,
+        client,
+        max_tokens=max_tokens,
+        min_retrieval_score=min_retrieval_score,
+    ).answer
 
 
 def generate_grounded_answer_run(
@@ -196,15 +226,36 @@ def generate_grounded_answer_run(
     client: AnswerClient,
     *,
     max_tokens: int = ANSWER_MAX_TOKENS,
+    min_retrieval_score: float | None = None,
 ) -> GroundedAnswerRun:
     """Generate one answer and keep the diagnostics a calibration run must record."""
     if not chunks:
         return _abstain_run(
             ABSTAIN_NO_EVIDENCE,
             query.text,
-            AnswerDiagnostics(max_tokens=max_tokens, abstain_code=ABSTAIN_NO_EVIDENCE),
+            AnswerDiagnostics(
+                max_tokens=max_tokens,
+                abstain_code=ABSTAIN_NO_EVIDENCE,
+                min_retrieval_score=min_retrieval_score,
+            ),
         )
     validate_retrieved_evidence(query, chunks)
+
+    # EVAL_PROTOCOL §6/§8: the calibration set sweeps this decision, so it must not depend on
+    # the provider. Compare the best request-local score and refuse before building a prompt or
+    # calling the model. The comparison is strict: a score equal to the threshold is answerable.
+    retrieval_top_score = max(chunk.score for chunk in chunks)
+    if min_retrieval_score is not None and retrieval_top_score < min_retrieval_score:
+        return _abstain_run(
+            ABSTAIN_RETRIEVAL_BELOW_THRESHOLD,
+            query.text,
+            AnswerDiagnostics(
+                max_tokens=max_tokens,
+                abstain_code=ABSTAIN_RETRIEVAL_BELOW_THRESHOLD,
+                min_retrieval_score=min_retrieval_score,
+                retrieval_top_score=retrieval_top_score,
+            ),
+        )
 
     system, user = build_grounding_prompt(query, chunks)
     prompt_size = len(system) + len(user)
@@ -278,6 +329,8 @@ def generate_grounded_answer_run(
                 usage=completion.usage,
                 dropped_claims=dropped_claims,
                 abstain_code=code,
+                min_retrieval_score=min_retrieval_score,
+                retrieval_top_score=retrieval_top_score,
             ),
         )
 
@@ -297,6 +350,8 @@ def generate_grounded_answer_run(
             usage=completion.usage,
             dropped_claims=dropped_claims,
             abstain_code=None,
+            min_retrieval_score=min_retrieval_score,
+            retrieval_top_score=retrieval_top_score,
         ),
     )
 
