@@ -7,10 +7,8 @@ closes the other half: the E-produced clause must be accepted by Chroma 1.x and 
 same chunks the translation promises. It deliberately does not re-test F's store-level
 `media_filter` / no-match / under-return cases (`tests/test_store_chroma.py` owns those).
 
-First-run finding: Chroma 1.x rejects an empty metadata list value, so a valid
-`ChunkPayload(media_ids=())` cannot be upserted through the current F store. The corpus
-below uses non-empty media ids; the unresolved-empty payload is reported separately rather
-than encoded as an expected failure here.
+Chroma rejects empty metadata lists. The main corpus uses non-empty media IDs; the
+unresolved-item tests separately cover empty IDs and clearing an earlier link.
 """
 
 from __future__ import annotations
@@ -206,14 +204,6 @@ def test_reversed_dates_raise_before_store_query(store: ChromaStore) -> None:
     assert spy.calls == 0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "F store rejects ChunkPayload(media_ids=()) at payload.py:74 (empty Chroma metadata "
-        "list); INGEST_CONTRACT.md:25 allows [] for unresolved entities. Remove this marker "
-        "when F omits the key for empty ids and keeps $contains from matching it."
-    ),
-)
 def test_empty_media_ids_payload_is_storable_and_not_media_matchable(
     store: ChromaStore,
 ) -> None:
@@ -229,14 +219,6 @@ def test_empty_media_ids_payload_is_storable_and_not_media_matchable(
     assert "c7" not in _ids(_search(store, RetrievalFilters(media_ids=[1])))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "F store cannot clear media_ids when the same chunk_id is re-upserted as unresolved; "
-        "the coordinated fix must use Chroma's removal marker. Remove this marker when the "
-        "store fix lands."
-    ),
-)
 def test_media_ids_can_become_unresolved_on_upsert(store: ChromaStore) -> None:
     """A linked item that later becomes unresolved must not retain its old media link."""
     linked = _payload(

@@ -91,6 +91,18 @@ def test_to_payload_stores_no_body_and_round_trips() -> None:
     assert payload_from_metadata(meta, document=payload.body) == payload
 
 
+def test_empty_and_missing_media_ids_round_trip_without_an_empty_array() -> None:
+    explicit = payload_from_fields(**_fields(media_ids=[]))
+    missing_fields = _fields()
+    del missing_fields["media_ids"]
+    missing = payload_from_fields(**missing_fields)
+    for payload in (explicit, missing):
+        assert payload.media_ids == ()
+        metadata = to_payload(payload)
+        assert "media_ids" not in metadata
+        assert payload_from_metadata(metadata, document=payload.body) == payload
+
+
 def test_to_payload_omits_none_ingest_category() -> None:
     without = to_payload(payload_from_fields(**_fields()))
     assert "ingest_category" not in without

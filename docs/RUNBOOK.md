@@ -81,6 +81,11 @@ pytest -q                                     # 4 tests
    any-of lists `RetrievalFilters.media_ids` implies. Long any-of lists may still justify a
    SQLite reverse table `doc_id ↔ media_id` translated into `{"doc_id": {"$in": [...]}}`;
    that stays a recorded future option, not the current path.
+   An unresolved item has no `media_ids` key in stored metadata, rather than an empty array;
+   reads reconstruct an empty tuple. Chroma upserts merge metadata, so the store sends a
+   `None` removal marker for empty `media_ids` and absent `ingest_category` to clear any old
+   values on that row. The marker is not retained as a stored value. The current build CLI
+   passes an optional input `ingest_category` through to the stored payload.
 2. **Store time as an integer epoch** (`published_ts`), not an ISO string. Range filters then compare
    numbers, which avoids format and time-zone ambiguity.
 3. **Filtering is pre-KNN in 1.x** — the old "the filter trims the top-k after the search"
