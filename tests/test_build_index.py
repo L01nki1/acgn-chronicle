@@ -453,6 +453,39 @@ def test_fresh_rebuild_accepts_an_unresolved_item(
     assert build["collection"] == identity["collection"] == collection_name(SNAP, "A0")
 
 
+@pytest.mark.parametrize("omit_media_ids", [False, True], ids=["empty", "missing"])
+def test_upsert_rebuild_clears_unresolved_media_ids_with_a_warm_cache(
+    data_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str], omit_media_ids: bool
+) -> None:
+    model = FakeModel()
+    original = _write_docs(tmp_path / "original.jsonl", [_doc(1, 3) | {"media_ids": [7]}])
+    args = ["--snapshot", SNAP, "--input", str(original), "--config", "A0"]
+    assert _run(args, model=model) == 0
+    capsys.readouterr()
+
+    store = _store_at(data_root)
+    store.bind(SNAP, "A0")
+    assert len(store.query([1.0] * DIM, top_k=1, where=media_filter([7]))) == 1
+
+    unresolved = _doc(1, 3)
+    if omit_media_ids:
+        del unresolved["media_ids"]
+    else:
+        unresolved["media_ids"] = []
+    replacement = _write_docs(tmp_path / "replacement.jsonl", [unresolved])
+    assert (
+        _run(["--snapshot", SNAP, "--input", str(replacement), "--config", "A0"], model=model) == 0
+    )
+
+    summary = _summary(capsys.readouterr().out, "A0")
+    assert summary.group("mode") == "upsert"
+    assert (int(summary.group(3)), int(summary.group(4)), int(summary.group(5))) == (1, 0, 0)
+    assert len(model.calls) == 1
+    assert store.count() == 1
+    assert store.query([1.0] * DIM, top_k=1)[0].payload.media_ids == ()
+    assert store.query([1.0] * DIM, top_k=1, where=media_filter([7])) == []
+
+
 @pytest.mark.parametrize("omit_category", [False, True], ids=["null", "missing"])
 def test_rebuild_preserves_and_clears_ingest_category(
     data_root: Path, tmp_path: Path, omit_category: bool
