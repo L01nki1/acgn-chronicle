@@ -1,7 +1,58 @@
-"""WP4 grounded generation, citation alignment, abstention, compliance clipping.
+"""WP4 grounded generation, citation alignment, abstention and compliance clipping."""
 
-Owner: B | Spec: 04 §1.3 item 4
-Status: scaffold placeholder, to be implemented.
-"""
+from acgn_rag.core.ground.generate import (
+    ABSTAIN_ALL_CLAIMS_REJECTED,
+    ABSTAIN_MODEL_EMPTY,
+    ABSTAIN_NO_EVIDENCE,
+    ANSWER_MAX_TOKENS,
+    PROMPT_EVIDENCE_MAX_CHARS,
+    REJECTED_CLAIMS_REASON,
+    SYSTEM_PROMPT,
+    AnswerClient,
+    AnswerDiagnostics,
+    Completion,
+    GroundedAnswerer,
+    GroundedAnswerRun,
+    build_grounding_prompt,
+    generate_grounded_answer,
+    generate_grounded_answer_run,
+)
+from acgn_rag.core.ground.provider import make_grounded_answerer, make_openai_answer_client
+from acgn_rag.core.ground.validation import (
+    GroundingComponentError,
+    GroundingValidationError,
+    InvalidModelResponseError,
+    InvalidRetrievedEvidenceError,
+    PromptBudgetError,
+    ProviderResponseError,
+    contains_forbidden_reference,
+    validate_grounded_answer,
+)
 
-__all__: list[str] = []
+__all__ = [
+    "ABSTAIN_ALL_CLAIMS_REJECTED",
+    "ABSTAIN_MODEL_EMPTY",
+    "ABSTAIN_NO_EVIDENCE",
+    "ANSWER_MAX_TOKENS",
+    "PROMPT_EVIDENCE_MAX_CHARS",
+    "REJECTED_CLAIMS_REASON",
+    "SYSTEM_PROMPT",
+    "AnswerClient",
+    "AnswerDiagnostics",
+    "Completion",
+    "GroundedAnswerRun",
+    "GroundedAnswerer",
+    "GroundingComponentError",
+    "GroundingValidationError",
+    "InvalidModelResponseError",
+    "InvalidRetrievedEvidenceError",
+    "PromptBudgetError",
+    "ProviderResponseError",
+    "build_grounding_prompt",
+    "contains_forbidden_reference",
+    "generate_grounded_answer",
+    "generate_grounded_answer_run",
+    "make_grounded_answerer",
+    "make_openai_answer_client",
+    "validate_grounded_answer",
+]
