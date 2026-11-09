@@ -24,6 +24,7 @@ from acgn_rag.core.eval.runner import (
     run,
     verify_build_identity,
 )
+from acgn_rag.core.ports import GroundedAnswer
 from acgn_rag.core.store.chroma_store import ScoredPayload
 from acgn_rag.core.store.payload import ChunkPayload, iso_to_epoch
 
@@ -305,6 +306,66 @@ def test_null_answerer_marks_not_run(tmp_path: Path) -> None:
     assert result.metrics["correctness"]["rates"]["all"] == {"value": None, "n": 0}
     assert result.metrics["abstention"]["false_refusal_rate"] == {"value": None, "n": 0}
     assert result.metrics["provisional"] is True
+
+
+@dataclass(frozen=True)
+class FakeAnswerDiagnostics:
+    max_tokens: int
+    finish_reason: str | None = None
+    usage: dict[str, int] | None = None
+    dropped_claims: int = 0
+    abstain_code: str | None = None
+
+
+@dataclass(frozen=True)
+class FakeAnswerRun:
+    answer: GroundedAnswer
+    diagnostics: FakeAnswerDiagnostics
+
+
+class DiagnosticsAnswerer:
+    def answer(self, query: Any, chunks: Any) -> GroundedAnswer:
+        return self.answer_with_diagnostics(query, chunks).answer
+
+    def answer_with_diagnostics(self, query: Any, chunks: Any) -> FakeAnswerRun:
+        chunk = chunks[0]
+        answer = GroundedAnswer(
+            answer="The answer. [1]",
+            citations=[chunk.citation],
+            cited_chunk_ids=[chunk.chunk_id],
+            abstained=False,
+            abstain_reason=None,
+        )
+        return FakeAnswerRun(
+            answer=answer,
+            diagnostics=FakeAnswerDiagnostics(
+                max_tokens=2048,
+                finish_reason="stop",
+                usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                dropped_claims=2,
+                abstain_code=None,
+            ),
+        )
+
+
+def test_diagnostics_answerer_is_archived(tmp_path: Path) -> None:
+    result = run(
+        _spec(tmp_path),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        answerer=DiagnosticsAnswerer(),
+        qa_items=[_qa_item()],
+    )
+
+    answer = json.loads((result.out_dir / "answers.jsonl").read_text(encoding="utf-8").strip())
+    assert answer["status"] == "answered"
+    assert answer["diagnostics"] == {
+        "max_tokens": 2048,
+        "finish_reason": "stop",
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        "dropped_claims": 2,
+        "abstain_code": None,
+    }
 
 
 def test_run_uses_item_window_as_filters(tmp_path: Path) -> None:

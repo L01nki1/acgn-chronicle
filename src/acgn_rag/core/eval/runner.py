@@ -13,7 +13,7 @@ import hashlib
 import json
 import re
 from collections.abc import Callable, Collection, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol
@@ -42,6 +42,16 @@ class Answerer(Protocol):
         query: RetrievalQuery,
         chunks: Sequence[RetrievedChunk],
     ) -> GroundedAnswer | None: ...
+
+
+class DiagnosticsAnswerer(Protocol):
+    """Optional extension: an answerer that also returns non-wire run diagnostics."""
+
+    def answer_with_diagnostics(
+        self,
+        query: RetrievalQuery,
+        chunks: Sequence[RetrievedChunk],
+    ) -> Any: ...
 
 
 class NullAnswerer:
@@ -514,6 +524,7 @@ def _answer_record(
     item: Mapping[str, Any],
     chunks: Sequence[RetrievedChunk],
     answer: GroundedAnswer | None,
+    diagnostics: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "qa_id": str(item["qa_id"]),
@@ -525,6 +536,7 @@ def _answer_record(
         "cited_chunk_ids": list(answer.cited_chunk_ids) if answer else [],
         "abstained": answer.abstained if answer else None,
         "status": "answered" if answer else "not_run",
+        "diagnostics": diagnostics,
     }
 
 
@@ -599,8 +611,22 @@ def run(
             filters=RetrievalFilters(since=str(window[0]), until=str(window[1])),
         )
         chunks = search(query, store=store, embedder=embedder)
-        answer = answerer.answer(query, chunks) if answerer is not None else None
-        answers.append(_answer_record(item, chunks, answer))
+        answer: GroundedAnswer | None = None
+        diagnostics: dict[str, Any] | None = None
+        if answerer is not None:
+            if hasattr(answerer, "answer_with_diagnostics"):
+                answer_run = answerer.answer_with_diagnostics(query, chunks)
+                answer = answer_run.answer
+                raw_diagnostics = getattr(answer_run, "diagnostics", None)
+                if raw_diagnostics is not None:
+                    diagnostics = (
+                        asdict(raw_diagnostics)
+                        if is_dataclass(raw_diagnostics)
+                        else dict(raw_diagnostics)
+                    )
+            else:
+                answer = answerer.answer(query, chunks)
+        answers.append(_answer_record(item, chunks, answer, diagnostics))
         gold_resolved = any(resolved.get(url) for url in gold_urls)
         gold_member_not_indexed = (
             bool(gold_urls)
@@ -715,6 +741,7 @@ __all__ = [
     "BUILD_IDENTITY_KEYS",
     "CONFIG_TOKENS",
     "Answerer",
+    "DiagnosticsAnswerer",
     "NullAnswerer",
     "RunResult",
     "RunSpec",

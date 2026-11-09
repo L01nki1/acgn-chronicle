@@ -26,6 +26,11 @@
 **Assertion**: no outbound path (`to_dict()` / `model_dump()`) may carry raw-zone text. Clipping happens only in
 `core/ground/serialize.py`; other modules must not build responses on their own.
 
+**LLM generation context:** the answerer sends the retrieved chunk text to the configured answer provider as
+transient generation context — Topic 5 requires an LLM API over the question and retrieved chunks. That is not an
+outbound payload: nothing is persisted beyond the call, and the wire response still carries only citations plus
+≤200-character excerpts. No other third party receives the text.
+
 ## C3 — Four-part outbound payload (<=200 characters)
 
 ```
