@@ -61,9 +61,11 @@ seam, local entity-registry namespace and canonical full-id/manifest design agre
 Publisher remains display text; no `publisher_id` is adopted without a separate real organization/alias
 registry and propagation/default proposal. B reproduced the synthetic **1,348-byte** manifest and id
 `20261028-7576782837e7`, including order independence and an id change after body-hash mutation.
-This is design/format evidence: real corpus counts, source-depth probe and two actual rebuilds remain
-pending. A/D's partial-gate discussion is still a proposal; no gate date, threshold or evidence waiver
-is adopted here. **G1a not passed — contract row only; the seven corpus checks carried to the 2026-11-09 re-checkpoint.**
+This is design/format evidence as recorded on 2026-11-01: real corpus counts, source-depth probe and
+two actual rebuilds were pending at that date. A/D's partial-gate discussion was likewise still a
+proposal then, with no gate date, threshold or evidence waiver adopted there. The authoritative gate
+outcome is the 2026-11-07 record above. **G1a not passed — contract row only; the seven corpus checks
+carried to the 2026-11-09 re-checkpoint.**
 
 The [PM's existing resolution](https://github.com/L01nki1/acgn-chronicle/issues/4#issuecomment-6502751345)
 keeps real curl/filter/refusal/retirement checks with W2's running service. It does not defer the full-id
@@ -71,7 +73,8 @@ write-safety prerequisite: real multi-snapshot writes, `--fresh`, drops and read
 Unsafe replacement transitions remain `503` until completion is proven; old sidecars do not establish
 that proof. Catalog/completion transitions and active pins/leases are still W2 lifecycle work.
 
-F's [PR #32](https://github.com/L01nki1/acgn-chronicle/pull/32) remains unmerged at `c9dc0e9`.
+F's [PR #32](https://github.com/L01nki1/acgn-chronicle/pull/32) remained unmerged at `c9dc0e9` as of
+2026-11-01 (historical: #32 merged 2026-11-04 as `368f7cd`).
 It retains no-create `bind_existing`, bounds the availability probe and rejects empty bound collections
 while allowing a valid restrictive no-match to return empty. E
 [approved this head](https://github.com/L01nki1/acgn-chronicle/pull/32#pullrequestreview-5726871154);
