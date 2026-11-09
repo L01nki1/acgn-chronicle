@@ -201,12 +201,12 @@ line what the threshold optimizes before it freezes.
   config. Config-A-shaped 145/431-token batches (batch 32) measured 1.9–2.0k tokens/s on CPU; the
   ~15 % gap tracks batch size and passage-length mix and is not isolated. Peak CPU RSS ≈ 1.4 GB.
   Per-run provenance: `notebooks/embedding-bakeoff/`.
-- **GPU-first (DECISIONS 2026-11-05):** every index build and every evaluation run uses a GPU lane.
-  The canonical lane is Colab (T4); a local CUDA lane is a cross-check. `ACGN_EMBED_DEVICE` must be
-  set to a GPU lane explicitly for any build or run, and that value is recorded in the identity.
+- **GPU-first (DECISIONS 2026-11-05, scheduled via #49):** G1b index builds run on a GPU lane. The canonical lane is Colab (T4); a local CUDA lane is a cross-check. `ACGN_EMBED_DEVICE` must be set to the GPU lane explicitly for any build or run, and that value is recorded in the identity.
   `.env.example` keeps `cpu` only as an **install-time** default, so a machine with no GPU can still
-  create a working environment — a build or a metric produced on CPU is not reportable, and the CPU
-  figures above exist solely for the case where no GPU lane is reachable.
+  create a working environment. Whether a CPU-produced build or metric is *reportable* is a **proposed
+  boundary still pending agreement (F, #48 review 2026-11-09)** — treat CPU output as fallback evidence
+  and do not file it as a headline number until the boundary is confirmed; the CPU figures above exist
+  solely for the case where no GPU lane is reachable.
 - **Extraction-vendor quirk:** if extraction runs on the CSLab DSV4-flash deployment, set `max_tokens ≥ 1024`
   — it is a reasoning model and returns empty content below that, because reasoning tokens consume the budget.
 
@@ -253,7 +253,13 @@ this section is only the decision.
   reported; a candidate must beat e5-base by ≥10 points hit@5 or ≥0.05 MRR on the zh subset to
   displace it. Since 2026-11-05 that baseline must be a **GPU-lane e5-base measured on the same
   hardware**; the historical CPU e5-base numbers are not an admissible yardstick, because a
-  cross-device gap would then be attributed to the model. Decision and identity recorded in DECISIONS.
+  cross-device gap would then be attributed to the model. **Model vs device are separate things**: the
+  baseline's model is e5-base, its *device* is whatever GPU lane the bake-off ran on, and the baseline
+  stays **reportable as the e5 row of the model comparison regardless of which model wins** (so the
+  report can always show the displacement evidence). Note two distinct e5-base-on-T4 figures must not
+  be conflated: the **done small T4 e5-base pilot** (the preview build cited in #48) and the
+  **formal frozen-corpus baseline**, which is still pending — only the latter is an admissible
+  yardstick for the bake-off. Decision and identity recorded in DECISIONS.
 - Considered and rejected: **Ruri v3** (JP-specialist, tops JMTEB but cannot serve zh/en queries — we
   need one trilingual retriever) · **8B+ embedders** (Qwen3-8B, Octen-8B, harrier-oss-27b: out of our
   compute class for 4×40k chunks) · **`embeddinggemma-2`** (multimodal 740M — 270M text tower + vision/audio
