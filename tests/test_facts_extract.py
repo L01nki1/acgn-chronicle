@@ -98,7 +98,9 @@ def test_extract_facts_happy_path_maps_slots_to_chunks() -> None:
     assert batch.calls == 1
     assert batch.degraded_chunk_ids == []
     assert batch.ir_skipped_chunk_ids == []
-    assert [facts.title for facts in batch.extracted] == [f"Work {i}" for i in range(len(chunks))]
+    assert [facts.title for _, facts in batch.extracted] == [
+        f"Work {i}" for i in range(len(chunks))
+    ]
     assert all(call["max_tokens"] >= MIN_MAX_TOKENS for call in client.calls)
     # slot i maps back to chunk i (mapping lives in code, never in the model's answer)
     rows = expand_to_fact_updates(batch.extracted, chunks)
@@ -134,15 +136,16 @@ def test_extract_facts_tolerates_a_fenced_json_block() -> None:
     fenced = "```json\n" + _payload(1) + "\n```"
     batch = extract_facts([_chunk(1)], FakeLLMClient([fenced]))
     assert batch.calls == 1
-    assert batch.extracted[0].title == "Work 0"
+    assert batch.extracted[0][1].title == "Work 0"
 
 
 def test_extract_facts_degrades_after_retries_and_drops_nothing() -> None:
     chunks = [_chunk(i) for i in range(1, 5)]
     chunks.append(_chunk(99, text="決算短信を発表しました"))
-    client = FakeLLMClient(["nope", "still nope", "[{broken"])
+    client = FakeLLMClient(["nope", "still nope"] + ["[{broken"] * 4)
     batch = extract_facts(chunks, client)
-    assert batch.calls == 3  # 1 attempt + max_retries=2
+    assert batch.calls == 6  # two batch attempts plus four single calls
+    assert batch.retries == 1 and batch.single_calls == 4
     assert batch.extracted == []
     assert set(batch.degraded_chunk_ids) == {chunk.chunk_id for chunk in chunks[:4]}
     assert batch.ir_skipped_chunk_ids == [chunks[4].chunk_id]
@@ -178,7 +181,7 @@ def test_unknown_values_never_reach_fact_rows() -> None:
         ]
     )
     batch = extract_facts([_chunk(1)], FakeLLMClient([raw]))
-    facts = batch.extracted[0]
+    facts = batch.extracted[0][1]
     assert facts.release_date is None
     assert facts.event_type is None
     assert facts.platforms == ["PS5"]
@@ -194,7 +197,8 @@ def test_expand_to_fact_updates_pairs_every_row_with_its_chunk() -> None:
         ),
         AnnouncementFacts(title="Work B", platforms=[], relevance=0.1),  # no known facts
     ]
-    rows = expand_to_fact_updates(items, chunks)
+    pairs = [(chunk.chunk_id, item) for chunk, item in zip(chunks, items, strict=True)]
+    rows = expand_to_fact_updates(pairs, chunks)
     assert len(rows) == 3
     platform_rows = [row for row in rows if row.field == "platform"]
     assert sorted(row.value for row in platform_rows) == ["PS5", "Switch"]
@@ -204,8 +208,8 @@ def test_expand_to_fact_updates_pairs_every_row_with_its_chunk() -> None:
         assert row.publisher == chunks[0].publisher
         assert row.media == "Work A"
     assert rows[0].field == "release_date"
-    with pytest.raises(ValueError, match="cannot be paired"):
-        expand_to_fact_updates(items[:1], chunks)
+    with pytest.raises(ValueError, match="unknown or duplicate"):
+        expand_to_fact_updates([("missing", items[0])], chunks)
 
 
 def test_make_openai_client_sends_extract_model_and_parses_content() -> None:

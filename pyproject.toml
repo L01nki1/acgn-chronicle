@@ -29,9 +29,7 @@ embed = [
   "numpy>=1.26",
 ]
 store = [
-  "chromadb>=1.0,<2",        # pinned band: required by the 3.13 baseline (chromadb <1.x pins
-                             # chroma-hnswlib, which has no cp313 wheels - local build verified
-                             # failing); 1.x = Rust core + configuration= HNSW API + int[] metadata
+  "chromadb>=1.5.0,<2",      # native metadata arrays and $contains require at least 1.5.0
 ]
 llm = [
   "openai>=1.30",            # OpenAI-compatible client only; the vendor comes from .env

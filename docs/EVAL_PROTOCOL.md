@@ -57,7 +57,8 @@ The freeze date exists because a set edited after seeing the results is not a me
 | `qa_id` | `<type>-<nnn>`, unique, never reused |
 | `type` | `A` time-sensitive · `B` detail · `C` cross-source synthesis · `D` out-of-scope / unanswerable |
 | `lang` | `en` or `zh` — the language the **question** is asked in, not the source's. Per-language metrics key on it; ≥8 of 30 must be `zh` (§3) |
-| `answerable` | `false` for items the corpus cannot answer. **Explicit, never inferred from `type`** |
+| `answerable` | `false` for items the corpus cannot answer. **Explicit, never inferred from `type`**: type D is "out-of-scope", which is not the same as unanswerable — a type-D item may be answerable, and `abstention_accuracy` counts only the `answerable: false` ones |
+| `answerable: false` | unanswerable items carry `gold_answer` `""` and `key_entities` `[]` |
 | `gold_answer` | the shortest string that is either right or wrong; no hedging |
 | `gold_evidence.urls` | **the authoritative field.** 1–3 canonical source urls |
 | `gold_evidence.spans` | optional quotes that let a human grader find the sentence quickly. Never used by the automatic hit rule |
@@ -83,7 +84,17 @@ a new snapshot, a new chunking config and a rebuild. Per-run chunk ids are resol
 | Evidence | every answerable item has ≥1 `urls` entry |
 | Independent labels | exactly the 10 `overlap: true` items, labelled twice |
 
-`python scripts/check_qa.py` enforces these rules; a set that fails it is not frozen.
+`python scripts/check_qa.py` enforces these rules. **"Frozen" means three things, and the checker proves
+only the first:**
+
+| Condition | Proved by | Available from |
+|---|---|---|
+| quota shape (counts, quotas, `lang`, calibration disjointness) | `check_qa.py` exit 0 | now |
+| every gold url still resolves to a 200 page | `check_qa.py --check-urls` (local only, `network` marker) | 11/05 |
+| every gold url is present in the frozen snapshot | `run_eval.py` resolving `gold_evidence` | 11/09, after A's snapshot |
+
+Until the third condition runs, a set that passes the checker is **quota-shaped, not verified**. Say so
+when quoting it; the report counts `gold_unavailable` items rather than assuming there are none.
 
 ### 3.1 Cross-lingual queries (pre-registered, issue #14 P1)
 
@@ -101,6 +112,26 @@ rendered as "chess" instead of "Go"). Two consequences, registered before the fr
   On the GPU-candidate lanes it may prove unnecessary: in the pilot bake-off both candidates answered
   every zh query on JP sources directly (zh hit@5 = 1.00, `notebooks/embedding-bakeoff/`); n=16 is too
   small to retire a pre-registered lane, so the G1a bake-off reports it per lane instead.
+
+### 3.2 Source scope — a gold url the corpus cannot hold is not evidence
+
+`check_qa.py` also checks, offline, that every `gold_evidence.urls` host is one the frozen corpus is
+built from (`docs/SOURCES.md` §3). An out-of-scope url never fails loudly later: it resolves as
+`gold_unavailable`, leaves both denominators (§4), and the base the reported number was computed on
+shrinks without anything looking wrong. Six such items in the v1 draft would have cost ~19 % of the
+set at resolution time, on 11/09, when nothing could be fixed any more.
+
+- The allowlist is `acgn_rag.core.eval.qa.W1_HOSTS`, one base domain per source family; a subdomain
+  counts, because the corpus takes `corp.toei-anim.co.jp` press releases while §3 lists the `www.`
+  endpoint.
+- **Promoting a source means editing §3 and `W1_HOSTS` in the same PR.** A test fails if §3 lists a
+  url whose host the allowlist lacks, so the document cannot run ahead of the checker.
+- `--check-urls` (network, local only) additionally requires each url to answer 200 and to state a
+  publication time inside the item's recorded `window`, compared as a UTC instant when the page
+  gives an offset; a naive stamp must sit inside under both a UTC and a JST reading. Pages that
+  state no readable time, or whose readings straddle a boundary, are listed for manual verification
+  instead of failing the run. Run it before the freeze, not on every commit: a page dated outside
+  the window is not evidence for that snapshot, however plausible the claim.
 
 ## 4. Retrieval quality — `retrieval_hit_rate`
 
@@ -161,7 +192,7 @@ number alone invites the obvious objection. The calibration set's own rates may 
 
 | File | Content |
 |---|---|
-| `meta.json` | snapshot, window, config, retrieval settings, **embed identity (model / backend / device / precision / library versions / batch)**, llm provider/model/version/temperature/seed, git sha, metrics |
+| `meta.json` | snapshot, window, config, retrieval settings, **embed identity (model / backend / device / precision / library versions / batch)**, **chunker identity (`max_tokens` / `overlap` / `budget` / `max_seq_length` / `header_version`)**, llm provider/model/version/temperature/seed, git sha, metrics |
 | `answers.jsonl` | the exact generated outputs that were graded — frozen, so grading can be replayed without the model |
 | `labels.jsonl` | the human labels, per item, with annotator |
 | `metrics.json` | the numbers the report quotes — retrieval totals carry **per-language blocks (`all` / `en` / `zh`) beside them** (§3.1) |
@@ -175,6 +206,7 @@ number alone invites the obvious objection. The calibration set's own rates may 
   "window_start": "2023-10-28",
   "window_end": "2026-10-28",
   "chunk_config": "A",
+  "chunker": {"max_tokens": 512, "overlap": 64, "budget": 508, "max_seq_length": 512, "header_version": "h1"},
   "retrieval": {"mode": "vector", "top_k": 5, "over_fetch": 5},
   "embed": {"model": "intfloat/multilingual-e5-base", "backend": "torch", "device": "cpu", "precision": "fp32", "library_versions": {"torch": "2.15.0", "sentence_transformers": "6.1.0"}, "batch": 32},
   "llm": {"provider": "...", "model": "...", "version": "...", "temperature": 0.0, "seed": 0},

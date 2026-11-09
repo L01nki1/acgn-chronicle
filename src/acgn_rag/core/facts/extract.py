@@ -7,8 +7,8 @@ Design constraints (RUNBOOK §3.6, measured on the pilot corpus):
   - Batches of <= 10 numbered announcements per LLM call; the number <-> chunk mapping lives in
     this code, never in the model's answer (a model asked to echo ids invents them, RUNBOOK §3).
   - One flat Pydantic model - no nesting, no unions - because deeply structured output is a known
-    vendor failure mode. Strict parse plus 2 retries; after that the whole batch degrades to
-    plain-text chunks: a document is never dropped because the LLM returned bad JSON.
+    vendor failure mode. One whole-batch retry is followed by one call per candidate; only
+    a still-invalid item degrades to plain text. A document is never dropped for bad JSON.
   - Corporate/IR releases are filtered out BEFORE extraction (they cost calls and carry no ACGN
     facts). The category tag is ingest-side metadata only and never a FactUpdate field
     (interface issue #17, option 1).
@@ -100,26 +100,25 @@ class AnnouncementFacts(BaseModel):
 class FactBatch:
     """Outcome of one extraction batch; nothing is ever silently dropped.
 
-    ``extracted[i]`` describes the i-th CANDIDATE chunk of the batch (the chunks that survived
-    the IR prefilter), in their original order - pair them with their chunks via
-    ``expand_to_fact_updates``.
+    ``extracted`` contains producer-assigned (chunk_id, facts) pairs. Partial recovery never
+    shifts the provenance of later items. The model returns numbered slots, never ids.
 
-    ``calls`` counts every LLM attempt this batch made, initial attempt included: 1 call =
-    one attempt, 3 calls = the initial attempt plus 2 retries. Retries are WHOLE-batch (the
-    numbered prompt is resent unchanged, RUNBOOK §3.6), so the re-attempt count is
-    batch-level, not per chunk; ``retries`` exposes exactly that (0 when the prefilter left
-    no candidates and the client was never reached).
+    ``batch_calls`` counts whole-batch attempts, ``single_calls`` counts fallback attempts,
+    and ``calls`` is their sum. ``retries`` excludes fallback calls. Defaults permit two
+    batch attempts plus at most ten single calls; SDK transport retries are separate.
     """
 
-    extracted: list[AnnouncementFacts]
+    extracted: list[tuple[str, AnnouncementFacts]]
     degraded_chunk_ids: list[str]
     ir_skipped_chunk_ids: list[str]
     calls: int
+    batch_calls: int = 0
+    single_calls: int = 0
 
     @property
     def retries(self) -> int:
         """Re-attempts beyond the first for this batch (whole-batch retries)."""
-        return max(0, self.calls - 1)
+        return max(0, self.batch_calls - 1)
 
 
 class LLMClient(Protocol):
@@ -211,16 +210,18 @@ def extract_facts(
     chunks: Sequence[AnnouncementChunk],
     client: LLMClient,
     *,
-    max_retries: int = 2,
+    max_retries: int = 1,
     max_tokens: int = MIN_MAX_TOKENS,
 ) -> FactBatch:
-    """Extract facts for one batch (<= BATCH_SIZE chunks) following the RUNBOOK §3.6 SOP.
+    """Extract a batch, retry once by default, then recover candidates individually.
 
-    IR-prefiltered chunks never reach the client. On a parse or validation failure the WHOLE
-    batch is retried ``max_retries`` times with the same prompt; after that every candidate
-    chunk in the batch degrades to a plain-text chunk (listed in ``degraded_chunk_ids``) - a
-    document is never dropped because the LLM returned bad JSON.
+    A malformed single response degrades only its own chunk. Client/transport exceptions
+    propagate instead of being misreported as bad facts. IR items never reach the client.
     """
+    if max_retries < 0:
+        raise ValueError("max_retries must be nonnegative")
+    if len({chunk.chunk_id for chunk in chunks}) != len(chunks):
+        raise ValueError("duplicate chunk ids in extraction input")
     ir_skipped = [chunk.chunk_id for chunk in chunks if is_ir_release(chunk.text)]
     candidates = [chunk for chunk in chunks if not is_ir_release(chunk.text)]
     if not candidates:
@@ -230,7 +231,7 @@ def extract_facts(
 
     system, user = build_batch_prompt(candidates)
     calls = 0
-    extracted: list[AnnouncementFacts] = []
+    extracted: list[tuple[str, AnnouncementFacts]] = []
     degraded: list[str] = []
     for _attempt in range(1 + max_retries):
         raw = client.complete(system, user, max_tokens=max_tokens)
@@ -238,37 +239,58 @@ def extract_facts(
         try:
             # json.JSONDecodeError and pydantic.ValidationError both subclass ValueError, so a
             # bad payload and a schema violation take the same path: retry the whole batch.
-            extracted = _parse_batch(raw, len(candidates))
+            facts = _parse_batch(raw, len(candidates))
+            extracted = [
+                (chunk.chunk_id, fact) for chunk, fact in zip(candidates, facts, strict=True)
+            ]
             break
         except ValueError:
             extracted = []
-    else:
-        extracted = []
-        degraded = [chunk.chunk_id for chunk in candidates]
+    batch_calls = calls
+    single_calls = 0
+    if not extracted:
+        if len(candidates) == 1:
+            degraded = [candidates[0].chunk_id]
+        else:
+            for chunk in candidates:
+                system, user = build_batch_prompt([chunk])
+                raw = client.complete(system, user, max_tokens=max_tokens)
+                calls += 1
+                single_calls += 1
+                try:
+                    fact = _parse_batch(raw, 1)[0]
+                except ValueError:
+                    degraded.append(chunk.chunk_id)
+                else:
+                    extracted.append((chunk.chunk_id, fact))
     return FactBatch(
         extracted=extracted,
         degraded_chunk_ids=degraded,
         ir_skipped_chunk_ids=ir_skipped,
         calls=calls,
+        batch_calls=batch_calls,
+        single_calls=single_calls,
     )
 
 
 def expand_to_fact_updates(
-    batch_items: Sequence[AnnouncementFacts], chunks: Sequence[AnnouncementChunk]
+    batch_items: Sequence[tuple[str, AnnouncementFacts]], chunks: Sequence[AnnouncementChunk]
 ) -> list[FactUpdate]:
-    """Expand extracted facts into wire FactUpdate rows, pairing slot i with chunks[i].
+    """Expand id-keyed facts using source provenance, allowing partial recovery.
 
-    Only known values produce rows (``unknown`` became None at parse time); a platform list
-    yields one row per platform. Every row carries chunk_id, url and publisher from its source
-    chunk - attribution is structural, not a convention (G1b requirement).
+    Duplicate/unknown ids fail explicitly; list position never determines attribution.
+    Only known values become rows, and each platform produces one row.
     """
-    if len(batch_items) != len(chunks):
-        raise ValueError(
-            f"{len(batch_items)} fact object(s) cannot be paired with {len(chunks)} chunk(s); "
-            "facts align positionally with the candidate chunks of their batch"
-        )
+    by_id = {chunk.chunk_id: chunk for chunk in chunks}
+    if len(by_id) != len(chunks):
+        raise ValueError("duplicate source chunk ids")
+    seen: set[str] = set()
     rows: list[FactUpdate] = []
-    for facts, chunk in zip(batch_items, chunks, strict=True):
+    for chunk_id, facts in batch_items:
+        if chunk_id not in by_id or chunk_id in seen:
+            raise ValueError(f"unknown or duplicate extracted chunk id: {chunk_id!r}")
+        seen.add(chunk_id)
+        chunk = by_id[chunk_id]
         provenance = {
             "media": facts.title,
             "chunk_id": chunk.chunk_id,

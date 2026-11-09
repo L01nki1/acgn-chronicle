@@ -34,9 +34,10 @@ import build_index  # noqa: E402
 
 from acgn_rag.config import StoreConfig  # noqa: E402
 from acgn_rag.core.chunk import chunk_text  # noqa: E402
-from acgn_rag.core.store.chroma_store import ChromaStore, collection_name  # noqa: E402
+from acgn_rag.core.embed import build_header  # noqa: E402
+from acgn_rag.core.store.chroma_store import ChromaStore, collection_name, media_filter  # noqa: E402
 
-SNAP = "20261028abcdef1234"  # longer than 12 chars, so collection-name truncation is observable
+SNAP = "20261028abcdef1234"
 LABELS = {"A": "A", "A'": "A-prime", "A0": "A0"}
 DIM = 32
 MODEL_E5 = "intfloat/multilingual-e5-base"
@@ -154,7 +155,18 @@ def _rows() -> list[dict[str, Any]]:
 def _expected_chunks(config: str, rows: list[dict[str, Any]] | None = None) -> int:
     """Independent chunk count: run the chunker directly, never through the CLI."""
     rows = _rows() if rows is None else rows
-    return sum(len(chunk_text(row["doc_id"], row["body"], config, FakeTokenizer())) for row in rows)
+    return sum(
+        len(
+            chunk_text(
+                row["doc_id"],
+                row["body"],
+                config,
+                FakeTokenizer(),
+                header=build_header(row["title"], row["publisher"], row["published_at"]),
+            )
+        )
+        for row in rows
+    )
 
 
 def _write_docs(path: Path, rows: list[dict[str, Any]]) -> Path:
@@ -244,10 +256,11 @@ def test_end_to_end_builds_all_three_configs(
         )
         assert identity["snapshot_id"] == SNAP and identity["config"] == config
         assert identity["identity"] == build["identity"]
-    # the corpus separates all three configs: more chunks under the smaller budget, and the
-    # overlap variant needs one more than plain A0 on doc 1 (25+25 fits 508 twice, but A's
-    # 64-token heads consume capacity)
-    assert counts["A'"] > counts["A"] > counts["A0"]
+        assert identity["chunker"] == build["chunker"]
+        assert build["chunker"]["version"] == "composed-input-v2"
+    # The smaller budget produces more chunks. Header-dependent packing can leave the
+    # overlap and no-overlap variants with equal counts but different boundaries.
+    assert counts["A'"] > counts["A"] >= counts["A0"]
     # the first config on a cold cache encodes every chunk
     first = _summary(out, "A")
     assert first.group(3) == "0" and first.group(4) == first.group(2)
@@ -260,7 +273,17 @@ def test_encoded_texts_carry_prefix_and_context_header(data_root: Path, docs_pat
         model=model,
     )
     assert code == 0
-    first_body = chunk_text("doc01", _rows()[0]["body"], "A0", FakeTokenizer())[0].text
+    row = _rows()[0]
+    first_body = chunk_text(
+        "doc01",
+        row["body"],
+        "A0",
+        FakeTokenizer(),
+        header=build_header(row["title"], row["publisher"], row["published_at"]),
+    )[0].text
+    assert all(
+        len(FakeTokenizer().ids(text)) <= 512 for call in model.calls for text in call["texts"]
+    )
     # RUNBOOK §3.5: what is encoded is prefix + "title | publisher | date" + newline + body
     assert model.calls[0]["texts"][0] == (
         "passage: Title 1 | Example Publisher | 2026-10-28T00:00:00+00:00\n" + first_body
@@ -371,7 +394,13 @@ def test_fresh_rebuild_replaces_stale_rows_only_in_the_target_collection(
     expected_ids = [
         chunk.chunk_id
         for row in subset_rows
-        for chunk in chunk_text(row["doc_id"], row["body"], "A0", FakeTokenizer())
+        for chunk in chunk_text(
+            row["doc_id"],
+            row["body"],
+            "A0",
+            FakeTokenizer(),
+            header=build_header(row["title"], row["publisher"], row["published_at"]),
+        )
     ]
     assert _collection_ids(store, SNAP, "A0") == expected_ids
     assert _collection_ids(store, SNAP, "A") == sibling_a  # the sibling is untouched
@@ -380,6 +409,61 @@ def test_fresh_rebuild_replaces_stale_rows_only_in_the_target_collection(
     )
     assert build["mode"] == "replace"
     assert build["chunks"] == build["stored"] == expected_subset
+
+
+@pytest.mark.parametrize("omit_media_ids", [False, True], ids=["empty", "missing"])
+def test_fresh_rebuild_accepts_an_unresolved_item(
+    data_root: Path, tmp_path: Path, omit_media_ids: bool
+) -> None:
+    original = _write_docs(tmp_path / "original.jsonl", [_doc(1, 3) | {"media_ids": [7]}])
+    assert _run(["--snapshot", SNAP, "--input", str(original), "--config", "A0"]) == 0
+
+    unresolved = _doc(1, 3)
+    if omit_media_ids:
+        del unresolved["media_ids"]
+    else:
+        unresolved["media_ids"] = []
+    replacement = _write_docs(tmp_path / "replacement.jsonl", [unresolved])
+    assert _run(["--snapshot", SNAP, "--input", str(replacement), "--config", "A0", "--fresh"]) == 0
+
+    store = _store_at(data_root)
+    store.bind(SNAP, "A0")
+    assert store.count() == 1
+    assert store.query([1.0] * DIM, top_k=1)[0].payload.media_ids == ()
+    assert store.query([1.0] * DIM, top_k=1, where=media_filter([7])) == []
+    sidecars = data_root / "index" / SNAP / "A0"
+    build = json.loads((sidecars / "build.json").read_text(encoding="utf-8"))
+    identity = json.loads((sidecars / "identity.json").read_text(encoding="utf-8"))
+    assert build["mode"] == "replace"
+    assert build["chunks"] == build["stored"] == 1
+    assert build["snapshot_id"] == identity["snapshot_id"] == SNAP
+    assert build["config"] == identity["config"] == "A0"
+    assert build["collection"] == identity["collection"] == collection_name(SNAP, "A0")
+
+
+@pytest.mark.parametrize("omit_category", [False, True], ids=["null", "missing"])
+def test_rebuild_preserves_and_clears_ingest_category(
+    data_root: Path, tmp_path: Path, omit_category: bool
+) -> None:
+    original = _doc(1, 3) | {"media_ids": [7], "ingest_category": "corporate"}
+    original_path = _write_docs(tmp_path / "tagged.jsonl", [original])
+    assert _run(["--snapshot", SNAP, "--input", str(original_path), "--config", "A0"]) == 0
+
+    store = _store_at(data_root)
+    store.bind(SNAP, "A0")
+    assert store.query([1.0] * DIM, top_k=1)[0].payload.ingest_category == "corporate"
+
+    updated = _doc(1, 3) | {"media_ids": [7]}
+    if not omit_category:
+        updated["ingest_category"] = None
+    updated_path = _write_docs(tmp_path / "untagged.jsonl", [updated])
+    assert _run(["--snapshot", SNAP, "--input", str(updated_path), "--config", "A0"]) == 0
+
+    stored = store.query([1.0] * DIM, top_k=1)[0].payload
+    assert stored.ingest_category is None
+    assert stored.media_ids == (7,)
+    assert store.query([1.0] * DIM, top_k=1, where={"ingest_category": {"$eq": "corporate"}}) == []
+    assert store.query([1.0] * DIM, top_k=1, where=media_filter([7]))[0].payload == stored
 
 
 def test_fresh_rejects_invalid_input_without_deleting_the_collection(
@@ -403,6 +487,90 @@ def test_fresh_rejects_invalid_input_without_deleting_the_collection(
     code = _run(["--snapshot", SNAP, "--input", str(path), "--config", "A0", "--fresh"])
     assert code == 2
     assert _collection_ids(_store_at(data_root), SNAP, "A0") == ids_before
+
+
+def test_fresh_keeps_a_different_snapshot_with_the_same_legacy_prefix(
+    data_root: Path, docs_path: Path, tmp_path: Path
+) -> None:
+    snapshot_a = "20261028-abc000000000"
+    snapshot_b = "20261028-abc111111111"
+    docs_b = _write_docs(tmp_path / "snapshot-b.jsonl", [_doc(7, 3)])
+    assert _run(["--snapshot", snapshot_a, "--input", str(docs_path), "--config", "A0"]) == 0
+    assert _run(["--snapshot", snapshot_b, "--input", str(docs_b), "--config", "A0"]) == 0
+
+    store = _store_at(data_root)
+    store.bind(snapshot_b, "A0")
+    before_ids = _collection_ids(store, snapshot_b, "A0")
+    before_build = (data_root / "index" / snapshot_b / "A0" / "build.json").read_bytes()
+    before_identity = (data_root / "index" / snapshot_b / "A0" / "identity.json").read_bytes()
+    subset_a = _write_docs(tmp_path / "snapshot-a-subset.jsonl", _rows()[:1])
+    assert (
+        _run(["--snapshot", snapshot_a, "--input", str(subset_a), "--config", "A0", "--fresh"]) == 0
+    )
+
+    assert store.count() == len(before_ids)
+    assert _collection_ids(store, snapshot_b, "A0") == before_ids
+    assert store.query([1.0] * DIM, top_k=1)[0].payload.snapshot_id == snapshot_b
+    assert (data_root / "index" / snapshot_b / "A0" / "build.json").read_bytes() == before_build
+    assert (data_root / "index" / snapshot_b / "A0" / "identity.json").read_bytes() == (
+        before_identity
+    )
+
+
+def test_ambiguous_legacy_is_rejected_before_encoding_or_cache_writes(
+    data_root: Path, docs_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    snapshot = "20261028-abc000000000"
+    store = _store_at(data_root)
+    legacy_name = "snap_20261028-abc_A0"
+    legacy = store.client.create_collection(
+        name=legacy_name,
+        configuration={"hnsw": {"space": "cosine"}},
+        metadata={"created_ts": 1},
+    )
+    model = FakeModel()
+    assert (
+        _run(
+            ["--snapshot", snapshot, "--input", str(docs_path), "--config", "A0", "--fresh"],
+            model=model,
+        )
+        == 2
+    )
+    assert "snapshot ownership check failed" in capsys.readouterr().err
+    assert model.calls == []
+    assert not (data_root / "cache" / "embed").exists()
+    assert legacy.count() == 0
+    assert {collection.name for collection in store.client.list_collections()} == {legacy_name}
+    assert not (data_root / "index" / snapshot).exists()
+
+
+def test_legacy_build_records_its_actual_collection_and_fresh_uses_full_name(
+    data_root: Path, docs_path: Path
+) -> None:
+    snapshot = "20261028-abc000000000"
+    store = _store_at(data_root)
+    legacy_name = "snap_20261028-abc_A0"
+    store.client.create_collection(
+        name=legacy_name,
+        configuration={"hnsw": {"space": "cosine"}},
+        metadata={"snapshot_id": snapshot},
+    )
+    argv = ["--snapshot", snapshot, "--input", str(docs_path), "--config", "A0"]
+    assert _run(argv) == 0
+    sidecar = data_root / "index" / snapshot / "A0"
+    assert json.loads((sidecar / "identity.json").read_text(encoding="utf-8"))["collection"] == (
+        legacy_name
+    )
+    assert json.loads((sidecar / "build.json").read_text(encoding="utf-8"))["collection"] == (
+        legacy_name
+    )
+    assert store.bind(snapshot, "A0").name == legacy_name
+
+    assert _run([*argv, "--fresh"]) == 0
+    assert store.bind(snapshot, "A0").name == collection_name(snapshot, "A0")
+    assert json.loads((sidecar / "build.json").read_text(encoding="utf-8"))["collection"] == (
+        collection_name(snapshot, "A0")
+    )
 
 
 def test_limit_caps_documents(

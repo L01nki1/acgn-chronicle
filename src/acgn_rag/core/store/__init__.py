@@ -1,7 +1,7 @@
 """Two-zone storage: fact zone (publishable) / raw zone (internal retrieval only, never serialized).
 
 Owner: F | Spec: 06 §3 C2, 04 §7 D4
-Backend: chromadb >=1.0,<2, embedded PersistentClient, cosine HNSW (docs/RUNBOOK.md §3.1).
+Backend: chromadb >=1.5.0,<2, embedded PersistentClient, cosine HNSW (docs/RUNBOOK.md §3.1).
 The adapter seam for A's NormalizedItem schema is `store.payload.payload_from_fields`.
 """
 

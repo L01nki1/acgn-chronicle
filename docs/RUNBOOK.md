@@ -72,15 +72,20 @@ pytest -q                                     # 4 tests
 | Committing shows no `[pre-commit]` line at all | `core.hooksPath` is not set in this clone (it is a local setting) | `python scripts/install_hooks.py` |
 | `hooks/pre-commit: bad interpreter` | The hook file picked up CRLF | `.gitattributes` forces LF for `.githooks/*`; re-checkout the file (`git checkout -- .githooks`) |
 
-### 3.1 Chroma specifics — three pitfalls to verify before building the index (chromadb >=1.0,<2)
+### 3.1 Chroma specifics — three pitfalls to verify before building the index (chromadb >=1.5.0,<2)
 
-1. **Metadata holds scalars or flat typed arrays.** Since 1.0 Chroma accepts `str / int /
-   float / bool` and one-type, one-dimensional arrays (`int[]` works, nesting is still
+1. **Metadata holds scalars or flat typed arrays.** The minimum supported Chroma 1.5.0 accepts
+   `str / int / float / bool` and one-type, one-dimensional arrays (`int[]` works, nesting is still
    forbidden). `media_ids` is stored natively as `int[]` and filtered with
    `{"$or": [{"media_ids": {"$contains": id}}, ...]}` — measured adequate for the small
    any-of lists `RetrievalFilters.media_ids` implies. Long any-of lists may still justify a
    SQLite reverse table `doc_id ↔ media_id` translated into `{"doc_id": {"$in": [...]}}`;
    that stays a recorded future option, not the current path.
+   An unresolved item has no `media_ids` key in stored metadata, rather than an empty array;
+   reads reconstruct an empty tuple. Chroma upserts merge metadata, so the store sends a
+   `None` removal marker for empty `media_ids` and absent `ingest_category` to clear any old
+   values on that row. The marker is not retained as a stored value. The current build CLI
+   passes an optional input `ingest_category` through to the stored payload.
 2. **Store time as an integer epoch** (`published_ts`), not an ISO string. Range filters then compare
    numbers, which avoids format and time-zone ambiguity.
 3. **Filtering is pre-KNN in 1.x** — the old "the filter trims the top-k after the search"
@@ -96,6 +101,36 @@ pytest -q                                     # 4 tests
 distance, so the score is `1 - distance`.
 
 ### 3.2 Snapshot pointer and retention
+
+- Filtered queries probe at most `top_k * over_fetch_factor + 1` matching ids to check
+  HNSW under-return, rather than returning every matching id to Python. This bounds the
+  probe result size; it does not establish an engine latency target.
+- Querying an empty bound collection raises an explicit rebuild/failed-build error.
+  A nonempty collection with zero matches for a valid restrictive filter still returns `[]`.
+  Positive `top_k` is required. W2 still supplies completion/catalog/lease coordination.
+
+- New collections are named `snap_full_<full_snapshot_id>_<config_label>`. The store records the full
+  snapshot id, configuration label and naming version in collection metadata; `A'` uses label
+  `A-prime`. `identity.json` and `build.json` record the actual collection name.
+- Build-side `bind` may create a collection. A reader uses `bind_existing`, which does not initialize a
+  missing Chroma database or create a collection and raises `LookupError` when none is present. A read
+  host still validates both sidecars, requires the returned collection name to match them, and consults
+  the catalog to distinguish a never-known snapshot from a retired one. Sidecars alone cannot prove that
+  a fresh rebuild finished. This binding does not enforce read-only access or protect against concurrent
+  deletion.
+- Existing `snap_<snapshot_id[:12]>_<config_label>` collections are opened or deleted only when all
+  available owner metadata, row metadata and completed sidecars identify one full snapshot. Unknown,
+  mixed, incomplete or contradictory ownership aborts before that configuration's encoding, cache
+  writes or collection mutation. There is no automatic migration; an explicitly requested `--fresh` replaces only the
+  verified target and creates its new full-id collection. Serialize writers: the current store does
+  not coordinate concurrent old-version writers or pin/lease operations.
+- `ChromaStore.prune` requires timezone-aware, distinct publication times for every present snapshot
+  from a validated catalog. Missing or tied times abort before deletion; creation timestamps and hash
+  order are not publication order. The caller must also protect active requests and runs from deletion.
+  Catalog integration and pin/lease coordination remain W2 work.
+
+The following describes the W2 target. The pointer, read host and run leases are not implemented by
+the current store.
 
 - A build writes to a directory that is **not** served, and renames it only on success. The pointer
   `data/snapshots/CURRENT` is replaced with `os.replace`, which is atomic, so a reader either sees the old
@@ -133,7 +168,8 @@ line what the threshold optimizes before it freezes.
 ### 3.4 Encoding lanes and encoder identity
 
 - **Encoder identity** = model + backend (`torch` / `openvino` / `onnx`) + device + precision + library
-  versions + batch size. Every index build records it in its metadata, every eval run record copies it
+  versions. Batch size is recorded separately as an execution setting and does not change the vector
+  identity/cache slug. Every build and evaluation run records both
   (`EVAL_PROTOCOL` §7) — a build whose metadata lacks the full identity is invalid. Vectors built under
   different identities are never mixed in one index and never compared as if they were the same.
 - **Cache key** = `hash(header_version + header + body) + model + prefix + encoder identity`. The
@@ -141,17 +177,19 @@ line what the threshold optimizes before it freezes.
   *together with* the body: bump `header_version` when the template changes or stale vectors are
   silently reused, and hash both because two syndicated copies with identical bodies must not serve
   each other's header.
-- **Content budget (truncation trap).** e5 models have `max_seq_length = 512`, and the chunker's
-  content budget must be
-  `min(config_tokens, max_seq_length − len(tokenizer(prefix).input_ids))`. The tokenizer call includes
-  the model's special tokens, so they are counted exactly once; the declared config binds and the model
-  only caps — an 8k-context lane must not turn config A into an 8k chunker, or the A/A′ comparison's
-  independent variable becomes encoder-dependent. Measured for e5-base + `passage: `:
-  `len(tokenizer("passage: ").input_ids) == 4` (2 prefix tokens + `<s>`/`</s>`), so the budget is
-  **508** content tokens — 508 encodes to exactly 512 ids on jp/zh/en text, while 512 content tokens
-  encode to 516 and silently lose their tail (nothing crashes; the A/A′ comparison quietly measures
-  truncated text). Chunk-PR acceptance asserts it: encode `prefix + one budget-sized chunk` per lane
-  and require `len(input_ids) == max_seq_length` with no truncation warning.
+- **Content budget (no silent truncation).** The starting budget is
+  `min(config_tokens, effective_max_seq_length - len(ids(prefix + header + "\n")))`, omitting
+  the header/newline when the header is empty. Special tokens count once. Named passage prompts
+  are resolved from the model's actual prompt text, and the effective context never exceeds its
+  `max_seq_length`. The chunker also checks every complete composed input and repacks if tokenizer
+  boundary effects exceed the estimate. The build rejects overflow before encoding/cache writes,
+  and the encoder rejects oversized final inputs before the model can truncate them.
+  The earlier 508-token e5 figure applies only to an empty header; production budgets vary with
+  each document's title/publisher/date. A/A'/A0 remain parameter variants of the same algorithm.
+  Both sidecars now record `chunker.version=composed-input-v2`, config, overlap, context and
+  `header_version`. Existing indexes require `--fresh` after this change; do not compare old and
+  new chunk counts. The vector-identity slug change invalidates old caches once. Subsequent
+  changes of batch size reuse cache entries while preserving the actual batch size in metadata.
 - **Throughput is reported in tokens/s, never bare items/s** — items/s varies ~3× with chunk length
   and reads as noise. Measured CPU baseline (i5-13400TEF, 16 threads, torch 2.15 CPU): e5-base ≈
   **1,661 tokens/s** on the pilot corpus (re-measured 1,644 inside the A380 run) ⇒ a 40k-chunk ×
@@ -223,13 +261,24 @@ this section is only the decision.
 
 ### 3.6 L0 facts-extraction SOP
 
+`python scripts/export_fact_chunks.py --snapshot <id> --config A --data-root <root> --output <relative-path>.jsonl`
+exports every indexed chunk of the explicitly selected configuration under `<root>/chunks/`. Pass that
+file to `extract_facts.py --input`; this is not an announcement selector and does not choose a default
+configuration. Keep exported source text out of Git. The adjacent `.receipt.json` records the selected
+build and JSONL SHA-256: verify the hash yourself before using the output, because the extraction CLI
+does not read the receipt. The receipt and JSONL are replaced separately; an interruption can leave
+them inconsistent. Serialize builds and exports: count/record checks are not a lock. Existing build
+records do not establish that an unmarked raw input is the complete frozen snapshot.
+
 - **Batch 10 announcements per LLM call** with numbered output; measured pattern from the pilot cuts
   cost 3–5× vs one-per-call, and JSON per numbered slot is easier to validate. ~9.5k L0 items ⇒ ~950
   calls, not 9,500.
 - **Flat schema, validate, retry**: one flat Pydantic model (title / release_date / platform list /
   event_type / relevance), no deep nesting or Union types (a known structured-output failure mode);
-  prefer the vendor's native JSON-schema `response_format` when available, else strict-parse + **2
-  retries** on validation failure; after retries degrade to a plain-text chunk (never drop the doc).
+  prefer the vendor's native JSON-schema `response_format` when available, else strict-parse, one whole-batch retry, then one independent call per candidate. A default
+  ten-item batch uses at most 12 client calls. Degrade only items whose single response is still
+  invalid; successful items carry their original chunk ids. Transport failures abort rather than
+  being relabelled as parse failures. Client-call counts exclude SDK-internal transport retries.
 - **Pre-filter before the LLM**: Capcom's feed mixes 決算/IR corporate releases with game content — a
   keyword classifier (決算｜株主｜IR｜決算短信 …) tags relevance *before* extraction so (a) the category
   balance at G1a counts what we intended and (b) ~30–40 % of the Capcom volume skips LLM calls
@@ -243,10 +292,11 @@ this section is only the decision.
 - `max_tokens ≥ 1024` per call (see the DSV4-flash quirk above), and the system prompt is identical
   across a batch — keep it stable so any provider-side prompt caching can act on it.
 - **Read the run summary before trusting a run**: `extract_facts.py` prints per-run counters —
-  `calls` (LLM calls, initial attempts included) vs `retries` (whole-batch re-attempts),
+  `calls` (client calls, initial attempts included), `retries` (whole-batch re-attempts) and
+  `single_calls` (fallback calls); `calls = batch_calls + single_calls`,
   `extracted_chunks` vs `extracted_rows` (a parsed result that states no known value is a valid
   empty extraction: it adds to `empty_extractions` and produces no rows — not a parse failure),
-  `degraded_batches`/`degraded`, `ir_skipped`. The buckets always reconcile:
+  `degraded_batches` (any failed items)/`degraded` (failed items), `ir_skipped`. The buckets always reconcile:
   `extracted_chunks + degraded + ir_skipped == chunks`.
 
 ## 4. Emergency degradation

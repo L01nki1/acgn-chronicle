@@ -4,7 +4,7 @@ Owner: F | Spec: 04 §7 D4 / RUNBOOK §3.4-§3.5
 
 Design constraints:
   - Every build records its full encoder identity (model, backend, device, precision, library
-    versions, batch size); vectors from different identities never mix in one index (§3.4).
+    versions); batch size is recorded as an execution setting. Different vector identities never mix in one index (§3.4).
   - Prefix-vs-prompt policy is keyed by model family here, so D's `EmbedConfig` keeps only the e5
     defaults and this module is the single place a new bake-off candidate registers.
   - What gets encoded is `prefix + header + "\n" + body` with `header = title | publisher | date`
@@ -125,7 +125,7 @@ class EncoderIdentity:
     lib_versions: tuple[tuple[str, str], ...] = ()
 
     def slug(self) -> str:
-        """Filesystem-safe short id: readable fields plus an 8-hex digest of the full identity.
+        """Filesystem-safe short id: readable fields plus an 8-hex digest of vector-affecting fields; excludes batch size.
 
         sha256 (not `hash`), so the slug is stable across processes and PYTHONHASHSEED settings.
         """
@@ -134,7 +134,6 @@ class EncoderIdentity:
             "backend": self.backend,
             "device": self.device,
             "precision": self.precision,
-            "batch_size": self.batch_size,
             "lib_versions": [list(pair) for pair in self.lib_versions],
         }
         digest = hashlib.sha256(
@@ -146,7 +145,6 @@ class EncoderIdentity:
                 self.backend,
                 _tag(self.device),
                 self.precision,
-                f"b{self.batch_size}",
                 digest,
             )
         )
@@ -318,6 +316,26 @@ class Embedder:
         """Encode raw query strings: a query has no parent document, so it gets no header."""
         return self._encode(list(texts), "query", batch_size)
 
+    def context_limit(self, requested: int) -> int:
+        """Cap the build budget by the encoder's actual truncation limit."""
+        if requested < 1:
+            raise ValueError("max_seq_length must be positive")
+        actual = getattr(self._load(), "max_seq_length", requested)
+        if not isinstance(actual, int) or actual < 1:
+            raise ValueError("encoder max_seq_length must be a positive integer")
+        return min(requested, actual)
+
+    def passage_context(self) -> str:
+        """Literal text prepended by the selected passage policy, including named prompts."""
+        if self.spec.mode == "prefix":
+            return self.spec.passage or ""
+        if self.spec.mode == "prompt" and self.spec.passage is not None:
+            prompts = getattr(self._load(), "prompts", {})
+            if self.spec.passage not in prompts:
+                raise ValueError(f"encoder has no passage prompt {self.spec.passage!r}")
+            return prompts[self.spec.passage]
+        return ""
+
     def _encode(
         self, texts: list[str], side: Literal["query", "passage"], batch_size: int | None
     ) -> np.ndarray:
@@ -332,9 +350,20 @@ class Embedder:
         elif self.spec.mode == "prompt":
             prompt_name = chosen
         model = self._load()
+        limit = getattr(model, "max_seq_length", None)
+        if limit is not None:
+            tokenizer = self.tokenizer
+            prompt = model.prompts[prompt_name] if prompt_name is not None else ""
+            for index, text in enumerate(texts):
+                size = len(tokenizer(prompt + text, truncation=False).input_ids)
+                if size > limit:
+                    raise ValueError(
+                        f"encoder input {index} has {size} ids, exceeds max_seq_length {limit}"
+                    )
         batch = batch_size if batch_size is not None else self.config.batch_size
         if prompt_name is None:
-            vectors = model.encode(texts, batch_size=batch)
+            # Explicitly disable model defaults: only the registered family policy applies.
+            vectors = model.encode(texts, batch_size=batch, prompt="")
         else:
             vectors = model.encode(texts, batch_size=batch, prompt_name=prompt_name)
         return _l2_normalized(vectors)

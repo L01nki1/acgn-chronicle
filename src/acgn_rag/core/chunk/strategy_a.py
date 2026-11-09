@@ -6,9 +6,9 @@ Status: implemented; strategy B (event aggregation) stays a placeholder until A 
 Rules this module promises (the tests check each one):
 
 - Content budget (RUNBOOK §3.4): ``budget_for`` = min(config_tokens, max_seq_length -
-  len(tokenizer.ids(prefix))). ``ids()`` includes the model's special tokens, so they are
+  len(tokenizer.ids(prefix + header + "\n"))). ``ids()`` includes the model's special tokens, so they are
   paid for exactly once: e5-base turns "passage: " into 4 ids (2 content + <s>/</s>),
-  giving a budget of 508 at max_seq_length 512 - never a hard-coded constant. The
+  giving a header-free budget of 508 at max_seq_length 512 - never a hard-coded constant. The
   declared config binds and the model only caps, so an 8k-context lane must not turn
   config A into an 8k chunker, or the A/A' comparison's independent variable becomes
   encoder-dependent.
@@ -97,16 +97,21 @@ class DecodingTokenCounter(TokenCounter, Protocol):
 
 
 def budget_for(
-    config_tokens: int, max_seq_length: int, prefix: str, tokenizer: TokenCounter
+    config_tokens: int,
+    max_seq_length: int,
+    prefix: str,
+    tokenizer: TokenCounter,
+    header: str = "",
 ) -> int:
     """Content budget for one chunk: the config binds, the model only caps (RUNBOOK §3.4).
 
-    Uses ``len(tokenizer.ids(prefix))`` - specials included - so <s>/</s> are counted
+    Uses the prefix and optional header/newline together, specials included, so <s>/</s> count
     exactly once: e5-base + "passage: " gives 4 ids, hence a budget of 508 at
     max_seq_length 512. Using the specials-free ``count`` here would under-pay by the
     specials and quietly reintroduce the truncation trap this formula exists to close.
     """
-    return min(config_tokens, max_seq_length - len(tokenizer.ids(prefix)))
+    context = prefix + (header + "\n" if header else "")
+    return min(config_tokens, max_seq_length - len(tokenizer.ids(context)))
 
 
 def split_sentences(text: str) -> list[str]:
@@ -142,6 +147,7 @@ def chunk_text(
     tokenizer: TokenCounter,
     max_seq_length: int = 512,
     passage_prefix: str = "passage: ",
+    header: str = "",
 ) -> list[Chunk]:
     """Chunk one document under one variant: "A" (512/64), "A'" (256/0) or "A0" (512/0).
 
@@ -154,21 +160,35 @@ def chunk_text(
     except KeyError:
         known = ", ".join(repr(name) for name in sorted(CHUNK_VARIANTS))
         raise KeyError(f"unknown chunk variant {variant!r}; known variants: {known}") from None
-    budget = budget_for(config.max_tokens, max_seq_length, passage_prefix, tokenizer)
-    if budget < 1:
-        raise ValueError(
-            f"content budget is {budget}: max_seq_length {max_seq_length} cannot hold the "
-            f"{len(tokenizer.ids(passage_prefix))}-id prefix"
+    budget = budget_for(config.max_tokens, max_seq_length, passage_prefix, tokenizer, header)
+    context = passage_prefix + (header + "\n" if header else "")
+    while True:
+        chunks = _chunk_with_budget(doc_id, text, variant, tokenizer, config.overlap, budget)
+        overflow = max(
+            (len(tokenizer.ids(context + chunk.text)) - max_seq_length for chunk in chunks),
+            default=0,
         )
-    if config.overlap >= budget:
+        if overflow <= 0:
+            return chunks
+        # Tokenization across the context/body boundary need not be additive.
+        # Reduce and repack the source; never truncate a completed chunk.
+        budget -= max(1, overflow)
+
+
+def _chunk_with_budget(
+    doc_id: str, text: str, variant: str, tokenizer: TokenCounter, overlap: int, budget: int
+) -> list[Chunk]:
+    if budget < 1:
+        raise ValueError(f"content budget is {budget}: context leaves no room for content")
+    if overlap >= budget:
         raise ValueError(
-            f"variant {variant!r} overlaps {config.overlap} tokens but the budget is "
+            f"variant {variant!r} overlaps {overlap} tokens but the budget is "
             f"{budget}: no room left for new content"
         )
     pieces: list[str] = []
     for sentence in split_sentences(text):
         if tokenizer.count(sentence) > budget:
-            pieces.extend(_split_oversize(sentence, budget, config.overlap, tokenizer))
+            pieces.extend(_split_oversize(sentence, budget, overlap, tokenizer))
         else:
             pieces.append(sentence)
     chunks: list[Chunk] = []
@@ -186,7 +206,7 @@ def chunk_text(
         # makes progress.
         flushed = " ".join(parts)
         chunks.append(_emit(doc_id, variant, len(chunks) + 1, flushed, tokenizer))
-        parts = _next_parts(flushed, piece, config.overlap, budget, tokenizer)
+        parts = _next_parts(flushed, piece, overlap, budget, tokenizer)
     if parts:
         chunks.append(_emit(doc_id, variant, len(chunks) + 1, " ".join(parts), tokenizer))
     return chunks

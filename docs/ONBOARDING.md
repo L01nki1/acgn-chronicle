@@ -22,8 +22,8 @@ if you maintain the venv by hand; `uv.lock` is the canonical resolution either w
 ## 2. Branches and commits (06 §1)
 
 - `main` only moves through PRs. This is enforced, not just agreed: a direct `git push origin main` is
-  rejected by the repository ruleset with `GH013 ... Changes must be made through a pull request`, and the
-  two required status checks must be green before the merge button enables.
+  rejected by the repository ruleset with `GH013 ... Changes must be made through a pull request`, and
+  all three required status checks must be green before the merge button enables.
 - One long-lived branch per WP: `wp1-ingest` / `wp2-kb` / `wp3-retrieve` / `wp4-ground` / `wp5-eval` / `wp6-web`.
   Personal work uses short-lived branches on top: `wp1-ingest/a-toei-adapter`.
 - Commit message: `[WP1] add Toei html list adapter`; contract changes get the `[contract]` prefix.
@@ -52,8 +52,8 @@ deliberately does *not* do.
 
 **The only layer nobody can bypass is server-side.** To block merging while a check is red, the repository
 owner sets it once: `Settings → Rules → New branch ruleset` → target `main` → **Require status checks to
-pass** → select `ubuntu-latest / py3.13` and `macos-latest / py3.13` (add `windows-latest / py3.13` once it
-has run at least once). Until that exists, a red PR can still be merged by whoever presses the button.
+pass** → select `ubuntu-latest / py3.13`, `macos-latest / py3.13` and `windows-latest / py3.13`. Until that
+exists, a red PR can still be merged by whoever presses the button.
 
 ## 3. PR checklist (the reviewer ticks each line)
 
@@ -67,6 +67,19 @@ open — you do not have to remember it.
 3. New directories match the ownership map in spec 02 §2; cross-WP edits @ the owner in the description
 4. Any change touching an invariant (spec 02 §3) comes with a test
 5. The reviewer is that WP's cross-reviewer, not yourself
+6. **Every limit has a boundary assertion on the composed input.** A constant that bounds anything
+   (`MAX_*`, `budget`, `max_seq_length`, `top_k`, `limit`) is not done until a test asserts the actual
+   production value/payload the *production path* builds against it — not the convenient subset of it. The
+   2026-10-31 review
+   found the chunk budget verified as `prefix + body` while production encodes `prefix + header + body`;
+   both tests were green and every full chunk was silently truncated by the encoder.
+7. **A rule a consumer must obey goes into a type or a validator, not a `Field(description=…)`.** A
+   description is documentation: nothing fails when a consumer breaks it. When two fields must agree
+   (`citations` vs `cited_chunk_ids`), a `model_validator` enforces it; when a value comes from a closed
+   set (`source_type`), the type or a registry enforces it.
+8. **Report a defect where the file lives.** Code already on `main` → the owner's member issue. Code on an
+   open branch → that PR, as a line comment, because a fix proposed against `main` for a file someone is
+   rewriting is a guaranteed conflict and a second source of truth.
 
 ## 4. "CI does not use the network" — exact meaning
 

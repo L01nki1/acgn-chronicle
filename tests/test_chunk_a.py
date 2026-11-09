@@ -324,3 +324,12 @@ def test_real_e5_budget_chunk_encodes_to_exactly_512_ids() -> None:
         assert full, f"{language}: no chunk reached the budget: {[c.token_count for c in chunks]}"
         encoded = counter.ids(PASSAGE_PREFIX + full[0].text)
         assert len(encoded) == 512, f"{language}: {len(encoded)} ids for a budget-sized chunk"
+    header = "新作アニメーションの放送開始情報 | 公式出版社 | 2026-10-28"
+    for variant in ("A", "A'", "A0"):
+        for language, body in bodies.items():
+            chunks = chunk_text(f"doc:header-{language}", body, variant, counter, header=header)
+            assert chunks
+            assert all(
+                len(counter.ids(PASSAGE_PREFIX + header + "\n" + chunk.text)) <= 512
+                for chunk in chunks
+            )

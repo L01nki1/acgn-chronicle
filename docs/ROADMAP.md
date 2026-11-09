@@ -35,52 +35,76 @@ Run: `python scripts/probe_sources.py` to size the window, then `python scripts/
 then compare `snapshot_id` on a rebuild. The chosen window is frozen into `docs/DECISIONS.md` and into every
 run's `meta.json`.
 
-**WP4 / B status — candidate, not frozen (2026-11-01).** PR #26 is rebased onto `main@a4339f8`
-(Python 3.13, locked uv, merged WP2). Its 0.2.3 contract candidate answers F's A1/A2/Q1–Q3, E's E1–E3
-and C's C1–C6,
-enforces quote length on construction and assignment, and records snapshot identity, known/retired states
-and filter time bounds. The actual questions and B's responses are in
-[`contracts/G1aReview.md`](../contracts/G1aReview.md). On Windows / Python 3.13.5, the locked
-`dev,store,llm` environment passed lint, format, schema sync and 165 offline tests; two explicitly opt-in
-real-e5 checks were skipped. Five citation-list mismatch cases failed before the new model validator;
-the prior top_k and quote-assignment regressions remain covered.
+**WP4 / B status — 0.2.3 merged; 0.2.4 candidate (2026-11-01).**
+[PR #26](https://github.com/L01nki1/acgn-chronicle/pull/26) merged as `22d404e`. C's
+[0.2.3 approval](https://github.com/L01nki1/acgn-chronicle/pull/26#pullrequestreview-5724246386)
+is bound to `aac6598`; F [acknowledged that delta](https://github.com/L01nki1/acgn-chronicle/pull/26#issuecomment-6552818840).
+The actual C/F/E questions, responses and older approvals remain in
+[`contracts/G1aReview.md`](../contracts/G1aReview.md). Historical Windows / Python 3.13.5 validation
+at `aac6598`: all four gates passed, **165 offline tests passed / 2 opt-in real-e5 skips**. F independently
+reproduced 165/2 on Linux. Actual retrieved-set and final-payload/refusal enforcement remain B's G1b
+outbound guard, not the model-validation equality check.
 
-The PM resolved runtime evidence timing in [Issue #4](https://github.com/L01nki1/acgn-chronicle/issues/4#issuecomment-6502751345):
-real curl/filter/refusal/retirement checks belong to W2's running service and no longer block the W1
-contract artifacts. E verified the answers at `c1949f1`, retaining E-owned implementation work for G1b/W2;
-D's compliance-scope review reported no blockers and its fixture-format suggestion is addressed.
-F verified `30f746d`, and D's WP5 check found no metric-input gap. F's interrupted-fresh-build caveat is
-now explicit in KnowledgePort §3.2: old sidecars cannot prove a replacement collection completed; unsafe
-transitions answer `503`. C supplied six questions and [approved 0.2.2 at `c8c3e88`](https://github.com/L01nki1/acgn-chronicle/pull/26#pullrequestreview-5723391766).
-Candidate 0.2.3 adds validation-time citation/id agreement and corrects the QA denominator/display-name
-descriptions; C [approved that delta at `aac6598`](https://github.com/L01nki1/acgn-chronicle/pull/26#pullrequestreview-5724246386).
-This follow-up only records review/notice status; the approved code/schema are unchanged. The existing
-[0.2.3 publication reply](https://github.com/L01nki1/acgn-chronicle/pull/26#issuecomment-6546162341)
-notified C/F; F has not yet acknowledged the new delta. Actual retrieved-set and
-refusal enforcement remain B's G1b outbound guard, not this model-validation check. The proposed
-publisher_id is deferred pending A/F's stable registry/alias/propagation definition; no field is added.
-G1a remains **open**, and this contract work does not pass A's separate
-corpus/idempotency gate. A's canonical snapshot minting and F's short-name/full-id binding need the explicit
-handoff in G1aReview §6 before real multi-snapshot writes, `--fresh`, collection drops or read bindings.
-The alias guard is a write-safety prerequisite; the W2 host timing does not defer it. The #17 ingest-category
-conclusion stays unchanged.
+Candidate **0.2.4**, rebased onto `main@03a115f`, aligns `source_count` with A's producer design: distinct
+contributing `source_key` (feed/adapter) values among accepted manifest-member rows, not publisher or
+organization count and not unused registry keys. Field structure is unchanged; the Field/schema
+description and reference are synchronized. This semantic delta requires C/E/F review; neither C's
+0.2.3 approval nor F's 0.2.3 acknowledgement is reused as acceptance of 0.2.4.
+The rebased Windows / Python 3.13.5 frozen dev/store/llm/web four-gate run passed **209 tests / 2 opt-in
+real-e5 skips**, including the merged web/Node checks. The earlier 165/2 belongs to `24f6600` before
+the WP6 integration; it is not relabelled as this larger suite.
 
-F's [PR #32](https://github.com/L01nki1/acgn-chronicle/pull/32) is the #31 storage candidate, not a merged
-fix. B's Windows / Python 3.13.5 isolation/store/build recheck passed 61 tests at `430aafc`; the no-create
-`bind_existing` API and missing-collection regressions are now implemented. E's formal re-review remains
-pending; B's consumer evidence does not merge the candidate. A's canonical minting confirmation and
-corpus evidence are still outstanding. B's separate WP6 review of PR #35 found an in-flight example/mode
-action mismatch requiring C's correction; PR #36 must keep content-category balance separate from source mix.
-B's W1 contribution entry and follow-up have been applied in PR #33 at `5f607aa`; B's [new single-cell
-suggestion](https://github.com/L01nki1/acgn-chronicle/pull/33#discussion_r4433017516) restores readable spacing
-and candidate status and removes the obsolete C-re-review blocker.
-Application of that text, D's own entry and merge preconditions remain D's responsibility.
+A's [PR #38](https://github.com/L01nki1/acgn-chronicle/pull/38) merged as `9b17396`: its JSONL/member
+seam, local entity-registry namespace and canonical full-id/manifest design agree with the contract.
+Publisher remains display text; no `publisher_id` is adopted without a separate real organization/alias
+registry and propagation/default proposal. B reproduced the synthetic **1,348-byte** manifest and id
+`20261028-7576782837e7`, including order independence and an id change after body-hash mutation.
+This is design/format evidence: real corpus counts, source-depth probe and two actual rebuilds remain
+pending. A/D's partial-gate discussion is still a proposal; no gate date, threshold or evidence waiver
+is adopted here. **G1a remains open.**
+
+The [PM's existing resolution](https://github.com/L01nki1/acgn-chronicle/issues/4#issuecomment-6502751345)
+keeps real curl/filter/refusal/retirement checks with W2's running service. It does not defer the full-id
+write-safety prerequisite: real multi-snapshot writes, `--fresh`, drops and reads need the reviewed guard.
+Unsafe replacement transitions remain `503` until completion is proven; old sidecars do not establish
+that proof. Catalog/completion transitions and active pins/leases are still W2 lifecycle work.
+
+F's [PR #32](https://github.com/L01nki1/acgn-chronicle/pull/32) remains unmerged at `c9dc0e9`.
+It retains no-create `bind_existing`, bounds the availability probe and rejects empty bound collections
+while allowing a valid restrictive no-match to return empty. E
+[approved this head](https://github.com/L01nki1/acgn-chronicle/pull/32#pullrequestreview-5726871154);
+B [approved this head](https://github.com/L01nki1/acgn-chronicle/pull/32#pullrequestreview-5727688562)
+after **66 identity/store/build tests passed**. The earlier **61-test** B approval belongs to `430aafc`,
+not this new head. These checks do not resolve #31 or prove a live host.
+
+C repaired PR #35 at `119a1c4`: the in-flight action coordination, request-count rejection and citation/id
+alignment passed B's independent check (**41 web tests / 16 Node cases**); B
+[approved this head](https://github.com/L01nki1/acgn-chronicle/pull/35#pullrequestreview-5727688908).
+PR #35 merged as `62c26da`; its HTTP mock is a consumer implementation, not a live W2 backend.
+PR #37 at `75c3bc1` fixes the `source_type` closed-set example and production-value wording; B
+[approved the correction](https://github.com/L01nki1/acgn-chronicle/pull/37#pullrequestreview-5727689267).
+PR #37 merged as `03a115f`, so its invariant checklist is now adopted process, with implementation
+evidence still required at the corresponding gates.
+PR #36 is **closed without merge**; its duplicate #17
+record is withdrawn, while the effective ingest-only conclusion is on main through #26.
+[Issue #17 is closed as completed](https://github.com/L01nki1/acgn-chronicle/issues/17#issuecomment-6557062553)
+with its discussion retained; that interface closure does not pass the corpus or runtime gates.
+B's spacing/candidate correction is applied verbatim in PR #33 at `128ab6f`. B may refresh its own
+cell after these state changes; other members' entries and the remaining merge preconditions stay with
+their owners.
 
 ### G1b · 2026-11-09 — indexes and facts
 
 - A / A' / B index builds reproducible; chunk counts explainable and stable across rebuilds
+- **no silent truncation**: for every config and a non-empty context header,
+  `len(ids(prefix + header + "\n" + chunk)) <= max_seq_length` on every chunk
+  (`test_encoded_length_never_exceeds_context`); a full-budget chunk that overflows raises at build time
 - encoding on the recorded lane with an identity-keyed cache (model policy: RUNBOOK §3.5); compliance tests green (`pytest tests/compliance -q`)
 - L0 fact extraction on a 30-item spot check ≥90% field accuracy, every row carries `chunkId` + `url`
+
+**G1b outbound guard (`KnowledgePort` §3.7):** code candidate in
+[#45](https://github.com/L01nki1/acgn-chronicle/pull/45) — not gate evidence; no real corpus, index or
+live LLM run yet.
 
 ### G2 · 2026-11-21 — Topic 5 complete (official brief, hard gate)
 
@@ -104,6 +128,8 @@ Application of that text, D's own entry and merge preconditions remain D's respo
 5. Unanswerable questions produce `abstained=true` and a refusal reason instead of a guessed answer.
 6. Evaluation uses a QA set with at least 30 items, balanced across the required QA types, and reports the metric definitions and rerun spread.
 7. The final report contains the required task-5 narrative: method, experiments, discussion, references, and the separate contribution/signature page.
+8. `cited_chunk_ids` equals the chunk ids of `citations` (a validator, not a convention), and every citation's `chunk_id` is in the retrieved set.
+9. Filter conversion is single-point: `RetrievalFilters` → store `where` happens in one function, covered by a test for each filter family and for `[]` (means "no filter", not "match nothing").
 
 #### G2 stretch items (nice-to-have, cut first if schedule slips)
 
@@ -200,6 +226,10 @@ Secondary responsibilities (revised 2026-10-28):
 - **Member issue** = **one persistent issue per member** (`[A]`, `[B]`…) labeled `WPn`, with no milestone
   because it spans every gate. It is a workbench, not a ticket for one task. Do not open a task issue for
   each unit of work.
+- **A finding about code that is already written** goes to the owner's member issue — unless the file sits
+  on an open branch, in which case it goes on that PR as a line comment (ONBOARDING §3 item 8). It never
+  becomes a task issue: a fix proposed against `main` for a file someone is rewriting is a conflict plus a
+  second source of truth.
 - **Stage report** = a comment on your own member issue at the end of each stage, in this fixed shape. A
   report missing the evidence line does not count:
 
