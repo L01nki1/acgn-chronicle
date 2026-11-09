@@ -667,11 +667,20 @@ textarea {
 
 .citation-url-value {
   color: var(--ink);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
 }
 
-.jump-note {
+.citation-url-value:hover,
+.citation-url-value:focus-visible {
+  color: var(--accent);
+}
+
+.jump-mark {
   color: var(--accent);
   font-weight: 600;
+  text-decoration: none;
 }
 
 .result-meta code,
