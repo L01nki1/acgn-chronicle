@@ -70,6 +70,7 @@ class IncrementalRunResult:
     quarantined_count: int = 0
     metadata_drift_count: int = 0
     metadata_drift_doc_ids: tuple[str, ...] = ()
+    metadata_drift_doc_ids_truncated_to: int = 20
     window_start: str | None = None
     window_end: str | None = None
 
@@ -80,6 +81,7 @@ class IncrementalRunResult:
             "inserted_count": self.inserted_count,
             "metadata_drift_count": self.metadata_drift_count,
             "metadata_drift_doc_ids": list(self.metadata_drift_doc_ids),
+            "metadata_drift_doc_ids_truncated_to": self.metadata_drift_doc_ids_truncated_to,
             "new_snapshot_id": self.new_snapshot_id,
             "out_of_window_count": self.out_of_window_count,
             "quarantined_count": self.quarantined_count,
@@ -133,10 +135,17 @@ def run_incremental_discovery(
             items = adapter.discover(since=since)
             raw_discovered.extend(items)
             not_mod = bool(getattr(adapter, "last_not_modified", False))
-            health[name] = {
+            skipped = int(getattr(adapter, "last_skipped_entries", 0) or 0)
+            entry_health: dict[str, Any] = {
                 "count": len(items),
                 "status": "not_modified" if not_mod else ("ok" if items else "no_new_items"),
             }
+            if skipped > 0:
+                entry_health["skipped_entries"] = skipped
+                skip_reasons = getattr(adapter, "last_skip_reasons", None)
+                if isinstance(skip_reasons, Mapping) and skip_reasons:
+                    entry_health["skip_reasons"] = dict(skip_reasons)
+            health[name] = entry_health
         except Exception as exc:
             if type(exc).__name__ == "RobotsDisallowedError" and bool(
                 getattr(exc, "explicit_disallow", False)

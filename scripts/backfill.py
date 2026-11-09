@@ -161,6 +161,9 @@ def _adapter_diagnostics(adapter: object) -> dict[str, Any]:
             diag[key] = val
     if bool(getattr(adapter, "last_page_cap_hit", False)):
         diag["page_cap_hit"] = True
+    skip_reasons = getattr(adapter, "last_skip_reasons", None)
+    if isinstance(skip_reasons, Mapping) and skip_reasons:
+        diag["skip_reasons"] = dict(skip_reasons)
     earliest_obs = getattr(adapter, "last_earliest_observed_date", None)
     if isinstance(earliest_obs, str) and earliest_obs:
         diag["earliest_observed_date"] = earliest_obs

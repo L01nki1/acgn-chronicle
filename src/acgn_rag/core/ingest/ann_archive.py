@@ -436,6 +436,9 @@ class AnnArchiveAdapter:
     last_total_pages_fetched: int = field(init=False, default=0)
     last_truncated_days: int = field(init=False, default=0)
     last_cached_article_bodies_applied: int = field(init=False, default=0)
+    last_raw_entry_count: int = field(init=False, default=0)
+    last_skipped_entries: int = field(init=False, default=0)
+    last_skip_reasons: dict[str, int] = field(init=False, default_factory=dict)
     last_earliest_observed_date: str | None = field(init=False, default=None)
     last_not_modified: bool = field(init=False, default=False)
     _day_cache: dict[date, list[RawIngestItem]] = field(
@@ -628,17 +631,22 @@ class AnnArchiveAdapter:
         if since is not None:
             since_ts = parse_utc_timestamp(since, source_tz="UTC")
 
+        self.last_raw_entry_count = 0
+        self.last_skipped_entries = 0
+        self.last_skip_reasons = {}
+
         res = self.http.get(self.rss_url, use_conditional=use_conditional)
         if res.not_modified:
             self.last_not_modified = True
             return []
 
-        parsed = feedparser.parse(res.text)
+        parsed = feedparser.parse(res.text, sanitize_html=False, resolve_relative_uris=False)
         entries = list(getattr(parsed, "entries", []) or [])
         if not entries:
             raise SelectorBrokenError(
                 f"[{self.source_key}] ANN RSS feed at {self.rss_url!r} returned 0 entries"
             )
+        self.last_raw_entry_count = len(entries)
 
         out: list[RawIngestItem] = []
         for entry in entries:
@@ -647,19 +655,40 @@ class AnnArchiveAdapter:
             raw_summary = str(entry.get("summary") or entry.get("description") or raw_title).strip()
             raw_pub = entry.get("published") or entry.get("updated") or entry.get("pubDate")
             if not link or not raw_title or not raw_pub:
+                self.last_skipped_entries += 1
+                self.last_skip_reasons["missing_required_field"] = (
+                    self.last_skip_reasons.get("missing_required_field", 0) + 1
+                )
                 continue
 
-            pub_utc = parse_utc_timestamp(str(raw_pub), source_tz="UTC")
+            try:
+                pub_utc = parse_utc_timestamp(str(raw_pub), source_tz="UTC")
+            except ValueError:
+                self.last_skipped_entries += 1
+                self.last_skip_reasons["malformed_published_at"] = (
+                    self.last_skip_reasons.get("malformed_published_at", 0) + 1
+                )
+                continue
+
             if since_ts is not None and not utc_iso_at_or_after(pub_utc, since_ts):
                 continue
 
-            title = clean_title(raw_title)
+            try:
+                title = clean_title(raw_title)
+                canonical_url = normalize_url(link)
+            except ValueError:
+                self.last_skipped_entries += 1
+                self.last_skip_reasons["invalid_url_or_title"] = (
+                    self.last_skip_reasons.get("invalid_url_or_title", 0) + 1
+                )
+                continue
+
             summary_clean = strip_html_boilerplate(raw_summary) or title
             body = summary_clean if summary_clean and summary_clean != title else title
             ingest_cat = "corporate" if is_corporate_ir_text(f"{title}\n{body}") else None
             out.append(
                 RawIngestItem(
-                    url=normalize_url(link),
+                    url=canonical_url,
                     title=title,
                     body=body,
                     published_at=pub_utc,
@@ -670,6 +699,11 @@ class AnnArchiveAdapter:
                     source_tz="UTC",
                     ingest_category=ingest_cat,
                 )
+            )
+        if not out and self.last_skipped_entries == len(entries):
+            raise SelectorBrokenError(
+                f"[{self.source_key}] ANN RSS feed at {self.rss_url!r} yielded 0 valid entries "
+                f"out of {len(entries)} (skipped={self.last_skipped_entries}, reasons={self.last_skip_reasons})"
             )
         return out
 

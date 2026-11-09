@@ -1656,8 +1656,19 @@ def test_coverage_complete_false_when_coverage_gaps_present_and_strict_body_leve
     assert len(html_inflated_headline.body) >= 340
     assert _classify_item_body_level(html_inflated_headline) == "headline"
 
-    # Regression (B5 & B2): literal '<En.>' in plain text is not stripped as an HTML tag, and
-    # Toei's listing index page '/ja/press.html' is rejected into quarantine as 'index_page'.
+    # Regression (B5 & B2 + E #6718804807): literal '<En.>' in plain text or HTML is not stripped
+    # by strip_html_boilerplate, clean_title, or normalize_item, and Toei's listing index page
+    # '/ja/press.html' is rejected into quarantine as 'index_page'.
+    assert (
+        strip_html_boilerplate("The artist <En.> announced a new theme song today.")
+        == "The artist <En.> announced a new theme song today."
+    )
+    assert (
+        strip_html_boilerplate("<p>The artist <En.> announced a new theme song today.</p>")
+        == "The artist <En.> announced a new theme song today."
+    )
+    assert clean_title("Real Sound Feature on <En.>") == "Real Sound Feature on <En.>"
+
     literal_angle_article = normalize_item(
         RawIngestItem(
             url="https://realsound.jp/movie/2026/10/post-100025.html",
@@ -1674,6 +1685,8 @@ def test_coverage_complete_false_when_coverage_gaps_present_and_strict_body_leve
             lang="ja",
         )
     )
+    assert literal_angle_article.title == "Real Sound Feature on <En.>"
+    assert "<En.>" in literal_angle_article.body
     assert _classify_item_body_level(literal_angle_article) == "full"
 
     with pytest.raises(NormalizationError, match="index_page"):
@@ -1839,6 +1852,7 @@ def test_committed_snapshot_evidence_internal_consistency() -> None:
     assert len(entities_digests) == 1, (
         f"Mismatched entities.json across snapshots: {entities_digests}"
     )
+    assert evidence["daily_discovery_verification"].get("metadata_drift_doc_ids_truncated_to") == 20
 
     from acgn_rag.core.ingest.normalize import strip_html_boilerplate
 

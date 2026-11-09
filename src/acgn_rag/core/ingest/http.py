@@ -9,6 +9,7 @@ from __future__ import annotations
 import email.utils
 import json
 import logging
+import math
 import random
 import re
 import time
@@ -34,6 +35,7 @@ DEFAULT_BREAKER_COOLDOWN_S: float = 1800.0  # 30 minutes per docs/SOURCES.md §8
 DEFAULT_ROBOTS_TTL_S: float = 86400.0  # 24 hours per docs/SOURCES.md §7
 DEFAULT_MAX_REPLACEMENT_RATIO: float = 0.001  # 0.1% max U+FFFD ratio
 DEFAULT_MAX_REDIRECTS: int = 5
+MAX_RETRY_AFTER_S: float = 300.0
 
 _META_CHARSET_RE = re.compile(
     rb"""<meta[^>]+charset\s*=\s*["']?\s*([A-Za-z0-9._\-]+)""",
@@ -347,7 +349,7 @@ def decode_bytes_checked(
 
 
 def _parse_retry_after(header_value: str | None, *, now: float) -> float | None:
-    """Parse an HTTP `Retry-After` header (delta seconds or HTTP-date) into non-negative seconds."""
+    """Parse an HTTP `Retry-After` header (delta seconds or HTTP-date) into bounded non-negative seconds."""
     if not header_value:
         return None
     raw = header_value.strip()
@@ -355,14 +357,19 @@ def _parse_retry_after(header_value: str | None, *, now: float) -> float | None:
         return None
     try:
         seconds = float(raw)
-        return max(0.0, seconds)
+        if not math.isfinite(seconds) or seconds < 0.0:
+            return None
+        return min(MAX_RETRY_AFTER_S, seconds)
     except ValueError:
         pass
     try:
         dt = email.utils.parsedate_to_datetime(raw)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=UTC)
-        return max(0.0, dt.timestamp() - now)
+        delta = dt.timestamp() - now
+        if not math.isfinite(delta):
+            return None
+        return min(MAX_RETRY_AFTER_S, max(0.0, delta))
     except (TypeError, ValueError, OverflowError):
         return None
 
@@ -603,19 +610,34 @@ class PoliteHttpClient:
             return cached
 
         robots_url = f"{scheme}://{host}/robots.txt"
-        self._check_breaker(host, robots_url)
-        self._pace_host(host)
-
         client = self._ensure_client()
-        try:
-            resp = client.get(robots_url)
-        except httpx.HTTPError as exc:
-            # RFC 9309 §2.3.1.4: unreachable robots.txt must be treated as temporary disallow
-            raise RobotsDisallowedError(
-                f"robots.txt unreachable on host {host!r} ({exc}); assuming disallow per RFC 9309",
-                url=robots_url,
-            ) from exc
+        current_robots_url = robots_url
+        resp: httpx.Response | None = None
+        for hop in range(DEFAULT_MAX_REDIRECTS + 1):
+            _, hop_host = self._parse_host(current_robots_url)
+            self._check_breaker(hop_host, current_robots_url)
+            self._pace_host(hop_host)
+            try:
+                resp = client.get(current_robots_url)
+            except httpx.HTTPError as exc:
+                # RFC 9309 §2.3.1.4: unreachable robots.txt must be treated as temporary disallow
+                raise RobotsDisallowedError(
+                    f"robots.txt unreachable on host {host!r} ({exc}); assuming disallow per RFC 9309",
+                    url=current_robots_url,
+                ) from exc
+            if 300 <= resp.status_code < 400:
+                loc = (resp.headers.get("location") or "").strip()
+                if not loc or hop >= DEFAULT_MAX_REDIRECTS:
+                    raise RobotsDisallowedError(
+                        f"robots.txt redirect limit or missing Location on host {host!r}; assuming disallow per RFC 9309",
+                        url=current_robots_url,
+                        status_code=resp.status_code,
+                    )
+                current_robots_url = urllib.parse.urljoin(current_robots_url, loc)
+                continue
+            break
 
+        assert resp is not None
         status = resp.status_code
         if status in (401, 403):
             policy = _HostRobotsPolicy(

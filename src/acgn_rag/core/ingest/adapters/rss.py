@@ -134,7 +134,7 @@ class RssAdapter:
             self.last_not_modified = True
             return []
 
-        parsed = feedparser.parse(res.text)
+        parsed = feedparser.parse(res.text, sanitize_html=False, resolve_relative_uris=False)
         entries: list[object] = list(getattr(parsed, "entries", []) or [])
         if not entries:
             entries = list(_fallback_parse_xml_items(res.text))

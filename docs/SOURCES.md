@@ -130,9 +130,9 @@ Rules that prevent silent shrinkage:
 ## 8. Politeness defaults (all sources)
 
 Self-describing UA `AcgnRagBot/0.1 (CS5481 course project; +repo url)` · per-host token bucket 1 req/2.5 s with
-jitter (thread-safe per-host locks in `PoliteHttpClient`; `scripts/backfill.py` and `scripts/discover_daily.py`
-iterate registered sources sequentially by default, while `HttpConfig.max_concurrency = 10` caps any multi-host
-caller) · `robots.txt` read once and cached 24 h (`respect_robots=False` raises `ValueError` under C1) · conditional
+jitter (`scripts/backfill.py` and `scripts/discover_daily.py` iterate registered sources sequentially in a single
+thread; `HttpConfig.max_concurrency = 10` is a reserved configuration ceiling for future concurrent callers) ·
+`robots.txt` read once and cached 24 h (`respect_robots=False` raises `ValueError` under C1) · conditional
 requests with `ETag` / `If-Modified-Since` (a 304 is the cheapest possible politeness, with cached body text preserved
-across restarts) · exponential backoff 1→2→4 s honoring `Retry-After`, 3 attempts max · breaker: three consecutive
-failures on one source ⇒ 30-minute cooldown + run log.
+across restarts) · exponential backoff 1→2→4 s honoring `Retry-After` (capped at 300 s), 3 retries max (4 total
+attempts) · breaker: three consecutive failures on one source ⇒ 30-minute cooldown + run log.

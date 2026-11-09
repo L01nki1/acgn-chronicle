@@ -90,7 +90,21 @@ _DATE_ONLY_RE = re.compile(
     r"^\s*(\d{4})\s*(?:[-./年])\s*(\d{1,2})\s*(?:[-./月])\s*(\d{1,2})\s*日?\s*$"
 )
 _EXPLICIT_UTC_RFC_RE = re.compile(r"(?:[+-]00:?00|\b(?:UTC|GMT|UT|Z)\b)\s*$", re.IGNORECASE)
-_HTML_TAG_RE = re.compile(r"<[A-Za-z!/][^>]*>")
+_KNOWN_HTML_TAGS = (
+    r"a|abbr|address|area|article|aside|audio|b|base|bdi|bdo|blockquote|body|br|button|canvas"
+    r"|caption|center|cite|code|col|colgroup|data|datalist|dd|del|details|dfn|dialog|div|dl|dt"
+    r"|em|embed|fieldset|figcaption|figure|font|footer|form|h[1-6]|head|header|hgroup|hr|html"
+    r"|i|iframe|img|input|ins|kbd|label|legend|li|link|main|map|mark|menu|meta|meter|nav|nobr"
+    r"|noscript|object|ol|optgroup|option|output|p|param|picture|pre|progress|q|rp|rt|ruby|s"
+    r"|samp|script|search|section|select|slot|small|source|span|strike|strong|style|sub|summary"
+    r"|sup|svg|table|tbody|td|template|textarea|tfoot|th|thead|time|title|tr|track|tt|u|ul|var"
+    r"|video|wbr"
+)
+_HTML_TAG_RE = re.compile(
+    rf"<!--.*?-->|<![A-Za-z\[][^>]*>|<\?[^>]*\?>|</?\s*(?:{_KNOWN_HTML_TAGS})\b[^>]*>",
+    re.IGNORECASE | re.DOTALL,
+)
+KNOWN_HTML_TAG_RE = _HTML_TAG_RE
 _SCRIPT_STYLE_RE = re.compile(
     r"<(script|style|nav|footer|noscript|iframe)\b[^>]*>.*?</\1>", re.I | re.S
 )
@@ -102,7 +116,10 @@ _BR_RE = re.compile(r"<br\s*/?>", re.I)
 _CELL_RE = re.compile(r"</?(?:td|th)\b[^>]*>", re.I)
 _HSPACE_RE = re.compile(r"[ \t\f\v\u00a0\u3000]+")
 _ESCAPED_FROALA_RE = re.compile(r"<span\b[^>]*\bfr-mk\b[^>]*>.*?</span>", re.I | re.S)
-_MARKUP_ONLY_RE = re.compile(r"^(?:\s|&nbsp;|<[^>]*>)*$", re.I)
+_MARKUP_ONLY_RE = re.compile(
+    rf"^(?:\s|&nbsp;|<!--.*?-->|<![A-Za-z\[][^>]*>|<\?[^>]*\?>|</?\s*(?:{_KNOWN_HTML_TAGS})\b[^>]*>)*$",
+    re.I | re.S,
+)
 _INDEX_PAGE_URL_RE = re.compile(r"/ja/press\.html$", re.I)
 _TITLE_SUFFIX_RE = re.compile(
     r"\s*(?:[|\-\u2013\u2014\uff5c]\s*(?:Anime News Network|東映アニメーション\s*Toei Animation|東映アニメーション|"
@@ -861,6 +878,7 @@ __all__ = [
     "HTML_BLOCK_BOUNDARY_RE",
     "IR_KEYWORDS",
     "IR_TOKEN_PATTERN",
+    "KNOWN_HTML_TAG_RE",
     "NORMALIZATION_VERSION",
     "PARAGRAPH_SEP",
     "ConflictingObservationError",

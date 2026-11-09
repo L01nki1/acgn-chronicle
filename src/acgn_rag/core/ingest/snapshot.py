@@ -35,6 +35,7 @@ from acgn_rag.core.ingest.facts_link import (
     build_entity_registry_from_raw,
 )
 from acgn_rag.core.ingest.normalize import (
+    KNOWN_HTML_TAG_RE,
     NORMALIZATION_VERSION,
     PARAGRAPH_SEP,
     NormalizedItem,
@@ -392,13 +393,7 @@ def _next_unique_publish_timestamp(snapshots_root: Path) -> str:
     return now_dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
-_KNOWN_HTML_TAG_RE = re.compile(
-    r"</?(?:p|div|span|a|em|i|b|strong|u|s|sub|sup|small|mark|cite|q|code|kbd|samp|var|time|abbr"
-    r"|dfn|br|hr|img|figure|figcaption|li|ul|ol|dl|dt|dd|table|thead|tbody|tfoot|tr|td|th|h[1-6]"
-    r"|blockquote|pre|section|article|header|footer|nav|aside|main|details|summary|ruby|rt|rp"
-    r"|font|center)\b[^>]*>",
-    re.IGNORECASE,
-)
+_KNOWN_HTML_TAG_RE = KNOWN_HTML_TAG_RE
 
 
 def _split_body_paragraphs(body_text: str) -> list[str]:

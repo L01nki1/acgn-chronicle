@@ -1021,3 +1021,56 @@ def test_parse_ann_article_html_and_offline_article_cache_enrichment(tmp_path: P
         ]
         assert "Paragraph two of extra daily brief" in extra_item.body
         assert extra_item.published_at == "2025-10-20T22:45:00Z"
+
+    # Regression (D #6705194915 & #5818907874): AnnArchiveAdapter.discover() counts skipped
+    # entries and catches malformed pubDate without aborting valid rows; _parse_retry_after
+    # rejects non-finite values and caps Retry-After; robots.txt follows 3xx redirects.
+    from acgn_rag.core.ingest.http import MAX_RETRY_AFTER_S, _parse_retry_after
+
+    assert _parse_retry_after("inf", now=1000.0) is None
+    assert _parse_retry_after("nan", now=1000.0) is None
+    assert _parse_retry_after("-5", now=1000.0) is None
+    assert _parse_retry_after("999999", now=1000.0) == MAX_RETRY_AFTER_S
+
+    rss_xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <rss version="2.0"><channel><title>ANN</title>
+      <item>
+        <title>Missing Link Entry</title>
+        <pubDate>Tue, 20 Oct 2026 10:00:00 +0000</pubDate>
+      </item>
+      <item>
+        <title>Malformed Date Entry</title>
+        <link>https://www.animenewsnetwork.com/news/2026-10-20/bad-date/.300001</link>
+        <pubDate>not-a-valid-date</pubDate>
+      </item>
+      <item>
+        <title>Valid Entry Featuring &lt;En.&gt;</title>
+        <link>https://www.animenewsnetwork.com/news/2026-10-20/valid/.300002</link>
+        <description>&lt;p&gt;Summary mentioning artist &lt;En.&gt; today.&lt;/p&gt;</description>
+        <pubDate>Tue, 20 Oct 2026 12:00:00 +0000</pubDate>
+      </item>
+    </channel></rss>"""
+    http2 = PoliteHttpClient(clock=clock, sleep=clock.sleep, jitter_range=(0.0, 0.0))
+    ann_disc = AnnArchiveAdapter(http=http2)
+    with respx.mock(assert_all_called=True) as router:
+        router.get("https://www.animenewsnetwork.com/robots.txt").mock(
+            return_value=httpx.Response(
+                301, headers={"Location": "https://www.animenewsnetwork.com/robots-v2.txt"}
+            )
+        )
+        router.get("https://www.animenewsnetwork.com/robots-v2.txt").mock(
+            return_value=httpx.Response(200, text="User-agent: *\nAllow: /\n")
+        )
+        router.get("https://www.animenewsnetwork.com/all/rss.xml").mock(
+            return_value=httpx.Response(200, text=rss_xml)
+        )
+        discovered = ann_disc.discover()
+        assert len(discovered) == 1
+        assert discovered[0].title == "Valid Entry Featuring <En.>"
+        assert "<En.>" in discovered[0].body
+        assert ann_disc.last_raw_entry_count == 3
+        assert ann_disc.last_skipped_entries == 2
+        assert ann_disc.last_skip_reasons == {
+            "missing_required_field": 1,
+            "malformed_published_at": 1,
+        }

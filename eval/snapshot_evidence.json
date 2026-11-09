@@ -68,6 +68,7 @@
       "doc_1815a3b0d9bb978711daaa9e88c84717cb179da6da4c238786ca39740b9c5c11",
       "doc_199c0d50ced4fe70199de8f8763ed358c030e1767bfd19b91affa72b039c8883"
     ],
+    "metadata_drift_doc_ids_truncated_to": 20,
     "new_snapshot_id": "20261105-bf80feb612fb",
     "out_of_window_count": 12,
     "quarantined_count": 0,
