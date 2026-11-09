@@ -38,6 +38,33 @@ VECTOR_IDENTITY_KEYS = ("model", "backend", "device", "precision", "identity_slu
 CHUNKER_FIELDS = ("version", "header_version", "config", "max_tokens", "overlap", "max_seq_length")
 _FULL_SNAPSHOT_ID = re.compile(r"(\d{8})-([0-9a-f]{12})")
 _RUN_ID_SEGMENT = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
+# QA fields that change what retrieval is asked or judged. Review metadata (`annotator`,
+# `verified_by`) and the agreement marker (`overlap`) are deliberately excluded: they can move
+# while labels are being completed without changing the evaluation inputs.
+QA_INPUT_KEYS = (
+    "qa_id",
+    "question",
+    "answerable",
+    "gold_answer",
+    "gold_evidence",
+    "key_entities",
+    "type",
+    "lang",
+    "window",
+)
+# Every field a Tier-1 comparison must establish before "identical" means anything.
+REQUIRED_TIER1_IDENTITY = (
+    "snapshot_id",
+    "window_start",
+    "window_end",
+    "chunk_config",
+    "collection",
+    "top_k",
+    "over_fetch",
+    "identity_slug",
+    "chunker",
+    "qa_inputs_fingerprint",
+)
 
 
 class Answerer(Protocol):
@@ -533,6 +560,17 @@ def _load_items(
     return items
 
 
+def _qa_inputs_fingerprint(items: Sequence[Mapping[str, Any]]) -> str:
+    """Stable digest of the evaluation inputs, independent of JSON key order and formatting.
+
+    Only the fields that change what is asked or judged are hashed; review metadata can move
+    while a QA set is being labelled without making two reruns incomparable.
+    """
+    canonical = [{key: item.get(key) for key in QA_INPUT_KEYS} for item in items]
+    payload = json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
@@ -736,6 +774,7 @@ def run(
         "qa": {
             "path": str(spec.qa_path),
             "count": len(items),
+            "inputs_fingerprint": _qa_inputs_fingerprint(items),
             "validated": effective_qa_validated,
             "validation": "validated" if effective_qa_validated else "bypassed",
             "source": effective_qa_source,
@@ -809,16 +848,41 @@ def _archive_identity(meta: Mapping[str, Any]) -> dict[str, Any]:
     retrieval = retrieval if isinstance(retrieval, dict) else {}
     build_identity = meta.get("build_identity")
     build_identity = build_identity if isinstance(build_identity, dict) else {}
+    qa_block = meta.get("qa")
+    qa_block = qa_block if isinstance(qa_block, dict) else {}
     return {
         "snapshot_id": meta.get("snapshot_id"),
         "window_start": meta.get("window_start"),
         "window_end": meta.get("window_end"),
+        "window_verified": meta.get("window_verified"),
         "chunk_config": meta.get("chunk_config"),
         "collection": meta.get("collection"),
         "top_k": retrieval.get("top_k"),
         "over_fetch": retrieval.get("over_fetch"),
         "identity_slug": build_identity.get("identity_slug"),
+        "chunker": meta.get("chunker"),
+        "qa_inputs_fingerprint": qa_block.get("inputs_fingerprint"),
+        "qa_validated": qa_block.get("validated"),
+        "reportable": meta.get("reportable"),
     }
+
+
+def _missing_tier1_identity(identity: Mapping[str, Any]) -> list[str]:
+    """Identity fields that are absent or empty on one side of a comparison."""
+    return [
+        name
+        for name in REQUIRED_TIER1_IDENTITY
+        if identity.get(name) is None or identity.get(name) == "" or identity.get(name) == {}
+    ]
+
+
+def _archive_qa_count(meta: Mapping[str, Any]) -> int | None:
+    qa_block = meta.get("qa")
+    qa_block = qa_block if isinstance(qa_block, dict) else {}
+    count = qa_block.get("count")
+    if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+        return None
+    return count
 
 
 def _answers_by_qa(rows: Sequence[Mapping[str, Any]], *, side: str) -> dict[str, Mapping[str, Any]]:
@@ -837,10 +901,15 @@ def compare_tier1_runs(left: Path | str, right: Path | str) -> dict[str, Any]:
     """Compare two run archives for Tier-1 reproducibility.
 
     Tier-1 is the deterministic half of `EVAL_PROTOCOL §8`: same snapshot/window/config,
-    encoder identity and collection; identical retrieval metrics, retrieved chunk-id/url order
-    and abstention decisions at a fixed threshold. Answer text, citations and human labels are
-    Tier-2 and are deliberately not compared. A differing `git_sha` is reported as a warning,
-    not a comparability failure: a docs-only commit does not change the vectors.
+    chunker and QA inputs, encoder identity and collection; identical retrieval metrics,
+    retrieved chunk-id/url order and abstention decisions at a fixed threshold. Answer text,
+    citations, `diagnostics` and human labels are Tier-2 and are deliberately not compared.
+
+    A comparison is `comparable` only when both archives carry every required identity field,
+    the recorded QA-set fingerprint matches, the answer-row count equals `meta.qa.count` on both
+    sides and every QA id was compared. Otherwise `comparable` is false with a `reason`; a
+    subset of items is never reported as identical. A differing `git_sha` is a warning, not a
+    comparability failure: a docs-only commit does not change the vectors.
     """
     left_meta, left_metrics, left_answers = _load_run_archive(left)
     right_meta, right_metrics, right_answers = _load_run_archive(right)
@@ -857,22 +926,52 @@ def compare_tier1_runs(left: Path | str, right: Path | str) -> dict[str, Any]:
 
     left_identity = _archive_identity(left_meta)
     right_identity = _archive_identity(right_meta)
+
+    def _not_comparable(
+        reason: str,
+        *,
+        identity_mismatches: Sequence[Mapping[str, Any]] = (),
+        metric_mismatches: Sequence[Mapping[str, Any]] = (),
+        item_mismatches: Sequence[Mapping[str, Any]] = (),
+    ) -> dict[str, Any]:
+        return {
+            "identical": False,
+            "comparable": False,
+            "reason": reason,
+            "identity_mismatches": list(identity_mismatches),
+            "metric_mismatches": list(metric_mismatches),
+            "item_mismatches": list(item_mismatches),
+            "warnings": warnings,
+            "checked_items": 0,
+        }
+
+    missing = sorted(
+        set(_missing_tier1_identity(left_identity)) | set(_missing_tier1_identity(right_identity))
+    )
+    if missing:
+        return _not_comparable("identity unavailable: " + ", ".join(missing))
+
     identity_mismatches = [
         {"field": name, "left": left_identity[name], "right": right_identity[name]}
         for name in left_identity
         if left_identity[name] != right_identity[name]
     ]
     if identity_mismatches:
-        return {
-            "identical": False,
-            "comparable": False,
-            "reason": "identity mismatch",
-            "identity_mismatches": identity_mismatches,
-            "metric_mismatches": [],
-            "item_mismatches": [],
-            "warnings": warnings,
-            "checked_items": 0,
-        }
+        return _not_comparable("identity mismatch", identity_mismatches=identity_mismatches)
+
+    left_count = _archive_qa_count(left_meta)
+    right_count = _archive_qa_count(right_meta)
+    if left_count is None or right_count is None:
+        return _not_comparable("qa count unavailable")
+    if (
+        left_count != right_count
+        or len(left_answers) != left_count
+        or len(right_answers) != right_count
+    ):
+        return _not_comparable(
+            f"answer count mismatch: left {len(left_answers)}/{left_count}, "
+            f"right {len(right_answers)}/{right_count}"
+        )
 
     metric_mismatches: list[dict[str, Any]] = []
     for name in ("retrieval", "counts", "provisional"):
@@ -909,7 +1008,7 @@ def compare_tier1_runs(left: Path | str, right: Path | str) -> dict[str, Any]:
                 }
             )
             continue
-        for name in ("retrieved_chunk_ids", "retrieved_urls", "abstained"):
+        for name in ("question", "retrieved_chunk_ids", "retrieved_urls", "abstained"):
             if left_by_qa[qa_id].get(name) != right_by_qa[qa_id].get(name):
                 item_mismatches.append(
                     {
@@ -920,6 +1019,14 @@ def compare_tier1_runs(left: Path | str, right: Path | str) -> dict[str, Any]:
                     }
                 )
 
+    checked_items = len(set(left_by_qa) & set(right_by_qa))
+    if checked_items != left_count:
+        return _not_comparable(
+            "item coverage mismatch",
+            metric_mismatches=metric_mismatches,
+            item_mismatches=item_mismatches,
+        )
+
     identical = not metric_mismatches and not item_mismatches
     return {
         "identical": identical,
@@ -929,7 +1036,7 @@ def compare_tier1_runs(left: Path | str, right: Path | str) -> dict[str, Any]:
         "metric_mismatches": metric_mismatches,
         "item_mismatches": item_mismatches,
         "warnings": warnings,
-        "checked_items": len(set(left_by_qa) & set(right_by_qa)),
+        "checked_items": checked_items,
     }
 
 
