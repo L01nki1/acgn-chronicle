@@ -46,11 +46,22 @@ def _is_date_only(value: str) -> bool:
 
 
 def _parse_bound(value: str) -> tuple[datetime, bool]:
-    """Parse an ISO bound as UTC; return (instant, is_date_only)."""
+    """Parse an ISO bound as UTC; return (instant, is_date_only).
+
+    Sub-second bounds are rejected: `published_ts` is stored as whole epoch seconds, so a
+    fractional bound cannot be honoured. Chroma truncates a float operand against an integer
+    metadata field, which made `since=...00:00.5Z` match a record stored at `...00:00`.
+    """
     parsed = datetime.fromisoformat(value)
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC), _is_date_only(value)
+    parsed = parsed.astimezone(UTC)
+    if parsed.microsecond:
+        raise ValueError(
+            "fractional-second bounds are not supported: published_ts is stored in whole "
+            f"seconds, so {value!r} cannot be compared exactly"
+        )
+    return parsed, _is_date_only(value)
 
 
 def build_where(filters: RetrievalFilters | None) -> dict[str, Any] | None:
@@ -58,8 +69,9 @@ def build_where(filters: RetrievalFilters | None) -> dict[str, Any] | None:
 
     Empty lists mean "no constraint in that family"; families are ANDed, values inside a
     family are ORed. Date-only bounds are whole UTC days (upper exclusive at next midnight);
-    ISO datetimes are half-open at their stated instants. Equal datetimes are an empty
-    interval, while equal date-only values select one day. Do not truncate a bound.
+    ISO datetimes are half-open at their stated whole-second instants. Fractional-second
+    bounds are rejected because the store keeps whole seconds. Equal datetimes are an empty
+    interval, while equal date-only values select one day.
     """
     if filters is None:
         return None

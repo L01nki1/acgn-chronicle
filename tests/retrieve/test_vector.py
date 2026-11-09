@@ -173,11 +173,21 @@ def test_build_where_naive_datetime_is_utc() -> None:
     }
 
 
-def test_build_where_fractional_until_is_not_truncated() -> None:
-    value = "2026-10-28T12:00:00.500000+00:00"
-    where = build_where(RetrievalFilters(until=value))
-    assert where == {"published_ts": {"$lt": _ts(value)}}
-    assert where["published_ts"]["$lt"] % 1 == 0.5
+def test_build_where_rejects_fractional_bounds() -> None:
+    fractional = (
+        RetrievalFilters(since="2026-10-28T12:00:00.3Z"),
+        RetrievalFilters(until="2026-10-28T12:00:00.500000+00:00"),
+        RetrievalFilters(since="2026-10-28T21:00:00.5+09:00"),
+    )
+    for filters in fractional:
+        with pytest.raises(ValueError, match="fractional-second"):
+            build_where(filters)
+
+
+def test_build_where_whole_second_datetime_stays_exact() -> None:
+    assert build_where(RetrievalFilters(since="2026-10-28T12:00:00.000Z")) == {
+        "published_ts": {"$gte": _ts("2026-10-28T12:00:00+00:00")}
+    }
 
 
 def test_build_where_empty_source_types_keeps_other_families() -> None:
