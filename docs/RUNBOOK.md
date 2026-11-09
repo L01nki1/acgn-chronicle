@@ -74,15 +74,20 @@ pytest -q                                     # 4 tests
 | Committing shows no `[pre-commit]` line at all | `core.hooksPath` is not set in this clone (it is a local setting) | `python scripts/install_hooks.py` |
 | `hooks/pre-commit: bad interpreter` | The hook file picked up CRLF | `.gitattributes` forces LF for `.githooks/*`; re-checkout the file (`git checkout -- .githooks`) |
 
-### 3.1 Chroma specifics — three pitfalls to verify before building the index (chromadb >=1.0,<2)
+### 3.1 Chroma specifics — three pitfalls to verify before building the index (chromadb >=1.5.0,<2)
 
-1. **Metadata holds scalars or flat typed arrays.** Since 1.0 Chroma accepts `str / int /
-   float / bool` and one-type, one-dimensional arrays (`int[]` works, nesting is still
+1. **Metadata holds scalars or flat typed arrays.** The minimum supported Chroma 1.5.0 accepts
+   `str / int / float / bool` and one-type, one-dimensional arrays (`int[]` works, nesting is still
    forbidden). `media_ids` is stored natively as `int[]` and filtered with
    `{"$or": [{"media_ids": {"$contains": id}}, ...]}` — measured adequate for the small
    any-of lists `RetrievalFilters.media_ids` implies. Long any-of lists may still justify a
    SQLite reverse table `doc_id ↔ media_id` translated into `{"doc_id": {"$in": [...]}}`;
    that stays a recorded future option, not the current path.
+   An unresolved item has no `media_ids` key in stored metadata, rather than an empty array;
+   reads reconstruct an empty tuple. Chroma upserts merge metadata, so the store sends a
+   `None` removal marker for empty `media_ids` and absent `ingest_category` to clear any old
+   values on that row. The marker is not retained as a stored value. The current build CLI
+   passes an optional input `ingest_category` through to the stored payload.
 2. **Store time as an integer epoch** (`published_ts`), not an ISO string. Range filters then compare
    numbers, which avoids format and time-zone ambiguity.
 3. **Filtering is pre-KNN in 1.x** — the old "the filter trims the top-k after the search"
@@ -277,6 +282,15 @@ this section is only the decision.
   embeddings* are a dev-smoke option only, quality far below any canonical lane.
 
 ### 3.6 L0 facts-extraction SOP
+
+`python scripts/export_fact_chunks.py --snapshot <id> --config A --data-root <root> --output <relative-path>.jsonl`
+exports every indexed chunk of the explicitly selected configuration under `<root>/chunks/`. Pass that
+file to `extract_facts.py --input`; this is not an announcement selector and does not choose a default
+configuration. Keep exported source text out of Git. The adjacent `.receipt.json` records the selected
+build and JSONL SHA-256: verify the hash yourself before using the output, because the extraction CLI
+does not read the receipt. The receipt and JSONL are replaced separately; an interruption can leave
+them inconsistent. Serialize builds and exports: count/record checks are not a lock. Existing build
+records do not establish that an unmarked raw input is the complete frozen snapshot.
 
 - **Batch 10 announcements per LLM call** with numbered output; measured pattern from the pilot cuts
   cost 3–5× vs one-per-call, and JSON per numbered slot is easier to validate. ~9.5k L0 items ⇒ ~950
