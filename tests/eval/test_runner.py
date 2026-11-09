@@ -1322,7 +1322,7 @@ def test_compare_tier1_runs_handles_unicode_line_separators(tmp_path: Path) -> N
         for line in answers_path.read_text(encoding="utf-8").split("\n")
         if line.strip()
     ]
-    rows[0]["question"] = "line\u2028separator"
+    rows[0]["answer"] = "line\u2028separator"
     answers_path.write_text(
         "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n",
         encoding="utf-8",
@@ -1402,3 +1402,149 @@ def test_compare_tier1_runs_rejects_missing_archive_file(tmp_path: Path) -> None
 
     with pytest.raises(ValueError, match="invalid run archive"):
         compare_tier1_runs(left, right)
+
+
+def _archive_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_archive_json(path: Path, payload: dict[str, Any]) -> None:
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _archive_rows(path: Path) -> list[dict[str, Any]]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").split("\n") if line]
+
+
+def _write_archive_rows(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+
+def test_compare_tier1_runs_detects_changed_question(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    answers_path = right / "answers.jsonl"
+    rows = _archive_rows(answers_path)
+    rows[0]["question"] = "A different question with the same qa_id"
+    _write_archive_rows(answers_path, rows)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is False
+    assert result["comparable"] is True
+    assert result["item_mismatches"][0]["field"] == "question"
+
+
+def test_compare_tier1_runs_rejects_chunker_drift(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    meta_path = right / "meta.json"
+    meta = _archive_json(meta_path)
+    meta["chunker"]["header_version"] = "h2"
+    _write_archive_json(meta_path, meta)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is False
+    assert result["comparable"] is False
+    assert result["reason"] == "identity mismatch"
+    assert result["identity_mismatches"][0]["field"] == "chunker"
+
+
+def test_compare_tier1_runs_rejects_two_empty_answer_files(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    (left / "answers.jsonl").write_text("", encoding="utf-8")
+    (right / "answers.jsonl").write_text("", encoding="utf-8")
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is False
+    assert result["comparable"] is False
+    assert result["reason"].startswith("answer count mismatch")
+
+
+def test_compare_tier1_runs_rejects_equally_truncated_answer_files(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        meta_path = archive / "meta.json"
+        meta = _archive_json(meta_path)
+        meta["qa"]["count"] = 2
+        _write_archive_json(meta_path, meta)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"].startswith("answer count mismatch")
+
+
+def test_compare_tier1_runs_rejects_qa_fingerprint_drift(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    meta_path = right / "meta.json"
+    meta = _archive_json(meta_path)
+    meta["qa"]["inputs_fingerprint"] = "0" * 64
+    _write_archive_json(meta_path, meta)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == "identity mismatch"
+    assert result["identity_mismatches"][0]["field"] == "qa_inputs_fingerprint"
+
+
+def test_compare_tier1_runs_requires_a_qa_fingerprint(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        meta_path = archive / "meta.json"
+        meta = _archive_json(meta_path)
+        del meta["qa"]["inputs_fingerprint"]
+        _write_archive_json(meta_path, meta)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == "identity unavailable: qa_inputs_fingerprint"
+
+
+def test_compare_tier1_runs_rejects_one_sided_truncation(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    (right / "answers.jsonl").write_text("", encoding="utf-8")
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"].startswith("answer count mismatch")
+
+
+def test_compare_tier1_runs_requires_identity_slug(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        meta_path = archive / "meta.json"
+        meta = _archive_json(meta_path)
+        meta["build_identity"]["identity_slug"] = ""
+        _write_archive_json(meta_path, meta)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == "identity unavailable: identity_slug"
+
+
+def test_compare_tier1_runs_requires_chunker_identity(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        meta_path = archive / "meta.json"
+        meta = _archive_json(meta_path)
+        del meta["chunker"]
+        _write_archive_json(meta_path, meta)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == "identity unavailable: chunker"
