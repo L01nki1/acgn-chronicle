@@ -190,6 +190,23 @@ def test_build_where_whole_second_datetime_stays_exact() -> None:
     }
 
 
+def test_build_where_rejects_sub_microsecond_bounds() -> None:
+    fractional = (
+        RetrievalFilters(since="2026-11-09T00:00:00.0000001Z"),
+        RetrievalFilters(until="2026-11-09T00:00:00.0000001Z"),
+        RetrievalFilters(since="2026-11-09T00:00:00.0000001+09:00"),
+    )
+    for filters in fractional:
+        with pytest.raises(ValueError, match="fractional-second"):
+            build_where(filters)
+
+
+def test_build_where_accepts_an_all_zero_fraction_as_a_whole_second() -> None:
+    assert build_where(RetrievalFilters(since="2026-11-09T00:00:00.0000000Z")) == {
+        "published_ts": {"$gte": _ts("2026-11-09T00:00:00+00:00")}
+    }
+
+
 def test_build_where_empty_source_types_keeps_other_families() -> None:
     assert build_where(RetrievalFilters(source_types=[], since="2026-10-01")) == {
         "published_ts": {"$gte": iso_to_epoch("2026-10-01")}
