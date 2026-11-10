@@ -11,7 +11,7 @@
 |---|---|---|---|
 | **L0** first-party | publishers, studios, official press releases | fact fields, ground truth, strongest citations | yes |
 | **L1** structured | AniList / Bangumi / Bilibili / syosetu / ANN Encyclopedia | entity linking, fact checks, type-B QA lookups | metadata only, not news flow |
-| **L2** media | ANN, Gcores, Chuapp, GameRes, AUTOMATON, 4Gamer | long-form reporting, cross-source synthesis | yes |
+| **L2** media | ANN, Nijimen にじめん, Real Sound リアルサウンド, Gcores, Chuapp, GameRes, AUTOMATON, 4Gamer | long-form reporting, cross-source synthesis | yes |
 | **L3** community | Reddit, Mastodon | heat signal for the daily board only | **no** — `SourceType` has no `community` value yet |
 
 ## 2. Four access modes (RSS is no longer the norm, they are not interchangeable)
@@ -34,9 +34,11 @@ Three facts learned the hard way:
 |---|---|---|---|---|
 | **Toei Animation** ⭐ | `https://www.toei-anim.co.jp/news/` | HTML list | one page carries 322 dated entries back to 2008-10 — **one request ≈ 18 years** | highest yield per request |
 | **Capcom** | `https://www.capcom.co.jp/rss/news.xml` | RSS | full archive, 7,293 items since 2014-03; titles are templated ⇒ must LLM-extract fields | game side, bulk volume |
-| **MAPPA / BONES / P.A.WORKS** | `https://mappa.co.jp/feed/` etc. + `?paged=N` | WP / RSS | 5 pages ≈ 1.5–2.5 years; MAPPA's REST works, prefer it | studio-side first-party |
+| **MAPPA / BONES / P.A.WORKS** | `https://mappa.co.jp/feed/` etc. + `/wp-json/wp/v2/posts` | WP / RSS | `per_page=100` (400 fallback to 50), `max_pages=300`, server-side `after`/`before` bounds; full-text `<content:encoded>` extracted in RSS fallback | studio-side first-party |
+| **Nijimen にじめん** ⭐ | `nijimen.kusuguru.co.jp/wp-json/wp/v2/posts` | WP REST | open WP REST (`per_page=100`, `max_pages=300`), ~13.2k full-body items over 3y; legacy `nijimen.net` links canonicalized to `nijimen.kusuguru.co.jp` (verified 301 redirect + `<link rel="canonical">`) | primary Japanese L2 full-text media |
+| **Real Sound リアルサウンド** ⭐ | `realsound.jp/wp-json/wp/v2/posts?categories=116583,116584` | WP REST | open WP REST (`per_page=100`, `max_pages=300`) filtered to Book (`116583`) + Tech (`116584`) ACGN categories; ~1.55k long-form full-body items over 3y (manga, light novel, anime, game) | long-form Japanese L2 media |
 | **PR TIMES** | `https://prtimes.jp/index.rdf` | RSS | no usable category channel (all 404) ⇒ keyword filter on アニメ / マンガ / ゲーム / 声優 / 配信 | press releases; noisy without the filter |
-| **ANN** | RSS `all/rss.xml` + `https://www.animenewsnetwork.com/news/YYYY-MM-DD` | RSS + per-day | ~31 items/day; the per-day URL is addressable ⇒ **the per-day archive is the only way to cover 3 years with no gaps** (≈1,100 requests, ~45 min at our pacing) | main L2 corpus |
+| **ANN** | RSS `all/rss.xml` + `https://www.animenewsnetwork.com/news/YYYY-MM-DD` | RSS + per-day + offline article cache | ~31 items/day; the per-day URL is addressable ⇒ **the per-day archive covers 3 years with no gaps** (≈1,100 requests, ~45 min uncached; `7,811` / `7,797` cached full article HTML pages in `data/raw/ann-article-cache-20261102.zip` provide multi-paragraph `body_level="full"` via `div.KonaBody`, while uncached archive index rows carry `body_level="headline"` and RSS tail carries `body_level="blurb"`) | main English L2 timeline index & full-text media |
 | **Gcores 机核** | `https://www.gcores.com/rss` | RSS | ~6.7/day, median 565 chars | Chinese media |
 | **Chuapp 触乐** | `http://www.chuapp.com/feed` | RSS | ~2.1/day, median 3,846 chars — the long-document workhorse | Chinese media |
 | **GameRes 游研社** | `https://www.yystv.cn/rss/feed` | RSS | ~2.4/day, full text | Chinese media |
@@ -45,8 +47,11 @@ Three facts learned the hard way:
 | **Bilibili schedule** | `https://api.bilibili.com/pgc/web/timeline?types=1` | API | no key; 1 req/5 s | episode table for the daily digest |
 | **syosetu** | `https://api.syosetu.com/novelapi/api/?out=json` | API | 1.26M novels, **metadata only** | light-novel coverage |
 
-Only ANN supports both `discover()` and `backfill()`. Capcom's backfill is "parse the whole 7,293-item feed";
-Toei's is "one request". **Do not invent a backfill for sources that cannot support it.**
+ANN (`AnnArchiveAdapter`) and WordPress REST/paged feeds (`WpPagedAdapter`: Nijimen, Real Sound, MAPPA, BONES,
+P.A.WORKS) support deep multi-page historical `backfill()` plus incremental `discover()`. Capcom's backfill is
+"parse the whole 7,293-item archive feed"; Toei's is "one request". Rolling RSS feeds (`gcores-news`, `chuapp-news`,
+`gameres-news`, `prtimes-acgn`) raise `BackfillNotSupportedError` on `backfill()` and contribute their rolling
+`discover()` tail. **Do not invent a backfill for sources that cannot support it.**
 
 ## 4. W2 expansion pool (does not block W1)
 
@@ -75,6 +80,7 @@ W2 priority follows the coverage gap: light novel and manga first (they are the 
 | Bandai Namco Filmworks, Studio Trigger | two retries, connection dies at TLS handshake — not solvable with `requests`, and should not be |
 | ufotable | homepage 200 but `/news/` 403; WPGraphQL headless app |
 | Dengeki Online | Next.js SPA, old feed 404 |
+| `api.bilibili.com/pgc/web/timeline` | `api.bilibili.com/robots.txt` serves `User-agent: * / Disallow: /` (measured 2026-11-05); skipped under C1 (`skipped_robots_disallow`) |
 
 ## 6. Acceptance thresholds (W1 hard gate, judged on 11/2)
 
@@ -124,6 +130,9 @@ Rules that prevent silent shrinkage:
 ## 8. Politeness defaults (all sources)
 
 Self-describing UA `AcgnRagBot/0.1 (CS5481 course project; +repo url)` · per-host token bucket 1 req/2.5 s with
-jitter · global concurrency 8–14 · `robots.txt` read once and cached 24 h · conditional requests with
-`ETag` / `If-Modified-Since` (a 304 is the cheapest possible politeness) · exponential backoff 1→2→4 s honoring
-`Retry-After`, 3 attempts max · breaker: three consecutive failures on one source ⇒ 30-minute cooldown + run log.
+jitter (`scripts/backfill.py` and `scripts/discover_daily.py` iterate registered sources sequentially in a single
+thread; `HttpConfig.max_concurrency = 10` is a reserved configuration ceiling for future concurrent callers) ·
+`robots.txt` read once and cached 24 h (`respect_robots=False` raises `ValueError` under C1) · conditional
+requests with `ETag` / `If-Modified-Since` (a 304 is the cheapest possible politeness, with cached body text preserved
+across restarts) · exponential backoff 1→2→4 s honoring `Retry-After` (capped at 300 s), 3 retries max (4 total
+attempts) · breaker: three consecutive failures on one source ⇒ 30-minute cooldown + run log.
