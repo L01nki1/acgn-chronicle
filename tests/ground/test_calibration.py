@@ -200,14 +200,35 @@ def test_target_missed_refusal_ties_prefer_the_higher_threshold() -> None:
     assert result.point.balanced_accuracy == 1.0
 
 
-@pytest.mark.parametrize("target", [-0.1, math.nan])
-def test_target_missed_refusal_with_no_feasible_point_raises(target: float) -> None:
-    with pytest.raises(ValueError, match="no threshold satisfies"):
+@pytest.mark.parametrize("target", [-0.1, 1.5, math.nan, math.inf])
+def test_target_missed_refusal_rejects_a_non_rate_target(target: float) -> None:
+    with pytest.raises(ValueError, match=r"finite rate in \[0, 1\]"):
         choose_threshold(
             _overlapping_samples(),
             strategy="target_missed_refusal",
             target_missed_refusal_rate=target,
         )
+
+
+def test_target_missed_refusal_accepts_an_exact_decimal_boundary() -> None:
+    # 3/10 reported as 0.3 must satisfy "at most 0.3"; exact-binary comparison would exclude
+    # it and flip the selection to the all-refused sentinel.
+    samples = [
+        *[_sample(0.5, True) for _ in range(20)],
+        *[_sample(0.9, False) for _ in range(3)],
+        *[_sample(0.1, False) for _ in range(7)],
+    ]
+
+    result = choose_threshold(
+        samples,
+        strategy="target_missed_refusal",
+        target_missed_refusal_rate=0.3,
+    )
+
+    assert result.point.threshold == 0.5
+    assert result.point.refused_answerable == 0
+    assert result.point.missed_unanswerable == 3
+    assert result.point.false_refusal_rate == 0.0
 
 
 def test_unknown_strategy_is_rejected() -> None:

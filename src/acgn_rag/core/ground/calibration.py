@@ -118,8 +118,9 @@ def sweep_thresholds(samples: Sequence[CalibrationSample]) -> tuple[ThresholdPoi
     produce one candidate, not one per sample.
 
     Raises:
-        ValueError: if samples is empty, a score is not a finite real number, or an
-            answerable value is not a real bool.
+        ValueError: if samples is empty, a score is not a finite real number, an answerable
+            value is not a real bool, or the all-refused sentinel cannot be represented as a
+            finite threshold.
     """
     values = _validate_samples(samples)
     return _sweep(values)
@@ -143,13 +144,15 @@ def choose_threshold(
 
     target_missed_refusal keeps only points whose missed-refusal rate is at most
     target_missed_refusal_rate, minimises the false-refusal rate among them, and breaks ties
-    toward the higher threshold. Because the sweep includes the all-refused sentinel, every
-    non-negative target is feasible; a ValueError therefore indicates a target no point
-    satisfies (typically a negative or NaN target).
+    toward the higher threshold. The target must be a finite rate in [0, 1]. The comparison
+    uses the reported float rate (as the protocol records rates), so an exact-decimal
+    boundary such as 0.3 admits a 3/10 missed-refusal point. Because the sweep includes the
+    all-refused sentinel, every finite target in range is feasible and the selected point is
+    deterministic.
 
     Raises:
         ValueError: if samples is empty or invalid, either class is absent, the strategy is
-            unknown, or no point satisfies the target.
+            unknown, or a target-strategy target is not a finite rate in [0, 1].
     """
     values = _validate_samples(samples)
     answerable = sum(1 for sample in values if sample.answerable)
@@ -168,27 +171,22 @@ def choose_threshold(
         )
         recorded_target = None
     elif strategy == "target_missed_refusal":
+        target = float(target_missed_refusal_rate)
+        if not math.isfinite(target) or not 0.0 <= target <= 1.0:
+            raise ValueError(
+                "target_missed_refusal_rate must be a finite rate in [0, 1], "
+                f"got {target_missed_refusal_rate!r}"
+            )
         feasible = [
             point
             for point in points
-            if Fraction(point.missed_unanswerable, unanswerable) <= target_missed_refusal_rate
+            if point.missed_refusal_rate is not None and point.missed_refusal_rate <= target
         ]
-        if not feasible:
-            lowest = min(
-                point.missed_refusal_rate
-                for point in points
-                if point.missed_refusal_rate is not None
-            )
-            raise ValueError(
-                "no threshold satisfies "
-                f"target_missed_refusal_rate={target_missed_refusal_rate!r}; "
-                f"the lowest achievable missed-refusal rate is {lowest!r}"
-            )
         chosen = max(
             feasible,
             key=lambda point: _target_missed_refusal_rank(point, answerable),
         )
-        recorded_target = target_missed_refusal_rate
+        recorded_target = target
     else:
         raise ValueError(
             f"unknown calibration strategy {strategy!r}; "
@@ -286,8 +284,9 @@ def _balanced_accuracy_rank(
     """Rank by exact balanced accuracy, lower false refusals, then higher threshold.
 
     The rank uses Fractions derived from the integer counts: computing balanced accuracy in
-    floats lets a mathematically tied point win by a rounding artifact (17/20 + 17/20 vs
-    18/20 + 16/20 both equal 17/20, but the float values can differ), which would refuse
+    floats lets a mathematically tied point win by a rounding artifact (for 20 answerable
+    and 10 unanswerable items, 0 refused / 3 missed and 2 refused / 2 missed both have
+    exact balanced accuracy 17/20, but their float values can differ), which would refuse
     answerable calibration items without a real accuracy gain.
     """
     accuracy_twice = Fraction(answerable - point.refused_answerable, answerable) + Fraction(
