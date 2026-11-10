@@ -1,0 +1,43 @@
+{
+  "snapshot_id": "20261105-d797b5f0ae8e",
+  "policy": "entity-event-72h+agglomerative-complete:char3-tf-cosine-v2",
+  "thresholds": [
+    {
+      "threshold": 0.82,
+      "item_count": 36167,
+      "cluster_count": 36103,
+      "non_singleton_clusters": 62,
+      "collapsed": 64,
+      "largest_cluster": 3,
+      "member_pairs": 66
+    },
+    {
+      "threshold": 0.84,
+      "item_count": 36167,
+      "cluster_count": 36111,
+      "non_singleton_clusters": 54,
+      "collapsed": 56,
+      "largest_cluster": 3,
+      "member_pairs": 58
+    },
+    {
+      "threshold": 0.86,
+      "item_count": 36167,
+      "cluster_count": 36121,
+      "non_singleton_clusters": 46,
+      "collapsed": 46,
+      "largest_cluster": 2,
+      "member_pairs": 46
+    },
+    {
+      "threshold": 0.88,
+      "item_count": 36167,
+      "cluster_count": 36126,
+      "non_singleton_clusters": 41,
+      "collapsed": 41,
+      "largest_cluster": 2,
+      "member_pairs": 41
+    }
+  ],
+  "note": "cluster counts from cluster_items on the frozen corpus; hand labels pending"
+}

@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>G1b dedup 人工标注表</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --ink: #1c2024; --muted: #5b6570; --line: #dfe3e8;
+    --dup: #1f7a3d; --not: #b3261e; --skip: #6b6f76; --accent: #1f5fbf;
+    --dup-bg: #e7f5ec; --not-bg: #fdecea; --skip-bg: #eef0f2;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.6 -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic", "Noto Sans JP",
+          "Microsoft YaHei", sans-serif;
+  }
+  header {
+    position: sticky; top: 0; z-index: 20; background: var(--panel);
+    border-bottom: 1px solid var(--line); padding: 10px 20px;
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+  }
+  header h1 { font-size: 16px; margin: 0 12px 0 0; }
+  .bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .bar .spacer { flex: 1; }
+  .pill {
+    background: var(--skip-bg); border-radius: 999px; padding: 2px 10px;
+    font-variant-numeric: tabular-nums; font-size: 13px;
+  }
+  button {
+    font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line);
+    background: #fff; color: var(--ink); cursor: pointer;
+  }
+  button:hover { border-color: #b9c0c8; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { filter: brightness(1.06); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .tabs { display: flex; gap: 6px; padding: 10px 20px 0; flex-wrap: wrap; }
+  .tab {
+    padding: 6px 14px; border-radius: 8px 8px 0 0; border: 1px solid var(--line);
+    border-bottom: none; background: #eef0f3; cursor: pointer; font-variant-numeric: tabular-nums;
+  }
+  .tab.active { background: var(--panel); font-weight: 600; }
+  .tab .done { color: var(--dup); font-weight: 600; }
+  main { padding: 0 20px 80px; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 0 8px 8px 8px;
+    padding: 14px 16px; margin-bottom: 14px;
+  }
+  details.guide summary { cursor: pointer; font-weight: 600; }
+  details.guide .body { margin-top: 10px; }
+  table.guide { border-collapse: collapse; width: 100%; margin: 8px 0 4px; }
+  table.guide th, table.guide td {
+    border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top;
+  }
+  table.guide th { background: #f2f4f6; font-weight: 600; }
+  .warn { background: #fff8e1; border-left: 4px solid #f0b400; padding: 8px 12px; margin: 10px 0; }
+  .hint { color: var(--muted); font-size: 13px; }
+  .row {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    margin: 0 0 12px; overflow: hidden;
+  }
+  .row.next { box-shadow: 0 0 0 2px var(--accent); }
+  .row.d-dup { border-left: 5px solid var(--dup); }
+  .row.d-not { border-left: 5px solid var(--not); }
+  .row.d-skip { border-left: 5px solid var(--skip); }
+  .row-head {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    padding: 8px 12px; background: #fafbfc; border-bottom: 1px solid var(--line);
+  }
+  .pid { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .tag {
+    font-size: 12px; padding: 1px 8px; border-radius: 999px; background: #eef0f3; color: var(--muted);
+  }
+  .tag.cos { background: #eaf1fb; color: #1b4f9c; }
+  .tag.cross { background: #fdf0e6; color: #8a4b00; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+  @media (max-width: 900px) { .pair { grid-template-columns: 1fr; } }
+  .side { padding: 12px 14px; }
+  .side + .side { border-left: 1px solid var(--line); }
+  @media (max-width: 900px) { .side + .side { border-left: none; border-top: 1px solid var(--line); } }
+  .side .label { font-size: 12px; color: var(--muted); letter-spacing: .04em; }
+  .side .title { font-size: 15px; font-weight: 600; margin: 4px 0 8px; word-break: break-word; }
+  .side a { color: var(--accent); word-break: break-all; font-size: 13px; }
+  .meta { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .meta .tag { font-size: 11px; }
+  .decide { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 12px; border-top: 1px solid var(--line); }
+  .decide .key { font-size: 12px; color: var(--muted); }
+  .opt {
+    padding: 5px 12px; border-radius: 6px; border: 1px solid var(--line); background: #fff; cursor: pointer;
+  }
+  .opt.on-dup { background: var(--dup-bg); border-color: var(--dup); color: var(--dup); font-weight: 600; }
+  .opt.on-not { background: var(--not-bg); border-color: var(--not); color: var(--not); font-weight: 600; }
+  .opt.on-skip { background: var(--skip-bg); border-color: var(--skip); color: var(--skip); font-weight: 600; }
+  .decide input[type=text] {
+    flex: 1; min-width: 220px; font: inherit; padding: 5px 8px;
+    border: 1px solid var(--line); border-radius: 6px;
+  }
+  .progress { height: 6px; background: #e6e9ed; border-radius: 999px; overflow: hidden; width: 160px; }
+  .progress > i { display: block; height: 100%; background: var(--dup); width: 0; }
+  .toast {
+    position: fixed; right: 20px; bottom: 20px; background: #1c2024; color: #fff;
+    padding: 10px 16px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none;
+  }
+  .toast.show { opacity: .95; }
+  dialog { border: none; border-radius: 10px; padding: 0; max-width: 560px; width: 92%; }
+  dialog .dlg-body { padding: 18px 20px; }
+  dialog h2 { margin: 0 0 10px; font-size: 16px; }
+  dialog ul { margin: 8px 0; padding-left: 20px; }
+  dialog .dlg-actions { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 20px 18px; }
+  .kbd {
+    display: inline-block; padding: 0 6px; border: 1px solid var(--line); border-bottom-width: 2px;
+    border-radius: 4px; background: #fafbfc; font-size: 12px; font-family: ui-monospace, monospace;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>G1b dedup 人工标注</h1>
+  <div class="bar">
+    <span class="pill" id="count-all">0 / 0</span>
+    <div class="progress"><i id="progress"></i></div>
+    <button id="btn-export" class="primary">导出 CSV</button>
+    <button id="btn-export-json">导出 JSON</button>
+    <button id="btn-import">导入 CSV</button>
+    <button id="btn-clear">清空</button>
+    <span class="spacer"></span>
+    <button id="btn-help">操作说明</button>
+  </div>
+  <input type="file" id="file-input" accept=".csv,text/csv" hidden>
+</header>
+
+<div class="tabs" id="tabs"></div>
+
+<main>
+  <div class="panel">
+    <details class="guide" open>
+      <summary>判断标准（先读这一块，再开始标）</summary>
+      <div class="body">
+        <p><strong>核心问题：</strong>这两篇文章是不是<strong>同一件事</strong>的两次报道？
+          如果只保留其中一篇，读者会漏掉信息吗？</p>
+        <table class="guide">
+          <tr><th style="width:38%">情况</th><th style="width:16%">怎么标</th><th>例子（本表里真实存在）</th></tr>
+          <tr><td>标题相同，或只差标点/空格</td><td><b>duplicate</b></td><td>「2026年 年賀状」 vs 「2026年 年賀状」</td></tr>
+          <tr><td>同一事件，一篇多一个细节（地区、档期）</td><td><b>duplicate</b></td><td>「Crunchyroll to Stream Kagurabachi Anime」 vs 「… in India」</td></tr>
+          <tr><td>同一作品，<b>不同地区的上映/发行</b></td><td><b>not_duplicate</b></td><td>「… to Screen in Malaysia」 vs 「… in the Philippines」</td></tr>
+          <tr><td>同一 IP，<b>不同事件</b></td><td><b>not_duplicate</b></td><td>「Acquires Indian Rights」 vs 「OPテーマ リリース」</td></tr>
+          <tr><td>不同作品的<b>同模板文章</b></td><td><b>not_duplicate</b></td><td>「鬼滅の刃 一番好きな柱」 vs 「薬屋 一番好きなキャラ」</td></tr>
+          <tr><td>跨语言、标题完全不同，但说的是同一件事</td><td><b>duplicate</b></td><td>「My Hero Academia 7th Season Premieres in Spring 2024」 vs 「『ヒロアカ』アニメ7期が2024年春に放送決定」</td></tr>
+          <tr><td>跨语言，确实是两件事</td><td><b>not_duplicate</b></td><td>「One Piece Pirate Warriors 4」 vs 「プロセカ バレンタインランキング」</td></tr>
+          <tr><td>打不开 / 正文截断 / 实在判断不了</td><td><b>skip</b></td><td>——</td></tr>
+        </table>
+        <div class="warn">
+          <b>坑 1：跨语言对的余弦是 0，但可能是 duplicate。</b>
+          辅助通道只比同语言文本；跨语言对是靠主通道（<code>media_ids</code> + <code>event_type</code>）合并的。
+          看到 <span class="tag cross">跨语言</span> 标签时，<b>看标题和 URL，不要看余弦</b>。
+        </div>
+        <div class="warn">
+          <b>坑 2：skip 不要滥用。</b>每个阈值要凑够 20 个有效判定，30 行里最多跳 10 个。
+          跳太多评分脚本会拒绝出分。
+        </div>
+        <p class="hint">每个阈值 30 行 = 余弦最高的 10 行 + 剩下 20 行在余弦区间里均匀铺开。
+          不是只挑最像的（那样精确率虚高），也不是随机（那样可能抽不到边界样本）。</p>
+      </div>
+    </details>
+  </div>
+
+  <div id="rows"></div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<dialog id="help">
+  <div class="dlg-body">
+    <h2>操作说明</h2>
+    <ul>
+      <li>顶部标签切换阈值：<b>0.86 → 0.84 → 0.88 → 0.82</b>（先做当前值，再往两边扩）。每个阈值 30 行，约 20–30 分钟。</li>
+      <li>每行看 <b>title_a / title_b</b>，必要时点 URL 看正文，然后点 <b>duplicate / not_duplicate / skip</b>。</li>
+      <li><code>note</code> 可选，写一句话理由（报告里能用上）。</li>
+      <li>键盘：<span class="kbd">1</span> duplicate，<span class="kbd">2</span> not_duplicate，<span class="kbd">3</span> skip，
+        <span class="kbd">J</span>/<span class="kbd">K</span> 上下移动，<span class="kbd">Ctrl</span>+<span class="kbd">S</span> 导出。</li>
+      <li>进度自动存在浏览器 localStorage，关掉页面再打开会接着来。</li>
+      <li><b>随时点「导出 CSV」</b>，得到与 <code>label_sheet.csv</code> 同列的文件，覆盖回原路径即可。</li>
+      <li>全部填完后运行评分：<code>python scripts/calibrate_dedup.py --score eval/dedup_g1b/label_sheet.csv</code></li>
+    </ul>
+  </div>
+  <div class="dlg-actions"><button id="help-close" class="primary">知道了</button></div>
+</dialog>
+
+<script id="sheet-data" type="application/json">/*__ROWS__*/</script>
+<script>
+(function () {
+  "use strict";
+
+  var SOURCE = "/*__SOURCE__*/";
+  var COLUMNS = ["threshold", "pair_id", "cosine", "cluster_id", "same_language",
+                 "event_type_a", "event_type_b", "media_ids_a", "media_ids_b",
+                 "title_a", "title_b", "url_a", "url_b", "decision", "note"];
+  var STORE_KEY = "acgn-dedup-label:" + SOURCE;
+  var THRESHOLD_ORDER = ["0.86", "0.84", "0.88", "0.82"];
+  var DECISIONS = [
+    { value: "duplicate", label: "duplicate", cls: "dup" },
+    { value: "not_duplicate", label: "not_duplicate", cls: "not" },
+    { value: "skip", label: "skip", cls: "skip" }
+  ];
+
+  var rows = JSON.parse(document.getElementById("sheet-data").textContent);
+  var state = {};          // pair_id -> { decision, note }
+  var active = THRESHOLD_ORDER[0];
+  var cursor = null;       // pair_id of the highlighted row
+
+  function load() {
+    try {
+      var saved = JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
+      Object.keys(saved).forEach(function (id) { state[id] = saved[id]; });
+    } catch (e) { /* a corrupt entry must not block labelling */ }
+  }
+  function save() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* private mode */ }
+  }
+  function rowState(row) {
+    var s = state[row.pair_id] || {};
+    return { decision: s.decision || row.decision || "", note: s.note || row.note || "" };
+  }
+  function setDecision(row, value) {
+    var current = rowState(row);
+    state[row.pair_id] = {
+      decision: current.decision === value ? "" : value,
+      note: current.note
+    };
+    save();
+    renderRow(row);
+    renderStats();
+  }
+  function setNote(row, value) {
+    var current = rowState(row);
+    state[row.pair_id] = { decision: current.decision, note: value };
+    save();
+  }
+
+  function thresholds() {
+    var seen = [], all = [];
+    rows.forEach(function (r) { if (all.indexOf(r.threshold) < 0) all.push(r.threshold); });
+    THRESHOLD_ORDER.forEach(function (t) { if (all.indexOf(t) >= 0) seen.push(t); });
+    all.forEach(function (t) { if (seen.indexOf(t) < 0) seen.push(t); });
+    return seen;
+  }
+  function rowsFor(t) { return rows.filter(function (r) { return r.threshold === t; }); }
+
+  function renderTabs() {
+    var host = document.getElementById("tabs");
+    host.innerHTML = "";
+    thresholds().forEach(function (t) {
+      var list = rowsFor(t);
+      var done = list.filter(function (r) { return rowState(r).decision; }).length;
+      var tab = document.createElement("div");
+      tab.className = "tab" + (t === active ? " active" : "");
+      tab.innerHTML = t + ' <span class="done">' + done + "</span>/" + list.length;
+      tab.onclick = function () { active = t; cursor = null; renderTabs(); renderRows(); };
+      host.appendChild(tab);
+    });
+  }
+
+  function renderStats() {
+    var total = rows.length;
+    var done = rows.filter(function (r) { return rowState(r).decision; }).length;
+    document.getElementById("count-all").textContent = done + " / " + total;
+    document.getElementById("progress").style.width = (total ? (done / total) * 100 : 0) + "%";
+  }
+
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  function side(row, which) {
+    var box = el("div", "side");
+    box.appendChild(el("div", "label", which === "a" ? "文章 A" : "文章 B"));
+    box.appendChild(el("div", "title", row["title_" + which] || "（无标题）"));
+    var link = el("a", "", row["url_" + which] || "");
+    link.href = row["url_" + which] || "#";
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    box.appendChild(link);
+    var meta = el("div", "meta");
+    if (row["event_type_" + which]) meta.appendChild(el("span", "tag", "event: " + row["event_type_" + which]));
+    if (row["media_ids_" + which]) meta.appendChild(el("span", "tag", "media: " + row["media_ids_" + which]));
+    box.appendChild(meta);
+    return box;
+  }
+
+  function renderRow(row) {
+    var node = document.getElementById("row-" + row.pair_id);
+    if (!node) return;
+    var s = rowState(row);
+    node.className = "row d-" + ({ duplicate: "dup", not_duplicate: "not", skip: "skip" }[s.decision] || "none")
+      + (row.pair_id === cursor ? " next" : "");
+    node.querySelectorAll(".opt").forEach(function (btn) {
+      btn.className = "opt" + (btn.dataset.value === s.decision ? " on-" + btn.dataset.cls : "");
+    });
+  }
+
+  function buildRow(row) {
+    var node = el("div", "row");
+    node.id = "row-" + row.pair_id;
+
+    var head = el("div", "row-head");
+    head.appendChild(el("span", "pid", row.pair_id));
+    head.appendChild(el("span", "tag cos", "cosine " + row.cosine));
+    head.appendChild(el("span", "tag", row.same_language === "yes" ? "同语言" : "跨语言"));
+    if (row.same_language !== "yes") head.lastChild.className = "tag cross";
+    head.appendChild(el("span", "tag", row.cluster_id.slice(0, 18) + "…"));
+    node.appendChild(head);
+
+    var pair = el("div", "pair");
+    pair.appendChild(side(row, "a"));
+    pair.appendChild(side(row, "b"));
+    node.appendChild(pair);
+
+    var decide = el("div", "decide");
+    decide.appendChild(el("span", "key", "判定"));
+    DECISIONS.forEach(function (d) {
+      var btn = el("button", "opt", d.label);
+      btn.dataset.value = d.value;
+      btn.dataset.cls = d.cls;
+      btn.onclick = function () { setDecision(row, d.value); };
+      decide.appendChild(btn);
+    });
+    var note = document.createElement("input");
+    note.type = "text";
+    note.placeholder = "备注（可选）：一句话理由";
+    note.value = rowState(row).note;
+    note.oninput = function () { setNote(row, note.value); };
+    decide.appendChild(note);
+    node.appendChild(decide);
+
+    node.onclick = function (event) {
+      if (event.target.closest("button") || event.target.closest("input") || event.target.closest("a")) return;
+      cursor = row.pair_id;
+      highlight();
+    };
+    return node;
+  }
+
+  function renderRows() {
+    var host = document.getElementById("rows");
+    host.innerHTML = "";
+    rowsFor(active).forEach(function (row) {
+      var node = buildRow(row);
+      host.appendChild(node);
+      renderRow(row);
+    });
+    highlight();
+  }
+
+  function highlight() {
+    document.querySelectorAll(".row.next").forEach(function (n) { n.classList.remove("next"); });
+    if (!cursor) return;
+    var node = document.getElementById("row-" + cursor);
+    if (node) {
+      node.classList.add("next");
+      node.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }
+
+  function moveCursor(delta) {
+    var list = rowsFor(active);
+    var index = list.findIndex(function (r) { return r.pair_id === cursor; });
+    if (index < 0) index = delta > 0 ? -1 : list.length;
+    var next = list[index + delta];
+    if (next) { cursor = next.pair_id; highlight(); }
+  }
+
+  function currentRow() {
+    if (!cursor) return null;
+    return rowsFor(active).find(function (r) { return r.pair_id === cursor; }) || null;
+  }
+
+  function csvCell(value) {
+    var text = value === undefined || value === null ? "" : String(value);
+    return /[",\n\r]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+  }
+  function toCsv() {
+    var lines = [COLUMNS.join(",")];
+    rows.forEach(function (row) {
+      var s = rowState(row);
+      var out = COLUMNS.map(function (col) {
+        if (col === "decision") return csvCell(s.decision);
+        if (col === "note") return csvCell(s.note);
+        return csvCell(row[col]);
+      });
+      lines.push(out.join(","));
+    });
+    return lines.join("\r\n") + "\r\n";
+  }
+
+  function download(name, text, type) {
+    var blob = new Blob([text], { type: type });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  function exportCsv() {
+    download("label_sheet.csv", "\ufeff" + toCsv(), "text/csv;charset=utf-8");
+    toast("已导出 label_sheet.csv（覆盖回 eval/dedup_g1b/ 即可）");
+  }
+  function exportJson() {
+    var payload = rows.map(function (row) {
+      var s = rowState(row);
+      return Object.assign({}, row, { decision: s.decision, note: s.note });
+    });
+    download("label_sheet.json", JSON.stringify(payload, null, 2), "application/json");
+    toast("已导出 label_sheet.json");
+  }
+
+  function importCsv(text) {
+    var lines = text.replace(/^\ufeff/, "").split(/\r?\n/).filter(function (l) { return l.trim(); });
+    if (!lines.length) { toast("文件是空的"); return; }
+    var header = parseLine(lines[0]);
+    var dIdx = header.indexOf("decision");
+    var pIdx = header.indexOf("pair_id");
+    var nIdx = header.indexOf("note");
+    if (dIdx < 0 || pIdx < 0) { toast("缺少 pair_id 或 decision 列"); return; }
+    var byId = {};
+    rows.forEach(function (r) { byId[r.pair_id] = r; });
+    var applied = 0;
+    lines.slice(1).forEach(function (line) {
+      var cells = parseLine(line);
+      var id = cells[pIdx];
+      if (!byId[id]) return;
+      state[id] = {
+        decision: (cells[dIdx] || "").trim(),
+        note: nIdx >= 0 ? (cells[nIdx] || "") : ""
+      };
+      applied += 1;
+    });
+    save();
+    renderTabs(); renderRows(); renderStats();
+    toast("已导入 " + applied + " 行");
+  }
+  function parseLine(line) {
+    var out = [], cur = "", quoted = false;
+    for (var i = 0; i < line.length; i++) {
+      var ch = line[i];
+      if (quoted) {
+        if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+        else if (ch === '"') { quoted = false; }
+        else { cur += ch; }
+      } else if (ch === '"') { quoted = true; }
+      else if (ch === ",") { out.push(cur); cur = ""; }
+      else { cur += ch; }
+    }
+    out.push(cur);
+    return out;
+  }
+
+  var toastTimer = null;
+  function toast(message) {
+    var node = document.getElementById("toast");
+    node.textContent = message;
+    node.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { node.classList.remove("show"); }, 2600);
+  }
+
+  document.getElementById("btn-export").onclick = exportCsv;
+  document.getElementById("btn-export-json").onclick = exportJson;
+  document.getElementById("btn-import").onclick = function () {
+    document.getElementById("file-input").click();
+  };
+  document.getElementById("file-input").onchange = function (event) {
+    var file = event.target.files && event.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () { importCsv(String(reader.result)); };
+    reader.readAsText(file, "utf-8");
+    event.target.value = "";
+  };
+  document.getElementById("btn-clear").onclick = function () {
+    if (!confirm("清空本页所有已填的判定？（导出的文件不受影响）")) return;
+    state = {};
+    save();
+    renderTabs(); renderRows(); renderStats();
+    toast("已清空");
+  };
+  document.getElementById("btn-help").onclick = function () {
+    document.getElementById("help").showModal();
+  };
+  document.getElementById("help-close").onclick = function () {
+    document.getElementById("help").close();
+  };
+
+  document.addEventListener("keydown", function (event) {
+    var tag = (event.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea") {
+      if (event.key === "s" && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault(); exportCsv();
+      }
+      return;
+    }
+    if (event.key === "s" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); exportCsv(); return; }
+    var row = currentRow();
+    if (event.key === "j" || event.key === "ArrowDown") { event.preventDefault(); moveCursor(1); return; }
+    if (event.key === "k" || event.key === "ArrowUp") { event.preventDefault(); moveCursor(-1); return; }
+    if (!row) return;
+    if (event.key === "1") { event.preventDefault(); setDecision(row, "duplicate"); moveCursor(1); }
+    else if (event.key === "2") { event.preventDefault(); setDecision(row, "not_duplicate"); moveCursor(1); }
+    else if (event.key === "3") { event.preventDefault(); setDecision(row, "skip"); moveCursor(1); }
+  });
+
+  window.addEventListener("beforeunload", function (event) {
+    // Everything is already in localStorage, so an accidental close loses nothing; the
+    // confirm is only a reminder to export before switching machines.
+    var done = rows.filter(function (r) { return rowState(r).decision; }).length;
+    if (done > 0 && done < rows.length) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+  });
+
+  // A labelling tool must never block the tab: the stop button must close the page, and
+  // headless/automated navigation must not hang on the beforeunload prompt.
+  window.exportCsv = exportCsv;
+  window.importCsv = importCsv;
+  window.__labelSheet = {
+    rows: rows,
+    state: state,
+    exportCsv: exportCsv,
+    importCsv: importCsv,
+    reset: function () { state = {}; save(); renderTabs(); renderRows(); renderStats(); }
+  };
+
+  load();
+  renderTabs();
+  renderRows();
+  renderStats();
+})();
+</script>
+</body>
+</html>

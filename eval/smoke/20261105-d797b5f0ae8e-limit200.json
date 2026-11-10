@@ -1,0 +1,76 @@
+{
+  "config": "A",
+  "fakes": "hash encoder + stub answer client: plumbing evidence only, not quality evidence",
+  "limit": 200,
+  "snapshot_id": "20261105-d797b5f0ae8e",
+  "steps": {
+    "ask": {
+      "abstained": false,
+      "answer_chars": 66,
+      "citation_count": 1,
+      "cited_chunk_ids": [
+        "doc_004e103155343291456912f1cca803c48ab89e1f6ece34d2b3f506dd0c0f4d07::A::1"
+      ],
+      "cited_subset_of_retrieved": true,
+      "claim_quote": "「美少女戦士セーラームーン×ローソン」コラボグッズ詳細 今回発売されるのは、バッグチャームやキーホルダーです。 バッグチ",
+      "model_calls": 1,
+      "refusal_reason": null,
+      "status_code": 200
+    },
+    "build": {
+      "exit_code": 0,
+      "seconds": 1.446
+    },
+    "docs": {
+      "documents": 200,
+      "path": "data\\smoke\\20261105-d797b5f0ae8e\\docs.jsonl"
+    },
+    "export": {
+      "exit_code": 0,
+      "seconds": 0.028
+    },
+    "facts": {
+      "exit_code": 0,
+      "model_calls": 20,
+      "path": "data\\previews\\smoke-20261105-d797b5f0ae8e\\facts\\20261105-d797b5f0ae8e\\facts.jsonl",
+      "rows": 600,
+      "rows_with_provenance": 600,
+      "seconds": 0.022
+    },
+    "retrieval": {
+      "chunker": {
+        "config": "A",
+        "header_version": "h1",
+        "max_seq_length": 512,
+        "max_tokens": 512,
+        "overlap": 64,
+        "version": "composed-input-v2"
+      },
+      "collection": "snap_full_20261105-d797b5f0ae8e_A",
+      "counts": {
+        "chunks": 208,
+        "docs": 200,
+        "stored": 208
+      },
+      "encoder_model": "intfloat/multilingual-e5-base",
+      "latency_ms": 2.69,
+      "returned": 5,
+      "top_chunk_ids": [
+        "doc_004e103155343291456912f1cca803c48ab89e1f6ece34d2b3f506dd0c0f4d07::A::1",
+        "doc_00b3e55db3a3289280414dda7816163ee46f2a669948859cd7f08d614e34e695::A::1",
+        "doc_015ec82f79a720468360fbce7935eeaa18b07d04e7af2e38f536455c44bb84a6::A::1",
+        "doc_00a3e35235e991686760e73213b1ec88aab3558cc1ef3dc8ab889c81b7f28aad::A::1",
+        "doc_0139cfb5b956691d22e618bf1cc2290e302fa275e7c547893d2036d7a85e84a0::A::2"
+      ],
+      "top_k": 5,
+      "top_scores": [
+        0.54608,
+        0.487772,
+        0.428594,
+        0.415138,
+        0.402308
+      ]
+    }
+  },
+  "total_seconds": 5.478
+}

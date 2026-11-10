@@ -30,6 +30,12 @@ pytest -q                                     # 4 tests
 | Daily increment | `python scripts/discover_daily.py` | ready |
 | Build index | `python scripts/build_index.py --snapshot <id> --input <docs.jsonl> [--config A] [--fresh]` | ready (`--input` until A's reader lands) |
 | Fact extraction | `python scripts/extract_facts.py --snapshot <id> --input <chunks.jsonl>` | ready |
+| Offline end-to-end smoke (no model, no LLM) | `python scripts/smoke_e2e.py --snapshot <id> [--limit N]` | ready |
+| Synthetic snapshot for the smoke | `python scripts/make_smoke_snapshot.py --data-root <root>` | fixture only |
+| Dedup sweep + hand-label sheet (§3.3) | `python scripts/calibrate_dedup.py --snapshot <id> --out eval/dedup_g1b` | ready |
+| Render the label sheet as a page | `python scripts/render_label_sheet.py --csv eval/dedup_g1b/label_sheet.csv --out eval/dedup_g1b/label_sheet.html` | ready |
+| Score a completed label sheet | `python scripts/calibrate_dedup.py --score eval/dedup_g1b/label_sheet.csv` | ready |
+| Diff a recorded sweep against the snapshot | `python scripts/dedup_diff.py --snapshot <id>` | ready |
 | Evaluation | `python scripts/run_eval.py --config A --snapshot <id>` | pending E |
 | Serve | `uvicorn acgn_rag.web.api:app --reload` | pending C |
 
@@ -192,6 +198,26 @@ corpus full of syndicated re-publication. **G1b calibration item: sweep 0.82 / 0
 on the frozen corpus, report cluster counts and 20 hand-checked pairs per value, and state in one
 line what the threshold optimizes before it freezes.
 
+**Labelling procedure.** `scripts/calibrate_dedup.py` writes `eval/dedup_g1b/sweep.json` and
+`label_sheet.csv` (30 rows per threshold: the 10 highest cosines plus 20 spread evenly over the
+rest, so the sample is not just the easy calls). `scripts/render_label_sheet.py` turns that CSV
+into `label_sheet.html`, a self-contained page (no server, no network) with the judgement rules
+on top, one card per pair, keyboard shortcuts, and **export at any time**:
+
+1. Open `eval/dedup_g1b/label_sheet.html` in a browser; label 0.86 first, then the neighbours.
+2. `duplicate` = the same event reported twice; `not_duplicate` = same franchise but a different
+   event, a different region's release, or a different work behind a shared template;
+   `skip` = cannot judge (dead link, truncated body). A **cross-language** pair has cosine 0 by
+   construction — the auxiliary channel only compares same-language text — so judge it from the
+   titles and URLs, not the number.
+3. Export CSV (button or `Ctrl+S`) and overwrite `eval/dedup_g1b/label_sheet.csv`. Progress is
+   also kept in the browser's localStorage, so closing the tab loses nothing.
+4. `python scripts/calibrate_dedup.py --score eval/dedup_g1b/label_sheet.csv` refuses to score
+   until every row is labelled, then prints precision per threshold.
+
+A recorded sweep is only evidence if it reproduces from the frozen snapshot: `scripts/dedup_diff.py`
+compares a recorded table against the snapshot's own `clusters.jsonl` (see issue #70).
+
 ### 3.4 Encoding lanes and encoder identity
 
 - **Encoder identity** = model + backend (`torch` / `openvino` / `onnx`) + device + precision + library
@@ -326,8 +352,29 @@ records do not establish that an unmarked raw input is the complete frozen snaps
   `degraded_batches` (any failed items)/`degraded` (failed items), `ir_skipped`. The buckets always reconcile:
   `extracted_chunks + degraded + ir_skipped == chunks`.
 
-## 4. Emergency degradation
+### 3.7 Offline end-to-end smoke (before spending the measured hours)
 
+`python scripts/smoke_e2e.py --snapshot <id> [--limit N] [--out <report>.json]` runs the whole
+code path on a frozen snapshot with **injected fakes** — a hash encoder, a stub extraction client
+and a stub answer client — so it costs seconds, needs no model download, no `[embed]` extra and no
+LLM key, and makes no network call:
+
+1. `build_index.py --config A` over the snapshot's `representatives.jsonl` (the smoke writes the
+   `docs.jsonl` that the build CLI still takes until A's reader is wired in);
+2. `export_fact_chunks.py` over that index;
+3. `extract_facts.py` over the exported chunks, then an audit that every fact row carries
+   `chunk_id` + `url` (the G1b provenance line);
+4. a retrieval query through the bound collection;
+5. `POST /ask` through the web app's own route, reporting `cited_subset_of_retrieved`.
+
+It proves **plumbing, not quality**: the chunk counts, retrieval scores and fact values are the
+fakes' and are never G1b evidence. What it does catch is the class of failure that otherwise
+surfaces only after a 3.4 h CPU build — a broken sidecar, an unbound collection, a citation that
+is not in the retrieved set. `--limit N` exercises the preview paths instead of the formal ones.
+`python scripts/make_smoke_snapshot.py --data-root <root>` publishes a synthetic snapshot when
+the private archive is not on the machine; its text is invented and must never be cited.
+
+## 4. Emergency degradation
 
 - **Corpus below 8,000 items**: decide before W3; downgrade the A/B comparison to "qualitative + small-sample
   quantitative" and say so in the report (04 R6).
