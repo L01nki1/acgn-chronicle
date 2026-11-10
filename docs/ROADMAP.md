@@ -126,17 +126,35 @@ live LLM run yet.
 
 | Requirement | Minimum pass condition | Evidence required |
 |---|---|---|
-| ① Data prep + ≥2 chunking strategies | A vs A' (optionally A₀) differ, and the difference is explained without confounded variables | chunk-count table + config comparison + snapshot binding |
+| ① Data prep + ≥2 chunking strategies | A vs A' (optionally A₀) differ, and the difference is explained without confounded variables; **each config's retrieval quality is measured on the same QA set and snapshot** | chunk-count table + **per-config retrieval metrics (hit@5 / MRR / evidence recall)** + config comparison + snapshot binding |
 | ② Knowledge base storage | vector database stores chunk embeddings; collections rebuild independently; metadata filters work | one successful build for each collection + filter tests |
 | ③ Retrieval mechanism | question is embedded; relevant chunks are retrieved by semantic similarity; filter combinations work | retrieval logs / tests; p95 under 500 ms locally |
 | ④ Grounded generation | `cited_chunk_ids ⊆ retrieved`; answer is generated only from retrieved chunks; unsupported questions refuse instead of guessing; clipping tests green | answer payloads + citation audit + abstention test cases |
 | ⑤ Evaluation | ≥30 QA items (course minimum is 20); the run archive includes `snapshot_id`, `window`, `run_id` and metrics; three metrics reported; reruns on the same snapshot stay within the documented spread | `eval/runs/<run_id>/meta.json` + QA pack + repeat-run evidence |
 | Delivery | 6-page body drafted, contribution page signed, slides ready, 15-minute demo rehearsed | final report bundle + signature page |
 
+#### ① Chunking comparison — how it is measured
+
+The course brief asks for at least two chunking strategies **and their impact on retrieval quality**.
+Chunk counts alone show that two configs differ; they do not show what that difference costs or buys.
+So the comparison is a retrieval experiment, not a counting exercise:
+
+- **Configs.** `CHUNK_VARIANTS` (`core/chunk/variants.py`) is the single table: **A** (512/64), **A'** (256/0),
+  **A0** (512/0). `A vs A0` is the clean overlap-only contrast (same size, 64 vs 0); `A vs A'` changes size and
+  overlap together. At least two must be reported, and every reported config must be built from this table so the
+  comparison stays on one code path.
+- **Held fixed.** Same frozen `snapshot_id`, same QA set, same `top_k`, same encoder identity and lane. A run
+  that changes any of these is not a chunking comparison (hard check 2).
+- **Reported.** Per config: chunk count, and **hit@5 / MRR / evidence recall** over the same QA set
+  (`core/eval/metrics.py`; run via `scripts/run_eval.py --config <A|A'|A0>`). The metric deltas are explained
+  in the report — e.g. smaller chunks may raise evidence recall while lowering precision at k=5.
+- **Owner split.** F builds the three indexes on one snapshot; E guarantees the runs are comparable (only
+  `config` varies); D produces the side-by-side table and the impact analysis (`core/eval/report.py`).
+
 #### G2 hard checks (must be green before G2 closes)
 
 1. `snapshot_id` is bound to the corpus and every run uses a frozen snapshot.
-2. At least two chunking strategies are implemented and compared; the comparison is not confounded by a different corpus or window.
+2. At least two chunking strategies are implemented and compared, and the comparison reports **retrieval quality per config** (hit@5 / MRR / evidence recall on the same QA set and snapshot), not chunk counts alone; it is not confounded by a different corpus, window, encoder or `top_k`.
 3. Retrieval is vector-based and uses the same `snapshot_id` as the question.
 4. Answers are grounded in retrieved chunks; citations are reproducible and every cited chunk is actually in the retrieved set.
 5. Unanswerable questions produce `abstained=true` and a refusal reason instead of a guessed answer.
