@@ -17,7 +17,10 @@ Scope and interpretation
   those changes and must never be ported across retrieval modes.
 * At a fixed threshold, refusals are part of the protocol's deterministic tier
   (docs/EVAL_PROTOCOL.md section 8): the sweep order, tie-breaks and rate arithmetic below
-  are deterministic for a given sample sequence.
+  are deterministic for a given sample set, independent of input order.
+* This utility models only the retrieval-score gate. A request with no retrieved chunks
+  (the answerer's ABSTAIN_NO_EVIDENCE path) has no top score; the caller must decide
+  whether such calibration items are excluded or treated as always refused.
 
 Threshold candidates
 --------------------
@@ -33,6 +36,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import Literal
 
 Strategy = Literal["balanced_accuracy", "target_missed_refusal"]
@@ -79,6 +83,7 @@ class CalibrationResult:
     total_samples: int
     answerable_samples: int
     unanswerable_samples: int
+    target_missed_refusal_rate: float | None = None
 
     def to_metadata(self) -> dict[str, object]:
         """Return the in-sample calibration record for a run's metadata.
@@ -89,6 +94,7 @@ class CalibrationResult:
         return {
             "threshold": self.point.threshold,
             "strategy": self.strategy,
+            "target_missed_refusal_rate": self.target_missed_refusal_rate,
             "in_sample": True,
             "counts": {
                 "total": self.total_samples,
@@ -156,13 +162,16 @@ def choose_threshold(
 
     points = _sweep(values)
     if strategy == "balanced_accuracy":
-        chosen = max(points, key=_balanced_accuracy_rank)
+        chosen = max(
+            points,
+            key=lambda point: _balanced_accuracy_rank(point, answerable, unanswerable),
+        )
+        recorded_target = None
     elif strategy == "target_missed_refusal":
         feasible = [
             point
             for point in points
-            if point.missed_refusal_rate is not None
-            and point.missed_refusal_rate <= target_missed_refusal_rate
+            if Fraction(point.missed_unanswerable, unanswerable) <= target_missed_refusal_rate
         ]
         if not feasible:
             lowest = min(
@@ -175,7 +184,11 @@ def choose_threshold(
                 f"target_missed_refusal_rate={target_missed_refusal_rate!r}; "
                 f"the lowest achievable missed-refusal rate is {lowest!r}"
             )
-        chosen = max(feasible, key=_target_missed_refusal_rank)
+        chosen = max(
+            feasible,
+            key=lambda point: _target_missed_refusal_rank(point, answerable),
+        )
+        recorded_target = target_missed_refusal_rate
     else:
         raise ValueError(
             f"unknown calibration strategy {strategy!r}; "
@@ -188,6 +201,7 @@ def choose_threshold(
         total_samples=len(values),
         answerable_samples=answerable,
         unanswerable_samples=unanswerable,
+        target_missed_refusal_rate=recorded_target,
     )
 
 
@@ -224,7 +238,13 @@ def _sweep(values: tuple[CalibrationSample, ...]) -> tuple[ThresholdPoint, ...]:
     # Adding 0.0 canonicalises -0.0 to +0.0, so candidate identity does not depend on the
     # order in which otherwise-equal zero scores arrived.
     thresholds = sorted({float(sample.retrieval_top_score) + 0.0 for sample in values})
-    thresholds.append(math.nextafter(thresholds[-1], math.inf))
+    sentinel = math.nextafter(thresholds[-1], math.inf)
+    if not math.isfinite(sentinel):
+        raise ValueError(
+            "the largest calibration score is too close to the finite float limit to "
+            "represent an all-refused sentinel threshold"
+        )
+    thresholds.append(sentinel)
 
     answerable = sum(1 for sample in values if sample.answerable)
     unanswerable = len(values) - answerable
@@ -258,14 +278,28 @@ def _sweep(values: tuple[CalibrationSample, ...]) -> tuple[ThresholdPoint, ...]:
     return tuple(points)
 
 
-def _balanced_accuracy_rank(point: ThresholdPoint) -> tuple[float, float, float]:
-    """Rank by higher balanced accuracy, lower false refusals, then higher threshold."""
-    assert point.balanced_accuracy is not None
-    assert point.false_refusal_rate is not None
-    return (point.balanced_accuracy, -point.false_refusal_rate, point.threshold)
+def _balanced_accuracy_rank(
+    point: ThresholdPoint,
+    answerable: int,
+    unanswerable: int,
+) -> tuple[Fraction, Fraction, float]:
+    """Rank by exact balanced accuracy, lower false refusals, then higher threshold.
+
+    The rank uses Fractions derived from the integer counts: computing balanced accuracy in
+    floats lets a mathematically tied point win by a rounding artifact (17/20 + 17/20 vs
+    18/20 + 16/20 both equal 17/20, but the float values can differ), which would refuse
+    answerable calibration items without a real accuracy gain.
+    """
+    accuracy_twice = Fraction(answerable - point.refused_answerable, answerable) + Fraction(
+        unanswerable - point.missed_unanswerable, unanswerable
+    )
+    false_refusal = Fraction(point.refused_answerable, answerable)
+    return (accuracy_twice, -false_refusal, point.threshold)
 
 
-def _target_missed_refusal_rank(point: ThresholdPoint) -> tuple[float, float]:
-    """Rank by lower false refusals, then higher threshold."""
-    assert point.false_refusal_rate is not None
-    return (-point.false_refusal_rate, point.threshold)
+def _target_missed_refusal_rank(
+    point: ThresholdPoint,
+    answerable: int,
+) -> tuple[Fraction, float]:
+    """Rank by exact lower false refusals, then higher threshold."""
+    return (-Fraction(point.refused_answerable, answerable), point.threshold)

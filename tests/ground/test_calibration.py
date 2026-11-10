@@ -132,6 +132,27 @@ def test_balanced_accuracy_tie_prefers_lower_false_refusal() -> None:
     assert result.point.balanced_accuracy == pytest.approx(0.75)
 
 
+def test_exactly_tied_balanced_accuracy_is_not_broken_by_float_rounding() -> None:
+    # EVAL_PROTOCOL §6 shape: 20 answerable + 10 unanswerable. Thresholds 0.2 and 0.9 both
+    # have exact BA 17/20; the float computation yields 0.8500000000000001 for 0.9, which
+    # used to win and refuse 2 answerable items. The exact tie-break must choose 0.2.
+    samples = [
+        _sample(0.2, True),
+        _sample(0.3, True),
+        *[_sample(0.9, True) for _ in range(18)],
+        *[_sample(0.0, False) for _ in range(7)],
+        _sample(0.4, False),
+        *[_sample(0.9, False) for _ in range(2)],
+    ]
+
+    result = choose_threshold(samples)
+
+    assert result.point.threshold == 0.2
+    assert result.point.refused_answerable == 0
+    assert result.point.missed_unanswerable == 3
+    assert result.point.balanced_accuracy == pytest.approx(0.85)
+
+
 def test_target_missed_refusal_uses_the_target_to_reject_missed_refusals() -> None:
     samples = _overlapping_samples()
 
@@ -179,12 +200,13 @@ def test_target_missed_refusal_ties_prefer_the_higher_threshold() -> None:
     assert result.point.balanced_accuracy == 1.0
 
 
-def test_target_missed_refusal_with_no_feasible_point_raises() -> None:
+@pytest.mark.parametrize("target", [-0.1, math.nan])
+def test_target_missed_refusal_with_no_feasible_point_raises(target: float) -> None:
     with pytest.raises(ValueError, match="no threshold satisfies"):
         choose_threshold(
             _overlapping_samples(),
             strategy="target_missed_refusal",
-            target_missed_refusal_rate=-0.1,
+            target_missed_refusal_rate=target,
         )
 
 
@@ -261,6 +283,22 @@ def test_sweep_is_ordered_deduplicated_and_input_order_independent() -> None:
     ]
 
 
+def test_negative_zero_scores_canonicalise_to_positive_zero() -> None:
+    forward = sweep_thresholds([_sample(-0.0, True), _sample(0.5, False)])
+    backward = sweep_thresholds([_sample(0.5, False), _sample(-0.0, True)])
+
+    assert forward == backward
+    assert forward[0].threshold == 0.0
+    assert math.copysign(1.0, forward[0].threshold) == 1.0
+
+
+def test_a_score_too_large_for_a_finite_sentinel_is_rejected() -> None:
+    import sys
+
+    with pytest.raises(ValueError, match="sentinel"):
+        sweep_thresholds([_sample(sys.float_info.max, True), _sample(0.5, False)])
+
+
 def test_sweep_represents_no_refusal_at_the_minimum_and_all_refusal_at_the_sentinel() -> None:
     samples = [
         _sample(0.9, True),
@@ -306,6 +344,7 @@ def test_metadata_records_the_in_sample_calibration_only() -> None:
     assert metadata["in_sample"] is True
     assert metadata["threshold"] == 0.7
     assert metadata["strategy"] == "balanced_accuracy"
+    assert metadata["target_missed_refusal_rate"] is None
     assert metadata["counts"] == {
         "total": 3,
         "answerable": 2,
@@ -321,7 +360,20 @@ def test_metadata_records_the_in_sample_calibration_only() -> None:
     assert json.loads(json.dumps(metadata, allow_nan=False)) == metadata
 
 
-def test_selected_threshold_round_trips_into_the_strict_decision_rule() -> None:
+def test_metadata_records_the_target_rate_for_the_target_strategy() -> None:
+    result = choose_threshold(
+        _overlapping_samples(),
+        strategy="target_missed_refusal",
+        target_missed_refusal_rate=0.5,
+    )
+
+    metadata = result.to_metadata()
+    assert result.target_missed_refusal_rate == 0.5
+    assert metadata["strategy"] == "target_missed_refusal"
+    assert metadata["target_missed_refusal_rate"] == 0.5
+
+
+def test_selected_threshold_matches_the_documented_strict_rule() -> None:
     samples = [
         _sample(0.9, True),
         _sample(0.7, True),
