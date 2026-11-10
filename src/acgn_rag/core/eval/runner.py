@@ -385,24 +385,26 @@ def bind_existing_collection(
     return bound
 
 
-def _validate_chunker(chunker: Mapping[str, Any], config: str) -> None:
+def _validate_chunker(
+    chunker: Mapping[str, Any], config: str, *, source: str = "build.json"
+) -> None:
     """Reject a matching but incomplete chunker block, or one for another config."""
     missing = [name for name in CHUNKER_FIELDS if name not in chunker]
     if missing:
-        raise ValueError(f"build.json: chunker identity is missing {', '.join(missing)}")
+        raise ValueError(f"{source}: chunker identity is missing {', '.join(missing)}")
     for name in ("version", "header_version", "config"):
         if not isinstance(chunker[name], str) or not chunker[name]:
-            raise ValueError(f"build.json: invalid chunker {name}")
+            raise ValueError(f"{source}: invalid chunker {name}")
     for name in ("max_tokens", "max_seq_length"):
         value = chunker[name]
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
-            raise ValueError(f"build.json: invalid chunker {name}")
+            raise ValueError(f"{source}: invalid chunker {name}")
     overlap = chunker["overlap"]
     if not isinstance(overlap, int) or isinstance(overlap, bool) or overlap < 0:
-        raise ValueError("build.json: invalid chunker overlap")
+        raise ValueError(f"{source}: invalid chunker overlap")
     if chunker["config"] != config:
         raise ValueError(
-            f"build.json: chunker config {chunker['config']!r} != selected config {config!r}"
+            f"{source}: chunker config {chunker['config']!r} != selected config {config!r}"
         )
 
 
@@ -553,6 +555,7 @@ def _validate_spec(spec: RunSpec) -> None:
         missing.append("chunker")
     if missing:
         raise ValueError(f"run spec is missing {', '.join(missing)}")
+    _validate_chunker(spec.chunker, spec.config, source="run spec")
 
 
 def _load_items(
@@ -908,6 +911,14 @@ def _missing_tier1_identity(identity: Mapping[str, Any]) -> list[str]:
         elif name == "chunker":
             if not isinstance(value, dict) or not value:
                 invalid.append(name)
+            else:
+                config = identity.get("chunk_config")
+                try:
+                    _validate_chunker(
+                        value, config if isinstance(config, str) else "", source="archive"
+                    )
+                except (TypeError, ValueError):
+                    invalid.append(name)
         elif value is None or value == "" or value == {}:
             invalid.append(name)
     return invalid
@@ -925,8 +936,33 @@ def _archive_qa_count(meta: Mapping[str, Any]) -> int | None:
 def _missing_tier1_metrics(metrics: Mapping[str, Any]) -> list[str]:
     """Metric blocks the comparison reads; absent blocks are not evidence of equality."""
     missing: list[str] = []
-    if not isinstance(metrics.get("retrieval"), dict):
+    retrieval = metrics.get("retrieval")
+    if not isinstance(retrieval, dict):
         missing.append("retrieval")
+    else:
+        for name in ("hit", "evidence_recall"):
+            block = retrieval.get(name)
+            if not isinstance(block, dict):
+                missing.append(f"retrieval.{name}")
+                continue
+            for language in ("all", "en", "zh"):
+                entry = block.get(language)
+                if (
+                    not isinstance(entry, dict)
+                    or "value" not in entry
+                    or not isinstance(entry.get("n"), int)
+                    or isinstance(entry.get("n"), bool)
+                    or entry["n"] < 0
+                ):
+                    missing.append(f"retrieval.{name}.{language}")
+                    continue
+                # A null rate is legitimate only for an empty eligible set.
+                value = entry["value"]
+                if value is None:
+                    if entry["n"] != 0:
+                        missing.append(f"retrieval.{name}.{language}")
+                elif not isinstance(value, (int, float)) or isinstance(value, bool):
+                    missing.append(f"retrieval.{name}.{language}")
     if not isinstance(metrics.get("counts"), dict):
         missing.append("counts")
     if not isinstance(metrics.get("provisional"), bool):

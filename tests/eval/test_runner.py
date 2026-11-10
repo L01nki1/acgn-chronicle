@@ -393,8 +393,16 @@ def test_run_uses_item_window_as_filters(tmp_path: Path) -> None:
 
 
 def test_run_id_uses_a_prime_token(tmp_path: Path) -> None:
+    chunker = {
+        "version": "composed-input-v2",
+        "header_version": "h1",
+        "config": "A'",
+        "max_tokens": 512,
+        "overlap": 64,
+        "max_seq_length": 512,
+    }
     result = run(
-        _spec(tmp_path, config="A'", run_id=None),
+        _spec(tmp_path, config="A'", run_id=None, chunker=chunker),
         store=FakeStore([_hit()]),
         embedder=FakeEmbedder(),
         qa_items=[_qa_item()],
@@ -1704,3 +1712,88 @@ def test_compare_tier1_runs_requires_metric_blocks(
 
     assert result["comparable"] is False
     assert result["reason"] == f"metrics unavailable: {name}"
+
+
+def test_run_rejects_incomplete_chunker_identity(tmp_path: Path) -> None:
+    spec = _spec(tmp_path, chunker={"version": "composed-input-v2"})
+
+    with pytest.raises(ValueError, match="chunker identity is missing"):
+        run(spec, store=FakeStore([_hit()]), embedder=FakeEmbedder(), qa_items=[_qa_item()])
+
+
+def test_compare_tier1_runs_rejects_incomplete_chunker_identity(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        meta_path = archive / "meta.json"
+        meta = _archive_json(meta_path)
+        meta["chunker"] = {"version": "composed-input-v2"}
+        _write_archive_json(meta_path, meta)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == "identity unavailable: chunker"
+
+
+@pytest.mark.parametrize("name", ["hit", "evidence_recall"])
+def test_compare_tier1_runs_rejects_missing_tier1_metric(tmp_path: Path, name: str) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        metrics_path = archive / "metrics.json"
+        metrics = _archive_json(metrics_path)
+        del metrics["retrieval"][name]
+        _write_archive_json(metrics_path, metrics)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == f"metrics unavailable: retrieval.{name}"
+
+
+def test_compare_tier1_runs_rejects_a_missing_language_block(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        metrics_path = archive / "metrics.json"
+        metrics = _archive_json(metrics_path)
+        del metrics["retrieval"]["hit"]["en"]
+        _write_archive_json(metrics_path, metrics)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == "metrics unavailable: retrieval.hit.en"
+
+
+def test_compare_tier1_runs_allows_null_metric_values(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    empty = {"value": None, "n": 0}
+    for archive in (left, right):
+        metrics_path = archive / "metrics.json"
+        metrics = _archive_json(metrics_path)
+        metrics["retrieval"]["hit"] = {"all": empty, "en": empty, "zh": empty}
+        metrics["retrieval"]["evidence_recall"] = {"all": empty, "en": empty, "zh": empty}
+        _write_archive_json(metrics_path, metrics)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is True
+    assert result["comparable"] is True
+
+
+def test_compare_tier1_runs_rejects_a_null_rate_with_nonzero_n(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        metrics_path = archive / "metrics.json"
+        metrics = _archive_json(metrics_path)
+        metrics["retrieval"]["hit"]["all"] = {"value": None, "n": 1}
+        _write_archive_json(metrics_path, metrics)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == "metrics unavailable: retrieval.hit.all"
