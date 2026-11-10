@@ -8,6 +8,11 @@ Design constraints:
   - Secrets never enter the repo: `.env` is gitignored, only `.env.example` is committed.
   - Every setting that can change an experimental result (model name, version, device)
     must be recordable in an eval run.
+
+`.env` loading (issue #71): `.env.example` says "copy to .env and fill in", so `load_settings()`
+loads that file itself. A real environment variable always wins (`override=False`), and the
+lookup is anchored at the repository root rather than the current directory, so a script run
+from another directory still sees the same configuration. A missing `.env` is not an error.
 """
 
 from __future__ import annotations
@@ -17,7 +22,35 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 DEFAULT_UA = "AcgnRagBot/0.1 (CS5481 course project; +https://github.com/L01nki1/acgn-chronicle)"
+
+#: The repository root: `src/acgn_rag/config.py` -> three levels up. Anchoring the `.env`
+#: lookup here keeps one definition of "the project's configuration" for every working
+#: directory, instead of whatever `.env` happens to sit under the caller's cwd.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def load_env_file(start: Path | None = None) -> Path | None:
+    """Load the project's `.env` (if any) without overriding real environment variables.
+
+    ``start`` defaults to :data:`PROJECT_ROOT`, and the search walks upward from there, so a
+    checkout with the file at its root and a caller running from a subdirectory agree on one
+    definition of "the project's configuration". The lookup is deliberately *not*
+    ``dotenv.find_dotenv``: that helper falls back to the caller's working directory, which
+    would make the file a script happens to sit next to win over the project's own.
+
+    Returns the file that was loaded, or ``None`` when no `.env` exists. Calling it repeatedly
+    is harmless: `dotenv` does not override an already-set variable.
+    """
+    directory = Path(start) if start is not None else PROJECT_ROOT
+    for candidate_dir in (directory, *directory.parents):
+        candidate = candidate_dir / ".env"
+        if candidate.is_file():
+            load_dotenv(candidate, override=False)
+            return candidate
+    return None
 
 
 def _env(key: str, default: str | None = None) -> str | None:
@@ -146,17 +179,24 @@ class Settings:
 
 
 def load_settings() -> Settings:
-    """Re-read the environment on every call so tests cannot leak state into each other."""
+    """Re-read the environment on every call so tests cannot leak state into each other.
+
+    The project `.env` is loaded first (issue #71). It never overrides a variable that is
+    already set, so a shell export or a CI environment still wins over the file.
+    """
+    load_env_file()
     return Settings()
 
 
 __all__ = [
     "DEFAULT_UA",
+    "PROJECT_ROOT",
     "EmbedConfig",
     "HttpConfig",
     "LLMConfig",
     "Paths",
     "Settings",
     "StoreConfig",
+    "load_env_file",
     "load_settings",
 ]
