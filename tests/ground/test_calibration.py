@@ -18,7 +18,7 @@ from acgn_rag.core.ground.calibration import (
 STRATEGIES = ("balanced_accuracy", "target_missed_refusal")
 
 
-def _sample(score: float, answerable: bool) -> CalibrationSample:
+def _sample(score: float | None, answerable: bool) -> CalibrationSample:
     return CalibrationSample(retrieval_top_score=score, answerable=answerable)
 
 
@@ -113,6 +113,40 @@ def test_a_sample_at_the_threshold_is_answered_not_refused() -> None:
     assert just_above.missed_unanswerable == 0
 
 
+def test_empty_retrieval_is_a_fixed_refusal_in_its_class_denominator() -> None:
+    samples = [
+        _sample(None, True),
+        _sample(0.5, True),
+        _sample(None, False),
+        _sample(0.5, False),
+    ]
+
+    points = _points_by_threshold(samples)
+    # Only the scored value produces a candidate; the two empty items never invent one.
+    assert list(points) == [0.5, math.nextafter(0.5, math.inf)]
+
+    at_threshold = points[0.5]
+    assert at_threshold.refused_answerable == 1  # the empty answerable item
+    assert at_threshold.false_refusal_rate == 0.5
+    assert at_threshold.missed_unanswerable == 1  # the scored 0.5 unanswerable item answers
+    assert at_threshold.missed_refusal_rate == 0.5
+
+    at_sentinel = points[math.nextafter(0.5, math.inf)]
+    assert at_sentinel.refused_answerable == 2
+    assert at_sentinel.missed_unanswerable == 0  # the empty unanswerable item is refused
+    assert at_sentinel.false_refusal_rate == 1.0
+    assert at_sentinel.missed_refusal_rate == 0.0
+
+
+def test_all_empty_retrieval_cannot_be_calibrated() -> None:
+    samples = [_sample(None, True), _sample(None, False)]
+
+    with pytest.raises(ValueError, match="cannot calibrate"):
+        sweep_thresholds(samples)
+    with pytest.raises(ValueError, match="cannot calibrate"):
+        choose_threshold(samples)
+
+
 def test_balanced_accuracy_tie_prefers_lower_false_refusal() -> None:
     samples = [
         _sample(0.1, False),
@@ -151,6 +185,30 @@ def test_exactly_tied_balanced_accuracy_is_not_broken_by_float_rounding() -> Non
     assert result.point.refused_answerable == 0
     assert result.point.missed_unanswerable == 3
     assert result.point.balanced_accuracy == pytest.approx(0.85)
+
+
+def test_empty_retrieval_regression_selects_the_expected_target_point() -> None:
+    samples = [
+        *[_sample(0.5, True) for _ in range(2)],
+        *[_sample(0.9, True) for _ in range(18)],
+        *[_sample(0.1, False) for _ in range(6)],
+        *[_sample(0.8, False) for _ in range(2)],
+        *[_sample(None, False) for _ in range(2)],
+    ]
+
+    result = choose_threshold(
+        samples,
+        strategy="target_missed_refusal",
+        target_missed_refusal_rate=0.2,
+    )
+
+    assert result.answerable_samples == 20
+    assert result.unanswerable_samples == 10
+    assert result.point.threshold == 0.5
+    assert result.point.refused_answerable == 0
+    assert result.point.false_refusal_rate == 0.0
+    assert result.point.missed_unanswerable == 2
+    assert result.point.missed_refusal_rate == pytest.approx(0.2)
 
 
 def test_target_missed_refusal_uses_the_target_to_reject_missed_refusals() -> None:

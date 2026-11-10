@@ -18,9 +18,12 @@ Scope and interpretation
 * At a fixed threshold, refusals are part of the protocol's deterministic tier
   (docs/EVAL_PROTOCOL.md section 8): the sweep order, tie-breaks and rate arithmetic below
   are deterministic for a given sample set, independent of input order.
-* This utility models only the retrieval-score gate. A request with no retrieved chunks
-  (the answerer's ABSTAIN_NO_EVIDENCE path) has no top score; the caller must decide
-  whether such calibration items are excluded or treated as always refused.
+* A sample may have no retrieval at all (CalibrationSample.retrieval_top_score is None,
+  the answerer's ABSTAIN_NO_EVIDENCE path). Empty retrieval is a fixed refusal under every
+  candidate threshold and stays in its class denominator: an empty answerable item counts
+  as a false refusal, and an empty unanswerable item counts as refused (not missed).
+  Candidate thresholds are generated from the scored samples only; a set with no scored
+  sample cannot reveal a retrieval-score boundary and cannot be calibrated.
 
 Threshold candidates
 --------------------
@@ -44,9 +47,13 @@ Strategy = Literal["balanced_accuracy", "target_missed_refusal"]
 
 @dataclass(frozen=True, slots=True)
 class CalibrationSample:
-    """One labelled calibration item and its best retrieval score for one request."""
+    """One labelled calibration item and its best retrieval score for one request.
 
-    retrieval_top_score: float
+    retrieval_top_score is None when the request retrieved no chunk at all; such an item is
+    refused under every candidate threshold and remains in its class denominator.
+    """
+
+    retrieval_top_score: float | None
     answerable: bool
 
 
@@ -54,10 +61,12 @@ class CalibrationSample:
 class ThresholdPoint:
     """One candidate threshold and the refusal counts it produces.
 
-    The decision rule is strict: an item is refused exactly when
-    retrieval_top_score < threshold; a score equal to the threshold is answered.
-    refused_answerable counts false refusals and missed_unanswerable counts unanswerable
-    items that were answered instead of refused (missed refusals).
+    The decision rule is strict: a scored item is refused exactly when
+    retrieval_top_score < threshold; a score equal to the threshold is answered. An item
+    with no retrieval (retrieval_top_score is None) is refused under every candidate.
+    refused_answerable counts false refusals (including empty answerable items) and
+    missed_unanswerable counts unanswerable items that were answered instead of refused
+    (missed refusals; empty unanswerable items are refused, so they are not missed).
 
     false_refusal_rate is refused_answerable / answerable_count; missed_refusal_rate is
     missed_unanswerable / unanswerable_count. A rate is None when its class is absent.
@@ -112,15 +121,16 @@ class CalibrationResult:
 def sweep_thresholds(samples: Sequence[CalibrationSample]) -> tuple[ThresholdPoint, ...]:
     """Evaluate every candidate threshold, ascending, including the all-refused sentinel.
 
-    Candidates are the distinct observed scores in ascending order plus
-    math.nextafter(max(scores), math.inf). At the lowest candidate every sample is answered
-    (score < threshold is false); at the sentinel every sample is refused. Identical scores
-    produce one candidate, not one per sample.
+    Candidates are the distinct observed scores of scored samples in ascending order plus
+    math.nextafter(max(scored scores), math.inf). At the lowest candidate every scored sample
+    is answered (score < threshold is false); at the sentinel every scored sample is refused.
+    Identical scores produce one candidate, not one per sample. Items with no retrieval are
+    refused under every candidate and do not generate a threshold.
 
     Raises:
-        ValueError: if samples is empty, a score is not a finite real number, an answerable
-            value is not a real bool, or the all-refused sentinel cannot be represented as a
-            finite threshold.
+        ValueError: if samples is empty, a score is neither None nor a finite real number, an
+            answerable value is not a real bool, every sample is empty retrieval, or the
+            all-refused sentinel cannot be represented as a finite threshold.
     """
     values = _validate_samples(samples)
     return _sweep(values)
@@ -136,6 +146,7 @@ def choose_threshold(
 
     Both strategies require at least one answerable and one unanswerable sample; a threshold
     chosen without both classes says nothing about the trade-off it is supposed to balance.
+    Empty-retrieval samples participate as fixed refusals and stay in their class denominators.
 
     balanced_accuracy maximises
     0.5 * ((1 - missed_refusal_rate) + (1 - false_refusal_rate)). Ties prefer the lower
@@ -216,9 +227,12 @@ def _validate_samples(samples: Sequence[CalibrationSample]) -> tuple[Calibration
         if type(sample.answerable) is not bool:
             raise ValueError(f"samples[{index}].answerable must be bool, got {sample.answerable!r}")
         score = sample.retrieval_top_score
+        if score is None:
+            continue
         if isinstance(score, bool) or not isinstance(score, (int, float)):
             raise ValueError(
-                f"samples[{index}].retrieval_top_score must be a finite real number, got {score!r}"
+                f"samples[{index}].retrieval_top_score must be None or a finite real number, "
+                f"got {score!r}"
             )
         try:
             numeric_score = float(score)
@@ -235,7 +249,18 @@ def _sweep(values: tuple[CalibrationSample, ...]) -> tuple[ThresholdPoint, ...]:
     """Compute the candidate points for already-validated samples."""
     # Adding 0.0 canonicalises -0.0 to +0.0, so candidate identity does not depend on the
     # order in which otherwise-equal zero scores arrived.
-    thresholds = sorted({float(sample.retrieval_top_score) + 0.0 for sample in values})
+    thresholds = sorted(
+        {
+            float(sample.retrieval_top_score) + 0.0
+            for sample in values
+            if sample.retrieval_top_score is not None
+        }
+    )
+    if not thresholds:
+        raise ValueError(
+            "cannot calibrate an abstention threshold from empty-retrieval samples only; "
+            "at least one sample must carry a retrieval score"
+        )
     sentinel = math.nextafter(thresholds[-1], math.inf)
     if not math.isfinite(sentinel):
         raise ValueError(
@@ -251,7 +276,12 @@ def _sweep(values: tuple[CalibrationSample, ...]) -> tuple[ThresholdPoint, ...]:
         refused_answerable = 0
         missed_unanswerable = 0
         for sample in values:
-            if float(sample.retrieval_top_score) < threshold:
+            score = sample.retrieval_top_score
+            if score is None:
+                if sample.answerable:
+                    refused_answerable += 1
+                continue
+            if float(score) < threshold:
                 if sample.answerable:
                     refused_answerable += 1
             elif not sample.answerable:
