@@ -1088,18 +1088,7 @@
         "representative_title": "Crunchyroll to Stream Shabake Anime in India"
       },
       {
-        "char3_cosine": 0.8684,
-        "cluster_id": "cluster_1b2163bc593b6eef",
-        "event_type": null,
-        "lang": "en",
-        "media_ids": [],
-        "member_count": 2,
-        "other_member_title": "Cygames Cancels Uma Musume: Pretty Derby Franchise's U.S. Concerts",
-        "representative_doc_id": "doc_16f3b9a25add7a6dfe802baebb644f9bef8fc1edbbac99d6ae993c1785d56431",
-        "representative_title": "Cygames Cancels Uma Musume: Pretty Derby Franchise's U.S. Concerts Due to Visa Issues"
-      },
-      {
-        "char3_cosine": 0.0,
+        "char3_cosine": 0.0394,
         "cluster_id": "cluster_5a901a05fcdc5d1f",
         "event_type": "release",
         "lang": "en",
@@ -1112,7 +1101,20 @@
         "representative_title": "Crunchyroll Acquires Indian Rights to The Apothecary Diaries Anime Film"
       },
       {
-        "char3_cosine": 0.3513,
+        "char3_cosine": 0.2704,
+        "cluster_id": "cluster_6b4d6648c466b1c3",
+        "event_type": "event",
+        "lang": "ja",
+        "media_ids": [
+          203
+        ],
+        "member_count": 2,
+        "other_member_title": "三瓶由布子さんが演じる好きなキャラ投票！やっぱりのぞみ？ボルト？【アンケート】",
+        "representative_doc_id": "doc_1ab2bc2d8c599c94328b5bf99db6b41721f7a77c54521b970dfe0f93a8b1f555",
+        "representative_title": "田村ゆかりさんが演じる好きなキャラ投票！やっぱり梨花？なのは？【アンケート】"
+      },
+      {
+        "char3_cosine": 0.361,
         "cluster_id": "cluster_9833504ff2441120",
         "event_type": "collaboration",
         "lang": "ja",
@@ -1138,7 +1140,7 @@
         "representative_title": "One Piece Pirate Warriors 4 Game's Trailer Reveals PS5, Xbox Series X|S Releases, New DLC Character Survey"
       },
       {
-        "char3_cosine": 0.0,
+        "char3_cosine": 0.0058,
         "cluster_id": "cluster_11605280f427a3f1",
         "event_type": "release",
         "lang": "ja",
@@ -1164,7 +1166,7 @@
         "representative_title": "Attack on Titan Musical Starts World Tour in Singapore Next April"
       },
       {
-        "char3_cosine": 0.8802,
+        "char3_cosine": 0.8803,
         "cluster_id": "cluster_cc4d2351a4a7a5c9",
         "event_type": null,
         "lang": "ja",
@@ -1188,7 +1190,7 @@
         "representative_title": "Monster Hunter Wilds Game Launches Globally on February 28"
       },
       {
-        "char3_cosine": 0.0,
+        "char3_cosine": 0.2829,
         "cluster_id": "cluster_75ac9cb5702f11ba",
         "event_type": "broadcast",
         "lang": "ja",
@@ -1212,7 +1214,7 @@
         "representative_title": "SHIBOYUGI: Playing Death Games to Put Food on the Table 44: Cloudy Beach Anime Film Streams in Southeast Asia on July 13"
       },
       {
-        "char3_cosine": 0.0,
+        "char3_cosine": 0.0051,
         "cluster_id": "cluster_100b4305f2c30d31",
         "event_type": "broadcast",
         "lang": "en",
@@ -1238,7 +1240,7 @@
         "representative_title": "『映画名探偵プリキュア！』×サミットのコラボセールが10月24日・25日に開催！映画のサンバイザーとぬりえチラシを店頭配布"
       },
       {
-        "char3_cosine": 0.4705,
+        "char3_cosine": 0.4782,
         "cluster_id": "cluster_f9ec8ef9b6510bbb",
         "event_type": "event",
         "lang": "ja",
@@ -1251,7 +1253,7 @@
         "representative_title": "『チェンソーマン レゼ篇』ポップアップショップ開催！アキと天使の悪魔の描き下ろしイラストグッズ＆特典が登場"
       },
       {
-        "char3_cosine": 0.0,
+        "char3_cosine": 0.0127,
         "cluster_id": "cluster_d375504504332092",
         "event_type": "release",
         "lang": "ja",
@@ -1264,7 +1266,20 @@
         "representative_title": "水瀬いのり、オリジナルハーフアルバム収録曲「フラーグム」MV公開 全編通して“花”が登場"
       },
       {
-        "char3_cosine": 0.864,
+        "char3_cosine": 0.0136,
+        "cluster_id": "cluster_2707ecb6f44f26ba",
+        "event_type": "release",
+        "lang": "en",
+        "media_ids": [
+          302
+        ],
+        "member_count": 2,
+        "other_member_title": "Eve、TVアニメ『薬屋のひとりごと』第3期エンディングテーマ「AIYOU」を表題としたEPリリース",
+        "representative_doc_id": "doc_40e8eaa76e0423c41e6776b6b3c13517efb28667fe31403ea33993533b77e0ea",
+        "representative_title": "The Apothecary Diaries: The False Imperial Brother Mystery Game's Trailer Reveals March 18 Release"
+      },
+      {
+        "char3_cosine": 0.9155,
         "cluster_id": "cluster_c088cd455cb79652",
         "event_type": null,
         "lang": "en",
@@ -1275,15 +1290,17 @@
         "representative_title": "COLORFUL STAGE! The Movie: A Miku Who Can't Sing Anime Film to Screen in Malaysia"
       },
       {
-        "char3_cosine": 0.9024,
-        "cluster_id": "cluster_0f170789bb356b78",
-        "event_type": "release",
+        "char3_cosine": 0.4633,
+        "cluster_id": "cluster_62a1527d891e6ea6",
+        "event_type": "broadcast",
         "lang": "en",
-        "media_ids": [],
+        "media_ids": [
+          285445603539
+        ],
         "member_count": 2,
-        "other_member_title": "Fate/Extra Record Game Reveals Character Video for Caster",
-        "representative_doc_id": "doc_4cc4f4036a0dd5fdbb087f0fc3f02400db5c8dedbac8c0e5f145e8cf0d1bab81",
-        "representative_title": "Fate/EXTRA Record Game Streams Character Video for Archer"
+        "other_member_title": "Muse Asia Holds Theatrical Premiere Screenings for DAN DA DAN Anime in S.E.Asia",
+        "representative_doc_id": "doc_5126a09de055b681018276eab00f1d164b1789c9441c1acafa092bcebd3ddbb8",
+        "representative_title": "Hip-Hop Duo Creepy Nuts Performs DAN DA DAN Anime's Opening Theme"
       },
       {
         "char3_cosine": 0.9035,
@@ -1297,7 +1314,18 @@
         "representative_title": "Crunchyroll Streams Trapezium Anime Film in India"
       },
       {
-        "char3_cosine": 0.8699,
+        "char3_cosine": 0.8628,
+        "cluster_id": "cluster_5fe185bfafd95112",
+        "event_type": "broadcast",
+        "lang": "en",
+        "media_ids": [],
+        "member_count": 2,
+        "other_member_title": "Crunchyroll Adds Dropkick on My Devil! TV Anime Spinoff",
+        "representative_doc_id": "doc_5227f529d7d5bb4209233536678a13537930562aed76d774aad0edd9ea12267a",
+        "representative_title": "Crunchyroll Adds Dropkick on My Devil!!: Apocalypse Day OVA in India"
+      },
+      {
+        "char3_cosine": 0.8639,
         "cluster_id": "cluster_4ccb59341083f46b",
         "event_type": null,
         "lang": "ja",
@@ -1320,61 +1348,38 @@
         "other_member_title": "Japanese Animation TV Ranking, February 26-March 3",
         "representative_doc_id": "doc_605ed7e25bd921df5d714929742350344d4092a9a241115af5a06390bffd796a",
         "representative_title": "Japanese Animation TV Ranking, February 26-March 3"
-      },
-      {
-        "char3_cosine": 0.8871,
-        "cluster_id": "cluster_dd60474d6f57a38e",
-        "event_type": null,
-        "lang": "en",
-        "media_ids": [],
-        "member_count": 2,
-        "other_member_title": "Crunchyroll Adds Me & Roboco Anime Film in India",
-        "representative_doc_id": "doc_662e6f94e9e175242613e1635612972ebf97e2fb3a5ff5de10cc590027633b10",
-        "representative_title": "Crunchyroll Adds Me & Roboco Anime Film"
-      },
-      {
-        "char3_cosine": 0.0,
-        "cluster_id": "cluster_fb9a2a073258a9a4",
-        "event_type": "broadcast",
-        "lang": "ja",
-        "media_ids": [
-          204
-        ],
-        "member_count": 2,
-        "other_member_title": "Digimon Con Event Reveals New Digimon Beatbreak TV Anime Slated for October Debut",
-        "representative_doc_id": "doc_67660b3a8e69e138e97d10361de5f0d057c1b7ae951c948f2cb5c37c328ee557",
-        "representative_title": "2年ぶりの完全新作『デジモンビートブレイク』2025年10月より放送開始！主人公＆パートナーデジモンのPV解禁"
       }
     ],
     "selected_threshold": 0.86,
+    "snapshot_id": "20261105-d797b5f0ae8e",
     "sweep_table": [
       {
-        "cluster_count": 36108,
-        "clustered_duplicates_collapsed": 60,
-        "non_singleton_clusters": 59,
+        "cluster_count": 36103,
+        "clustered_duplicates_collapsed": 64,
+        "non_singleton_clusters": 62,
         "threshold": 0.82,
-        "total_items": 36168
+        "total_items": 36167
       },
       {
-        "cluster_count": 36119,
-        "clustered_duplicates_collapsed": 49,
-        "non_singleton_clusters": 48,
+        "cluster_count": 36111,
+        "clustered_duplicates_collapsed": 56,
+        "non_singleton_clusters": 54,
         "threshold": 0.84,
-        "total_items": 36168
+        "total_items": 36167
       },
       {
-        "cluster_count": 36127,
+        "cluster_count": 36121,
+        "clustered_duplicates_collapsed": 46,
+        "non_singleton_clusters": 46,
+        "threshold": 0.86,
+        "total_items": 36167
+      },
+      {
+        "cluster_count": 36126,
         "clustered_duplicates_collapsed": 41,
         "non_singleton_clusters": 41,
-        "threshold": 0.86,
-        "total_items": 36168
-      },
-      {
-        "cluster_count": 36131,
-        "clustered_duplicates_collapsed": 37,
-        "non_singleton_clusters": 37,
         "threshold": 0.88,
-        "total_items": 36168
+        "total_items": 36167
       }
     ]
   }
