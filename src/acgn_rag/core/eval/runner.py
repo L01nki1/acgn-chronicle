@@ -62,6 +62,7 @@ REQUIRED_TIER1_IDENTITY = (
     "collection",
     "top_k",
     "over_fetch",
+    "retrieval_mode",
     "identity_slug",
     "chunker",
     "qa_inputs_fingerprint",
@@ -74,6 +75,7 @@ _TIER1_STRING_IDENTITY = (
     "window_end",
     "chunk_config",
     "collection",
+    "retrieval_mode",
     "identity_slug",
     "qa_inputs_fingerprint",
 )
@@ -877,6 +879,7 @@ def _archive_identity(meta: Mapping[str, Any]) -> dict[str, Any]:
         "collection": meta.get("collection"),
         "top_k": retrieval.get("top_k"),
         "over_fetch": retrieval.get("over_fetch"),
+        "retrieval_mode": retrieval.get("mode"),
         "identity_slug": build_identity.get("identity_slug"),
         "chunker": meta.get("chunker"),
         "qa_inputs_fingerprint": qa_block.get("inputs_fingerprint"),

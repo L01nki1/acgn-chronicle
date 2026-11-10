@@ -1451,6 +1451,21 @@ def test_compare_tier1_runs_rejects_chunker_drift(tmp_path: Path) -> None:
     assert result["identity_mismatches"][0]["field"] == "chunker"
 
 
+def test_compare_tier1_runs_rejects_retrieval_mode_drift(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    meta_path = right / "meta.json"
+    meta = _archive_json(meta_path)
+    meta["retrieval"]["mode"] = "bm25"
+    _write_archive_json(meta_path, meta)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == "identity mismatch"
+    assert result["identity_mismatches"][0]["field"] == "retrieval_mode"
+
+
 def test_compare_tier1_runs_rejects_two_empty_answer_files(tmp_path: Path) -> None:
     left = _tier1_archive(tmp_path, "left")
     right = _tier1_archive(tmp_path, "right")
@@ -1611,8 +1626,9 @@ def test_run_id_rejects_path_shaped_generated_segments(tmp_path: Path) -> None:
         (("window_verified",), "window_verified"),
         (("qa", "validated"), "qa_validated"),
         (("reportable",), "reportable"),
+        (("retrieval", "mode"), "retrieval_mode"),
     ],
-    ids=["window-verified", "qa-validated", "reportable"],
+    ids=["window-verified", "qa-validated", "reportable", "retrieval-mode"],
 )
 def test_compare_tier1_runs_requires_identity_flags(
     tmp_path: Path, path: tuple[str, ...], name: str
