@@ -28,10 +28,11 @@ Scope and interpretation
 Threshold candidates
 --------------------
 One candidate is produced for each distinct observed score, ascending, so every distinct
-answer/refuse partition induced by the samples is considered. Because a sample whose score
-equals the candidate is answered, the lowest candidate answers every sample. One sentinel
-candidate, math.nextafter above the maximum score, refuses every sample and therefore
-represents the all-refused endpoint.
+answer/refuse partition induced by the scored samples is considered. Because a scored sample
+whose score equals the candidate is answered, the lowest candidate passes every scored sample
+through the retrieval-score gate; empty retrieval still abstains. One sentinel candidate,
+math.nextafter above the maximum score, refuses every scored sample (empty retrieval is
+already a fixed refusal) and therefore represents the all-refused endpoint.
 """
 
 from __future__ import annotations
