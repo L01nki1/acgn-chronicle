@@ -65,6 +65,9 @@ REQUIRED_TIER1_IDENTITY = (
     "chunker",
     "qa_inputs_fingerprint",
 )
+# Answer-row fields the Tier-1 comparison reads. They must be present in both archives:
+# two absent values are not evidence that the retrieval outputs matched.
+_TIER1_ANSWER_FIELDS = ("question", "retrieved_chunk_ids", "retrieved_urls", "abstained")
 
 
 class Answerer(Protocol):
@@ -893,6 +896,23 @@ def _answers_by_qa(rows: Sequence[Mapping[str, Any]], *, side: str) -> dict[str,
             raise ValueError(f"{side} archive has an answer row without a qa_id")
         if qa_id in by_qa:
             raise ValueError(f"{side} archive has duplicate qa_id {qa_id!r}")
+        for name in _TIER1_ANSWER_FIELDS:
+            if name not in row:
+                raise ValueError(f"{side} archive row {qa_id!r} is missing required field {name!r}")
+            value = row[name]
+            if name == "question":
+                if not isinstance(value, str):
+                    raise ValueError(f"{side} archive row {qa_id!r} has a non-string question")
+            elif name == "abstained":
+                if value is not None and not isinstance(value, bool):
+                    raise ValueError(
+                        f"{side} archive row {qa_id!r} has an invalid abstained value {value!r}"
+                    )
+            elif not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+                raise ValueError(
+                    f"{side} archive row {qa_id!r} has an invalid {name} value; expected a list "
+                    "of strings"
+                )
         by_qa[qa_id] = row
     return by_qa
 
@@ -906,10 +926,11 @@ def compare_tier1_runs(left: Path | str, right: Path | str) -> dict[str, Any]:
     citations, `diagnostics` and human labels are Tier-2 and are deliberately not compared.
 
     A comparison is `comparable` only when both archives carry every required identity field,
-    the recorded QA-set fingerprint matches, the answer-row count equals `meta.qa.count` on both
-    sides and every QA id was compared. Otherwise `comparable` is false with a `reason`; a
-    subset of items is never reported as identical. A differing `git_sha` is a warning, not a
-    comparability failure: a docs-only commit does not change the vectors.
+    every required Tier-1 answer field, the recorded QA-set fingerprint matches, the answer-row
+    count equals `meta.qa.count` on both sides and every QA id was compared. A missing answer
+    field is rejected rather than treated as "both sides agree"; otherwise two archives could be
+    reported identical without recording the retrieval order. A differing `git_sha` is a warning,
+    not a comparability failure: a docs-only commit does not change the vectors.
     """
     left_meta, left_metrics, left_answers = _load_run_archive(left)
     right_meta, right_metrics, right_answers = _load_run_archive(right)

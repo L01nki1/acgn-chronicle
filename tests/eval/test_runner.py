@@ -1548,3 +1548,49 @@ def test_compare_tier1_runs_requires_chunker_identity(tmp_path: Path) -> None:
 
     assert result["comparable"] is False
     assert result["reason"] == "identity unavailable: chunker"
+
+
+@pytest.mark.parametrize(
+    "field", ["question", "retrieved_chunk_ids", "retrieved_urls", "abstained"]
+)
+def test_compare_tier1_runs_rejects_a_required_answer_field_missing_from_both(
+    tmp_path: Path, field: str
+) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        answers_path = archive / "answers.jsonl"
+        rows = _archive_rows(answers_path)
+        del rows[0][field]
+        _write_archive_rows(answers_path, rows)
+
+    with pytest.raises(ValueError, match=field):
+        compare_tier1_runs(left, right)
+
+
+def test_compare_tier1_runs_rejects_a_wrong_typed_retrieval_field(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        answers_path = archive / "answers.jsonl"
+        rows = _archive_rows(answers_path)
+        rows[0]["retrieved_chunk_ids"] = "c1"
+        _write_archive_rows(answers_path, rows)
+
+    with pytest.raises(ValueError, match="retrieved_chunk_ids"):
+        compare_tier1_runs(left, right)
+
+
+def test_compare_tier1_runs_allows_a_null_abstained_in_both(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        answers_path = archive / "answers.jsonl"
+        rows = _archive_rows(answers_path)
+        rows[0]["abstained"] = None
+        _write_archive_rows(answers_path, rows)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is True
+    assert result["comparable"] is True
