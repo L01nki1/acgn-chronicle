@@ -1594,3 +1594,85 @@ def test_compare_tier1_runs_allows_a_null_abstained_in_both(tmp_path: Path) -> N
 
     assert result["identical"] is True
     assert result["comparable"] is True
+
+
+def test_run_id_rejects_path_shaped_generated_segments(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="run_date"):
+        _run_id(_spec(tmp_path, run_id=None, run_date="../20261030"))
+    with pytest.raises(ValueError, match="snapshot_id"):
+        _run_id(_spec(tmp_path, run_id=None, snapshot_id="../escape"))
+    with pytest.raises(ValueError, match="config"):
+        _run_id(_spec(tmp_path, run_id=None, config="A/../B"))
+
+
+@pytest.mark.parametrize(
+    ("path", "name"),
+    [
+        (("window_verified",), "window_verified"),
+        (("qa", "validated"), "qa_validated"),
+        (("reportable",), "reportable"),
+    ],
+    ids=["window-verified", "qa-validated", "reportable"],
+)
+def test_compare_tier1_runs_requires_identity_flags(
+    tmp_path: Path, path: tuple[str, ...], name: str
+) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        meta_path = archive / "meta.json"
+        meta = _archive_json(meta_path)
+        node = meta
+        for part in path[:-1]:
+            node = node[part]
+        del node[path[-1]]
+        _write_archive_json(meta_path, meta)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == f"identity unavailable: {name}"
+
+
+@pytest.mark.parametrize(
+    ("path", "name", "value"),
+    [
+        (("qa", "inputs_fingerprint"), "qa_inputs_fingerprint", "not-a-fingerprint"),
+        (("retrieval", "top_k"), "top_k", "5"),
+    ],
+    ids=["fingerprint", "top-k"],
+)
+def test_compare_tier1_runs_rejects_invalid_identity_types(
+    tmp_path: Path, path: tuple[str, str], name: str, value: object
+) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        meta_path = archive / "meta.json"
+        meta = _archive_json(meta_path)
+        meta[path[0]][path[1]] = value
+        _write_archive_json(meta_path, meta)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == f"identity unavailable: {name}"
+
+
+@pytest.mark.parametrize("mode", ["missing", "wrong-type"])
+def test_compare_tier1_runs_requires_a_reporting_block(tmp_path: Path, mode: str) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        metrics_path = archive / "metrics.json"
+        metrics = _archive_json(metrics_path)
+        if mode == "missing":
+            del metrics["reporting"]
+        else:
+            metrics["reporting"] = []
+        _write_archive_json(metrics_path, metrics)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == "reporting unavailable"
