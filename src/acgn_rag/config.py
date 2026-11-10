@@ -12,6 +12,7 @@ Design constraints:
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,6 +28,16 @@ def _env(key: str, default: str | None = None) -> str | None:
 def _env_int(key: str, default: int) -> int:
     raw = _env(key)
     return int(raw) if raw is not None else default
+
+
+def _env_float(key: str, default: float | None = None) -> float | None:
+    raw = _env(key)
+    if raw is None:
+        return default
+    value = float(raw)
+    if not math.isfinite(value):
+        raise ValueError(f"{key} must be a finite number, got {raw!r}")
+    return value
 
 
 @dataclass(frozen=True)
@@ -98,6 +109,12 @@ class LLMConfig:
     # RUNBOOK §3.4: 1024 is a reasoning-token floor, not an answer budget; the default
     # leaves room for reasoning plus the structured claims payload.
     answer_max_tokens: int = field(default_factory=lambda: _env_int("ACGN_ANSWER_MAX_TOKENS", 2048))
+    # EVAL_PROTOCOL §6/§8: the calibration set exists to sweep this threshold, and abstention
+    # decisions must be identical at a fixed threshold. Unset disables the pre-generation
+    # check and keeps the existing behavior (abstention only after claim validation).
+    answer_min_retrieval_score: float | None = field(
+        default_factory=lambda: _env_float("ACGN_ANSWER_MIN_RETRIEVAL_SCORE")
+    )
 
 
 @dataclass(frozen=True)

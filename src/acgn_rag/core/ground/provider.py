@@ -81,7 +81,7 @@ def make_grounded_answerer(
     *,
     http_client: httpx.Client | None = None,
 ) -> GroundedAnswerer:
-    """Build the production answerer with the configured answer-token budget."""
+    """Build the production answerer from the answer-line config, threshold included."""
     return GroundedAnswerer.from_config(
         config,
         make_openai_answer_client(config, http_client=http_client),
