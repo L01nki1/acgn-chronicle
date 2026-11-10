@@ -919,6 +919,23 @@ def _archive_qa_count(meta: Mapping[str, Any]) -> int | None:
     return count
 
 
+def _missing_tier1_metrics(metrics: Mapping[str, Any]) -> list[str]:
+    """Metric blocks the comparison reads; absent blocks are not evidence of equality."""
+    missing: list[str] = []
+    if not isinstance(metrics.get("retrieval"), dict):
+        missing.append("retrieval")
+    if not isinstance(metrics.get("counts"), dict):
+        missing.append("counts")
+    if not isinstance(metrics.get("provisional"), bool):
+        missing.append("provisional")
+    reporting = metrics.get("reporting")
+    if not isinstance(reporting, dict):
+        missing.append("reporting")
+    elif not isinstance(reporting.get("retrieval"), dict):
+        missing.append("reporting.retrieval")
+    return missing
+
+
 def _answers_by_qa(rows: Sequence[Mapping[str, Any]], *, side: str) -> dict[str, Mapping[str, Any]]:
     by_qa: dict[str, Mapping[str, Any]] = {}
     for row in rows:
@@ -1035,12 +1052,18 @@ def compare_tier1_runs(left: Path | str, right: Path | str) -> dict[str, Any]:
                     "right": right_metrics.get(name),
                 }
             )
-    left_reporting = left_metrics.get("reporting")
-    right_reporting = right_metrics.get("reporting")
-    if not isinstance(left_reporting, dict) or not isinstance(right_reporting, dict):
-        return _not_comparable("reporting unavailable", metric_mismatches=metric_mismatches)
-    left_retrieval_reporting = left_reporting.get("retrieval")
-    right_retrieval_reporting = right_reporting.get("retrieval")
+    missing_metrics = sorted(
+        set(_missing_tier1_metrics(left_metrics)) | set(_missing_tier1_metrics(right_metrics))
+    )
+    if missing_metrics:
+        return _not_comparable(
+            "metrics unavailable: " + ", ".join(missing_metrics),
+            metric_mismatches=metric_mismatches,
+        )
+    left_reporting = left_metrics["reporting"]
+    right_reporting = right_metrics["reporting"]
+    left_retrieval_reporting = left_reporting["retrieval"]
+    right_retrieval_reporting = right_reporting["retrieval"]
     if left_retrieval_reporting != right_retrieval_reporting:
         metric_mismatches.append(
             {
