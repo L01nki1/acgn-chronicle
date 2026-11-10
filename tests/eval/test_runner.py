@@ -1659,20 +1659,32 @@ def test_compare_tier1_runs_rejects_invalid_identity_types(
     assert result["reason"] == f"identity unavailable: {name}"
 
 
-@pytest.mark.parametrize("mode", ["missing", "wrong-type"])
-def test_compare_tier1_runs_requires_a_reporting_block(tmp_path: Path, mode: str) -> None:
+@pytest.mark.parametrize(
+    ("path", "name"),
+    [
+        (("retrieval",), "retrieval"),
+        (("counts",), "counts"),
+        (("provisional",), "provisional"),
+        (("reporting",), "reporting"),
+        (("reporting", "retrieval"), "reporting.retrieval"),
+    ],
+    ids=["retrieval", "counts", "provisional", "reporting", "reporting-retrieval"],
+)
+def test_compare_tier1_runs_requires_metric_blocks(
+    tmp_path: Path, path: tuple[str, ...], name: str
+) -> None:
     left = _tier1_archive(tmp_path, "left")
     right = _tier1_archive(tmp_path, "right")
     for archive in (left, right):
         metrics_path = archive / "metrics.json"
         metrics = _archive_json(metrics_path)
-        if mode == "missing":
-            del metrics["reporting"]
-        else:
-            metrics["reporting"] = []
+        node = metrics
+        for part in path[:-1]:
+            node = node[part]
+        del node[path[-1]]
         _write_archive_json(metrics_path, metrics)
 
     result = compare_tier1_runs(left, right)
 
     assert result["comparable"] is False
-    assert result["reason"] == "reporting unavailable"
+    assert result["reason"] == f"metrics unavailable: {name}"
