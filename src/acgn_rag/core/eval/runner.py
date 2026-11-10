@@ -57,6 +57,7 @@ REQUIRED_TIER1_IDENTITY = (
     "snapshot_id",
     "window_start",
     "window_end",
+    "window_verified",
     "chunk_config",
     "collection",
     "top_k",
@@ -64,7 +65,19 @@ REQUIRED_TIER1_IDENTITY = (
     "identity_slug",
     "chunker",
     "qa_inputs_fingerprint",
+    "qa_validated",
+    "reportable",
 )
+_TIER1_STRING_IDENTITY = (
+    "snapshot_id",
+    "window_start",
+    "window_end",
+    "chunk_config",
+    "collection",
+    "identity_slug",
+    "qa_inputs_fingerprint",
+)
+_TIER1_BOOL_IDENTITY = ("window_verified", "qa_validated", "reportable")
 # Answer-row fields the Tier-1 comparison reads. They must be present in both archives:
 # two absent values are not evidence that the retrieval outputs matched.
 _TIER1_ANSWER_FIELDS = ("question", "retrieved_chunk_ids", "retrieved_urls", "abstained")
@@ -164,9 +177,11 @@ def _identity_token(build_identity: Mapping[str, Any]) -> str:
 def _run_id(spec: RunSpec) -> str:
     if spec.run_id:
         return _run_id_segment(spec.run_id, label="run_id")
-    day = spec.run_date or datetime.now(UTC).strftime("%Y%m%d")
+    day = _run_id_segment(spec.run_date or datetime.now(UTC).strftime("%Y%m%d"), label="run_date")
+    config = _run_id_segment(_config_token(spec.config), label="config")
+    snapshot = _run_id_segment(spec.snapshot_id, label="snapshot_id")
     identity = _identity_token(spec.build_identity)
-    return f"{day}-{_config_token(spec.config)}-{spec.snapshot_id}-{identity}"
+    return f"{day}-{config}-{snapshot}-{identity}"
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -871,12 +886,28 @@ def _archive_identity(meta: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _missing_tier1_identity(identity: Mapping[str, Any]) -> list[str]:
-    """Identity fields that are absent or empty on one side of a comparison."""
-    return [
-        name
-        for name in REQUIRED_TIER1_IDENTITY
-        if identity.get(name) is None or identity.get(name) == "" or identity.get(name) == {}
-    ]
+    """Identity fields that are absent, empty or the wrong type on one side."""
+    invalid: list[str] = []
+    for name in REQUIRED_TIER1_IDENTITY:
+        value = identity.get(name)
+        if name == "qa_inputs_fingerprint":
+            if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+                invalid.append(name)
+        elif name in _TIER1_STRING_IDENTITY:
+            if not isinstance(value, str) or not value.strip():
+                invalid.append(name)
+        elif name in _TIER1_BOOL_IDENTITY:
+            if not isinstance(value, bool):
+                invalid.append(name)
+        elif name in ("top_k", "over_fetch"):
+            if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+                invalid.append(name)
+        elif name == "chunker":
+            if not isinstance(value, dict) or not value:
+                invalid.append(name)
+        elif value is None or value == "" or value == {}:
+            invalid.append(name)
+    return invalid
 
 
 def _archive_qa_count(meta: Mapping[str, Any]) -> int | None:
@@ -1004,8 +1035,12 @@ def compare_tier1_runs(left: Path | str, right: Path | str) -> dict[str, Any]:
                     "right": right_metrics.get(name),
                 }
             )
-    left_retrieval_reporting = (left_metrics.get("reporting") or {}).get("retrieval")
-    right_retrieval_reporting = (right_metrics.get("reporting") or {}).get("retrieval")
+    left_reporting = left_metrics.get("reporting")
+    right_reporting = right_metrics.get("reporting")
+    if not isinstance(left_reporting, dict) or not isinstance(right_reporting, dict):
+        return _not_comparable("reporting unavailable", metric_mismatches=metric_mismatches)
+    left_retrieval_reporting = left_reporting.get("retrieval")
+    right_retrieval_reporting = right_reporting.get("retrieval")
     if left_retrieval_reporting != right_retrieval_reporting:
         metric_mismatches.append(
             {
