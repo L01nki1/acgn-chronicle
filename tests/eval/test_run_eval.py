@@ -115,6 +115,13 @@ def test_live_validation_rejects_an_empty_archive(tmp_path: Path) -> None:
     assert "answers.jsonl is empty" in run_eval._validate_live_run(result)
 
 
+def test_gpu_model_is_recorded_in_determinism() -> None:
+    determinism = run_eval._configure_determinism()
+
+    assert "gpu_model" in determinism
+    assert determinism["gpu_model"] is None or isinstance(determinism["gpu_model"], str)
+
+
 def test_main_live_without_key_fails_before_store(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

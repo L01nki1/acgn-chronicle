@@ -71,7 +71,14 @@ def _configure_determinism(seed: int = 0) -> dict[str, object]:
             "torch_seed": seed,
             "use_deterministic_algorithms": False,
             "warn_only": None,
+            "gpu_model": None,
         }
+    gpu_model: str | None = None
+    try:
+        if torch.cuda.is_available():
+            gpu_model = str(torch.cuda.get_device_name(0))
+    except Exception:
+        gpu_model = None
     torch.manual_seed(seed)
     warn_only = True
     enabled = False
@@ -85,6 +92,7 @@ def _configure_determinism(seed: int = 0) -> dict[str, object]:
         "torch_seed": seed,
         "use_deterministic_algorithms": enabled,
         "warn_only": warn_only if enabled else None,
+        "gpu_model": gpu_model,
     }
 
 
