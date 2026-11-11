@@ -386,6 +386,34 @@ def test_failures_record_carries_the_generated_answer(tmp_path: Path) -> None:
     assert "(not run)" not in text
 
 
+class MultilineAnswerer:
+    def answer(self, query: Any, chunks: Any) -> GroundedAnswer:
+        chunk = chunks[0]
+        return GroundedAnswer(
+            answer="Line one.\nLine | two.",
+            citations=[chunk.citation],
+            cited_chunk_ids=[chunk.chunk_id],
+            abstained=False,
+            abstain_reason=None,
+        )
+
+
+def test_failures_record_keeps_one_row_per_item(tmp_path: Path) -> None:
+    result = run(
+        _spec(tmp_path, run_id="failures-escape"),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        answerer=MultilineAnswerer(),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["c1"] for url in urls},
+    )
+
+    lines = (result.out_dir / "failures.md").read_text(encoding="utf-8").splitlines()
+
+    assert len(lines) == 7
+    assert "Line one. Line \\| two." in lines[-1]
+
+
 def test_run_uses_item_window_as_filters(tmp_path: Path) -> None:
     store = FakeStore([_hit()])
     run(
