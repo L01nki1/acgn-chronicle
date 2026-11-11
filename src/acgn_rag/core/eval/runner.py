@@ -438,26 +438,58 @@ def _canonical_manifest_digest(manifest: Mapping[str, Any]) -> str | None:
     return hashlib.sha256(data).hexdigest()
 
 
+EVIDENCE_PAGE_SIZE = 500
+
+
 def build_evidence_resolver(
     collection: Any,
+    *,
+    page_size: int = EVIDENCE_PAGE_SIZE,
 ) -> Callable[[Sequence[str]], Mapping[str, Sequence[str]]]:
     """Resolve gold URLs to chunk ids from the bound collection's metadata.
 
     The resolver is scoped to the collection the runner will query: a URL present in a
     different snapshot/config must stay unresolved rather than borrowing evidence.
+
+    Metadata is read in bounded pages: an unbounded `get()` on the full collection can exceed
+    SQLite's variable limit. Duplicate/overlapping ids and a final count mismatch raise instead
+    of returning a partial map. This is a consistency check, not a lock; the index must not be
+    changing while the scan runs.
     """
-    rows = collection.get(include=["metadatas"])
-    ids = list(rows.get("ids") or [])
-    metadatas = list(rows.get("metadatas") or [])
-    if len(ids) != len(metadatas):
-        raise RuntimeError("collection metadata rows are incomplete")
+    if page_size < 1:
+        raise ValueError("page_size must be >= 1")
+
     by_url: dict[str, list[str]] = {}
-    for chunk_id, metadata in zip(ids, metadatas, strict=True):
-        if not isinstance(metadata, dict):
-            continue
-        url = metadata.get("url")
-        if isinstance(url, str) and url:
-            by_url.setdefault(metrics.normalize_url(url), []).append(str(chunk_id))
+    seen: set[str] = set()
+    offset = 0
+    while True:
+        rows = collection.get(limit=page_size, offset=offset, include=["metadatas"])
+        ids = [str(chunk_id) for chunk_id in (rows.get("ids") or [])]
+        metadatas = list(rows.get("metadatas") or [])
+        if len(ids) != len(metadatas):
+            raise RuntimeError("collection metadata rows are incomplete")
+        if not ids:
+            break
+        if len(set(ids)) != len(ids) or seen.intersection(ids):
+            raise RuntimeError("collection metadata scan returned duplicate chunk ids")
+        seen.update(ids)
+        for chunk_id, metadata in zip(ids, metadatas, strict=True):
+            if not isinstance(metadata, dict):
+                continue
+            url = metadata.get("url")
+            if isinstance(url, str) and url:
+                by_url.setdefault(metrics.normalize_url(url), []).append(chunk_id)
+        if len(ids) < page_size:
+            break
+        offset += len(ids)
+
+    count = getattr(collection, "count", None)
+    if callable(count):
+        total = count()
+        if total != len(seen):
+            raise RuntimeError(
+                f"collection metadata scan incomplete: read {len(seen)} of {total} chunk ids"
+            )
 
     def resolve(urls: Sequence[str]) -> Mapping[str, Sequence[str]]:
         return {str(url): list(by_url.get(metrics.normalize_url(str(url)), [])) for url in urls}

@@ -1238,15 +1238,25 @@ def test_file_path_qa_is_auto_validated_and_reportable(tmp_path: Path) -> None:
 
 
 class _FakeCollection:
-    def __init__(self, rows: list[dict[str, Any]]) -> None:
+    def __init__(self, rows: list[dict[str, Any]], *, omit: set[str] | None = None) -> None:
         self.rows = rows
+        self.omit = omit or set()
+        self.calls: list[tuple[int | None, int]] = []
 
-    def get(self, *, include: list[str]) -> dict[str, Any]:
+    def get(
+        self, *, include: list[str], limit: int | None = None, offset: int = 0
+    ) -> dict[str, Any]:
         assert include == ["metadatas"]
+        self.calls.append((limit, offset))
+        rows = [row for row in self.rows if row["id"] not in self.omit]
+        page = rows[offset:] if limit is None else rows[offset : offset + limit]
         return {
-            "ids": [row["id"] for row in self.rows],
-            "metadatas": [{"url": row["url"]} for row in self.rows],
+            "ids": [row["id"] for row in page],
+            "metadatas": [{"url": row["url"]} for row in page],
         }
+
+    def count(self) -> int:
+        return len(self.rows)
 
 
 def test_build_evidence_resolver_maps_normalized_urls_to_chunk_ids() -> None:
@@ -1262,6 +1272,57 @@ def test_build_evidence_resolver_maps_normalized_urls_to_chunk_ids() -> None:
     assert resolve(["https://EXAMPLE.com/news/a"]) == {"https://EXAMPLE.com/news/a": ["c1", "c2"]}
     assert resolve(["https://example.com/news/b"]) == {"https://example.com/news/b": ["c3"]}
     assert resolve(["https://example.com/news/missing"]) == {"https://example.com/news/missing": []}
+    assert collection.calls == [(500, 0)]
+
+
+def test_build_evidence_resolver_pages_metadata() -> None:
+    rows = [
+        {"id": f"c{index}", "url": f"https://example.com/news/{index}"} for index in range(1201)
+    ]
+    collection = _FakeCollection(rows)
+
+    resolve = build_evidence_resolver(collection, page_size=500)
+
+    assert collection.calls == [(500, 0), (500, 500), (500, 1000)]
+    assert resolve(["https://example.com/news/0", "https://example.com/news/1200"]) == {
+        "https://example.com/news/0": ["c0"],
+        "https://example.com/news/1200": ["c1200"],
+    }
+
+
+def test_build_evidence_resolver_reads_an_empty_collection() -> None:
+    collection = _FakeCollection([])
+
+    resolve = build_evidence_resolver(collection)
+
+    assert resolve(["https://example.com/missing"]) == {"https://example.com/missing": []}
+    assert collection.calls == [(500, 0)]
+
+
+def test_build_evidence_resolver_rejects_an_incomplete_scan() -> None:
+    rows = [
+        {"id": "c1", "url": "https://example.com/a"},
+        {"id": "c2", "url": "https://example.com/b"},
+        {"id": "c3", "url": "https://example.com/c"},
+    ]
+    collection = _FakeCollection(rows, omit={"c2"})
+
+    with pytest.raises(RuntimeError, match="scan incomplete"):
+        build_evidence_resolver(collection)
+
+
+class _StuckCollection:
+    def get(self, *, include: list[str], limit: int, offset: int) -> dict[str, Any]:
+        assert include == ["metadatas"]
+        return {"ids": ["c1"], "metadatas": [{"url": "https://example.com/a"}]}
+
+    def count(self) -> int:
+        return 2
+
+
+def test_build_evidence_resolver_rejects_duplicate_pages() -> None:
+    with pytest.raises(RuntimeError, match="duplicate chunk ids"):
+        build_evidence_resolver(_StuckCollection(), page_size=1)
 
 
 def _tier1_archive(tmp_path: Path, name: str, **overrides: object) -> Path:
