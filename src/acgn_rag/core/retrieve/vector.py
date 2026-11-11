@@ -23,9 +23,10 @@ from acgn_rag.core.ports import (
 from acgn_rag.core.store.chroma_store import ScoredPayload, media_filter
 
 _ONE_DAY = timedelta(days=1)
-# Fractional seconds attached to the smallest time component. The raw string is checked
-# because `datetime.fromisoformat` silently drops digits beyond microseconds.
-_TIME_FRACTION_RE = re.compile(r"[Tt ]\d{2}(?::?\d{2}){0,2}[.,](\d+)")
+# Any fractional part, whether attached to the time or to a numeric timezone offset. The raw
+# string is checked because `datetime.fromisoformat` silently drops digits beyond microseconds,
+# and drops an offset fraction entirely.
+_FRACTION_RE = re.compile(r"[.,](\d+)")
 
 
 class EmbedderPort(Protocol):
@@ -46,7 +47,7 @@ class StorePort(Protocol):
 
 
 def _is_date_only(value: str) -> bool:
-    return "T" not in value and " " not in value
+    return "T" not in value and "t" not in value and " " not in value
 
 
 def _parse_bound(value: str) -> tuple[datetime, bool]:
@@ -57,12 +58,12 @@ def _parse_bound(value: str) -> tuple[datetime, bool]:
     metadata field, which made `since=...00:00.5Z` match a record stored at `...00:00`. The raw
     fraction is checked because `datetime.fromisoformat` drops digits beyond microseconds.
     """
-    match = _TIME_FRACTION_RE.search(value)
-    if match is not None and any(digit != "0" for digit in match.group(1)):
-        raise ValueError(
-            "fractional-second bounds are not supported: published_ts is stored in whole "
-            f"seconds, so {value!r} cannot be compared exactly"
-        )
+    for match in _FRACTION_RE.finditer(value):
+        if any(digit != "0" for digit in match.group(1)):
+            raise ValueError(
+                "fractional-second bounds are not supported: published_ts is stored in whole "
+                f"seconds, so {value!r} cannot be compared exactly"
+            )
     parsed = datetime.fromisoformat(value)
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
