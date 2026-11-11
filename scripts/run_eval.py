@@ -30,6 +30,7 @@ from acgn_rag.core.eval.qa import load_jsonl, validate
 from acgn_rag.core.eval.runner import (
     Answerer,
     NullAnswerer,
+    RunResult,
     RunSpec,
     bind_existing_collection,
     build_evidence_resolver,
@@ -116,15 +117,49 @@ def _llm_metadata(config: LLMConfig, answerer_mode: str) -> dict[str, object]:
                 or "none"
             ),
             "temperature": float(getattr(config, "temperature", 0.0)),
-            "seed": 0,
+            "seed": None,
         }
     return {
         "provider": str(getattr(config, "base_url", "") or "none"),
         "model": str(getattr(config, "model", "") or "none"),
         "version": str(getattr(config, "model_version", "") or "none"),
         "temperature": float(getattr(config, "temperature", 0.0)),
-        "seed": 0,
+        "seed": None,
     }
+
+
+def _validate_live_run(result: RunResult) -> list[str]:
+    """Enforce the ROADMAP ④ definition of a real-LLM archive.
+
+    A live run counts only when every row is answered and `meta.llm` records the actual provider,
+    model, version and temperature. `seed` stays `None` because the request carries none.
+    """
+    problems: list[str] = []
+    llm = result.meta.get("llm") or {}
+    for field in ("provider", "model", "version"):
+        value = llm.get(field)
+        if not isinstance(value, str) or not value or value == "none":
+            problems.append(f"meta.llm.{field} is unset")
+    if not isinstance(llm.get("temperature"), (int, float)):
+        problems.append("meta.llm.temperature is unset")
+
+    path = result.out_dir / "answers.jsonl"
+    rows = [
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
+    if not rows:
+        problems.append("answers.jsonl is empty")
+        return problems
+    unanswered = [
+        str(row.get("qa_id", "?"))
+        for row in rows
+        if row.get("status") != "answered" or not str(row.get("answer") or "").strip()
+    ]
+    if unanswered:
+        problems.append(
+            f"{len(unanswered)}/{len(rows)} item(s) not answered: {', '.join(unanswered[:5])}"
+        )
+    return problems
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -292,6 +327,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"run_id: {result.run_id}")
     print(f"out:    {result.out_dir}")
+    if args.answerer == "live":
+        problems = _validate_live_run(result)
+        if problems:
+            print("NOT A REAL-LLM RUN: " + "; ".join(problems), file=sys.stderr)
+            return 1
     if result.metrics.get("provisional"):
         print(
             "PROVISIONAL: no evidence resolver configured; unresolved gold urls are excluded "
