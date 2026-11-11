@@ -164,10 +164,18 @@ and none can be produced yet. `meta.llm` is populated from settings even under `
 `answers.jsonl` records `status: "not_run"`, so a run can look LLM-configured without being one.
 
 - **Definition.** A run counts as a real-LLM run only when every `answers.jsonl` row has `status: "answered"`,
-  a non-empty `answer`, and `meta.json` records the actual provider, model, version and temperature. The seed is
+  a non-empty `answer`, `meta.json` records the actual provider, model, version and temperature, **and the run
+  shows at least one returned provider completion**. The seed is
   recorded as unset when the request carries none — E must populate `meta.llm` from the live answerer rather than
   from settings, because `scripts/run_eval.py` currently writes `"seed": 0` from settings even under
   `NullAnswerer()`, which is the same "looks LLM-configured without being one" problem described above.
+- **A refusal is not a completion.** WP4 returns a non-empty, `answered`-shaped refusal *before*
+  `client.complete()` in two cases: empty retrieval (`ABSTAIN_NO_EVIDENCE`) and a top score below
+  `min_retrieval_score` (`ABSTAIN_RETRIEVAL_BELOW_THRESHOLD`), both in
+  `core/ground/generate.py::generate_grounded_answer_run`. Those refusals are correct behaviour and stay in the
+  archive, but a run made only of them called no model. The archive therefore records, per answer row, whether a
+  provider completion was actually returned, and the run-level validator requires at least one `true`: a run with
+  zero completions is not a real-LLM run even when every row says `answered`.
 - **Owner.** E wires the live answerer into `scripts/run_eval.py`; B owns the run-record contract side (which
   fields must be archived).
 - **Fallback.** If the provider is unavailable before the G2 window closes, the gate records the run as
