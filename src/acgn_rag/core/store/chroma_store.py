@@ -50,9 +50,11 @@ _PERSISTENT_DB = "chroma.sqlite3"
 class ScoredPayload:
     """One query hit: the round-tripped chunk plus its score.
 
-    ``score`` is cosine similarity (1 - Chroma cosine distance); it is ordinal within one
-    response only - never compare across queries, chunk configurations or snapshots
-    (ports.SCORE_SEMANTICS).
+    ``score`` is cosine similarity (1 - Chroma cosine distance). It is comparable across
+    queries only within one identity (same snapshot, chunk configuration, retrieval mode,
+    encoder identity, top-k and over-fetch; per-query filters may differ) and only for
+    abstention-threshold calibration; never across identities, and never averaged as a quality
+    metric (ports.SCORE_SEMANTICS).
     """
 
     payload: ChunkPayload

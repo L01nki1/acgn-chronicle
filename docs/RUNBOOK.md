@@ -125,7 +125,8 @@ Unlimited raw input is still accepted but is not verified as a complete frozen s
 `create_collection(configuration={"hnsw": {"space": "cosine"}})`. The default space is still
 `l2`, and the default would make `score` a distance while the contract promises a similarity
 (`KnowledgePort.md` §3.6). With `cosine`, Chroma returns `1 - cosine_similarity` as the
-distance, so the score is `1 - distance`.
+distance, so the score is `1 - distance`. Calibrating an abstention threshold from these scores is
+per identity (§3.7).
 
 ### 3.2 Snapshot pointer and retention
 
@@ -325,6 +326,19 @@ records do not establish that an unmarked raw input is the complete frozen snaps
   empty extraction: it adds to `empty_extractions` and produces no rows — not a parse failure),
   `degraded_batches` (any failed items)/`degraded` (failed items), `ir_skipped`. The buckets always reconcile:
   `extracted_chunks + degraded + ir_skipped == chunks`.
+
+### 3.7 Abstention threshold: one per identity, recorded with it
+
+The answerer refuses a request when its best retrieval score is strictly below the configured
+threshold, so a threshold is only meaningful for the score distribution it was calibrated on.
+Calibrate it once per identity from labelled per-item top scores (`core/ground/calibration.py`),
+record it with the identity that produced those scores (snapshot, chunk configuration, retrieval
+mode, encoder identity, `top_k`, over-fetch — the `docs/EVAL_PROTOCOL.md` §7 run-record fields),
+and never port it to another identity or retrieval mode: re-calibrate when any of those changes.
+Per-query filters may differ. Scores are comparable across queries only inside that one identity,
+and that comparability exists solely for this calibration; `score` is never averaged as a quality
+metric. Cross-configuration comparisons use `retrieval_hit_rate` / `answer_correctness`, not
+thresholds carried across identities.
 
 ## 4. Emergency degradation
 
