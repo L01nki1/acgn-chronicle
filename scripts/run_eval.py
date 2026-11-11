@@ -3,10 +3,12 @@
 Usage:
     python scripts/run_eval.py --config A --snapshot <id>
     python scripts/run_eval.py --config A --snapshot <id> --qa eval/qa_set.jsonl --out eval/runs
+    python scripts/run_eval.py --config A --snapshot <id> --answerer live
 
 The runner writes `eval/runs/<run_id>/` with `meta.json`, `answers.jsonl`, `labels.jsonl`,
 `metrics.json`, `resolved_evidence.json` and `disputes.md` (EVAL_PROTOCOL §7).
-`NullAnswerer` is used until B's `/ask` lands; retrieval metrics are still measured.
+`--answerer null` (the default) keeps retrieval-only measurement; `--answerer live` requires the
+answer-line provider/model/key and archives real generated answers.
 
 Owner: E | Spec: docs/EVAL_PROTOCOL.md §7-§8, docs/RUNBOOK.md §1
 """
@@ -22,10 +24,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from acgn_rag.config import load_settings
+from acgn_rag.config import LLMConfig, load_settings
 from acgn_rag.core.embed import Embedder
 from acgn_rag.core.eval.qa import load_jsonl, validate
 from acgn_rag.core.eval.runner import (
+    Answerer,
     NullAnswerer,
     RunSpec,
     bind_existing_collection,
@@ -84,6 +87,46 @@ def _configure_determinism(seed: int = 0) -> dict[str, object]:
     }
 
 
+def _build_answerer(mode: str, config: LLMConfig) -> Answerer:
+    """Return the retrieval-only null answerer or the configured live answerer.
+
+    The live path is deliberately lazy: the ground package imports the optional `llm` extra
+    only when a live run is requested, so retrieval-only CI does not need it.
+    """
+    if mode == "null":
+        return NullAnswerer()
+    answer_api_key = str(getattr(config, "answer_api_key", "") or "").strip()
+    answer_model = str(getattr(config, "answer_model", "") or "").strip()
+    if not answer_api_key or not answer_model:
+        raise ValueError("--answerer live requires ACGN_ANSWER_API_KEY and ACGN_ANSWER_MODEL")
+    from acgn_rag.core.ground.provider import make_grounded_answerer
+
+    return make_grounded_answerer(config)
+
+
+def _llm_metadata(config: LLMConfig, answerer_mode: str) -> dict[str, object]:
+    """Record the answer-line identity for a live run; keep the prior shape for null runs."""
+    if answerer_mode == "live":
+        return {
+            "provider": str(getattr(config, "answer_base_url", "") or "none"),
+            "model": str(getattr(config, "answer_model", "") or "none"),
+            "version": str(
+                getattr(config, "answer_model_version", "")
+                or getattr(config, "model_version", "")
+                or "none"
+            ),
+            "temperature": float(getattr(config, "temperature", 0.0)),
+            "seed": 0,
+        }
+    return {
+        "provider": str(getattr(config, "base_url", "") or "none"),
+        "model": str(getattr(config, "model", "") or "none"),
+        "version": str(getattr(config, "model_version", "") or "none"),
+        "temperature": float(getattr(config, "temperature", 0.0)),
+        "seed": 0,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run one evaluation configuration")
     parser.add_argument("--config", required=True, choices=CONFIG_CHOICES)
@@ -105,6 +148,12 @@ def main(argv: list[str] | None = None) -> int:
         "--window-end",
         default=None,
         help="frozen corpus end; required when the snapshot manifest is absent",
+    )
+    parser.add_argument(
+        "--answerer",
+        choices=("null", "live"),
+        default="null",
+        help="null: retrieval-only archives (default); live: require the answer-line provider",
     )
     parser.add_argument(
         "--allow-invalid-qa",
@@ -137,6 +186,11 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     settings = load_settings()
+    try:
+        answerer = _build_answerer(args.answerer, settings.llm)
+    except (ImportError, ValueError) as exc:
+        print(f"ANSWERER CONFIG: {exc}", file=sys.stderr)
+        return 2
     try:
         window_start, window_end, window_verified = resolve_window(
             settings.paths.snapshots / args.snapshot,
@@ -221,13 +275,7 @@ def main(argv: list[str] | None = None) -> int:
         collection=collection,
         counts=counts,
         chunker=chunker,
-        llm={
-            "provider": settings.llm.base_url or "none",
-            "model": settings.llm.model or "none",
-            "version": settings.llm.model_version or "none",
-            "temperature": settings.llm.temperature,
-            "seed": 0,
-        },
+        llm=_llm_metadata(settings.llm, args.answerer),
         determinism=determinism,
         require_gpu=args.require_gpu,
         qa_validated=not args.allow_invalid_qa,
@@ -237,7 +285,7 @@ def main(argv: list[str] | None = None) -> int:
         spec,
         store=store,
         embedder=embedder,
-        answerer=NullAnswerer(),
+        answerer=answerer,
         qa_items=items,
         evidence_resolver=evidence_resolver,
         snapshot_member_urls=member_urls,
