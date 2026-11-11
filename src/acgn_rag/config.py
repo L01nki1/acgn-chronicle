@@ -106,6 +106,11 @@ class LLMConfig:
     answer_model: str = field(
         default_factory=lambda: _env("ACGN_ANSWER_MODEL", _env("ACGN_LLM_MODEL", "")) or ""
     )
+    # The answer line may use a different model/version from extraction. Do not silently fall
+    # back to the extraction version when the models differ; the live-run preflight rejects that.
+    answer_model_version: str = field(
+        default_factory=lambda: _env("ACGN_ANSWER_MODEL_VERSION", "") or ""
+    )
     # RUNBOOK §3.4: 1024 is a reasoning-token floor, not an answer budget; the default
     # leaves room for reasoning plus the structured claims payload.
     answer_max_tokens: int = field(default_factory=lambda: _env_int("ACGN_ANSWER_MAX_TOKENS", 2048))

@@ -306,6 +306,7 @@ def test_null_answerer_marks_not_run(tmp_path: Path) -> None:
     assert answer["status"] == "not_run"
     assert answer["answer"] is None
     assert answer["abstained"] is None
+    assert answer["provider_completion"] is False
     assert result.metrics["correctness"]["rates"]["all"] == {"value": None, "n": 0}
     assert result.metrics["abstention"]["false_refusal_rate"] == {"value": None, "n": 0}
     assert result.metrics["provisional"] is True
@@ -362,6 +363,7 @@ def test_diagnostics_answerer_is_archived(tmp_path: Path) -> None:
 
     answer = json.loads((result.out_dir / "answers.jsonl").read_text(encoding="utf-8").strip())
     assert answer["status"] == "answered"
+    assert answer["provider_completion"] is True
     assert answer["diagnostics"] == {
         "max_tokens": 2048,
         "finish_reason": "stop",

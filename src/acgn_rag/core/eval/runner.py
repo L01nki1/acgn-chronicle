@@ -670,6 +670,10 @@ def _answer_record(
     answer: GroundedAnswer | None,
     diagnostics: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    diagnostics_row = diagnostics or {}
+    provider_completion = bool(
+        diagnostics_row.get("finish_reason") is not None or diagnostics_row.get("usage") is not None
+    )
     return {
         "qa_id": str(item["qa_id"]),
         "question": str(item["question"]),
@@ -680,6 +684,7 @@ def _answer_record(
         "cited_chunk_ids": list(answer.cited_chunk_ids) if answer else [],
         "abstained": answer.abstained if answer else None,
         "status": "answered" if answer else "not_run",
+        "provider_completion": provider_completion,
         "diagnostics": diagnostics,
     }
 

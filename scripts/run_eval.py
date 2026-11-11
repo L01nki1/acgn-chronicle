@@ -19,6 +19,7 @@ import argparse
 import json
 import subprocess
 import sys
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 
@@ -61,8 +62,26 @@ def _git_sha() -> str:
     return completed.stdout.strip() or "unknown"
 
 
-def _configure_determinism(seed: int = 0) -> dict[str, object]:
-    """Set and record the torch determinism knobs for a reportable run."""
+def _cuda_index(device: str | None) -> int | None:
+    """Return the CUDA index named by the encoder device, or None for a non-CUDA device."""
+    value = str(device or "").strip().lower()
+    if value == "cuda":
+        return 0
+    if value.startswith("cuda:"):
+        try:
+            index = int(value.split(":", 1)[1])
+        except ValueError:
+            return None
+        return index if index >= 0 else None
+    return None
+
+
+def _configure_determinism(seed: int = 0, *, device: str | None = None) -> dict[str, object]:
+    """Set and record the torch determinism knobs for a reportable run.
+
+    `device` is the encoder's actual device from the build sidecar. A CUDA run must record the
+    name of that device, not device 0, or a two-device host collapses to one physical model.
+    """
     try:
         import torch
     except Exception:
@@ -74,9 +93,10 @@ def _configure_determinism(seed: int = 0) -> dict[str, object]:
             "gpu_model": None,
         }
     gpu_model: str | None = None
+    index = _cuda_index(device)
     try:
-        if torch.cuda.is_available():
-            gpu_model = str(torch.cuda.get_device_name(0))
+        if index is not None and torch.cuda.is_available():
+            gpu_model = str(torch.cuda.get_device_name(index))
     except Exception:
         gpu_model = None
     torch.manual_seed(seed)
@@ -116,14 +136,16 @@ def _build_answerer(mode: str, config: LLMConfig) -> Answerer:
 def _llm_metadata(config: LLMConfig, answerer_mode: str) -> dict[str, object]:
     """Record the answer-line identity for a live run; keep the prior shape for null runs."""
     if answerer_mode == "live":
+        answer_model = str(getattr(config, "answer_model", "") or "")
+        answer_version = str(getattr(config, "answer_model_version", "") or "")
+        if not answer_version and answer_model == str(getattr(config, "model", "") or ""):
+            # Backward compatibility only when extraction and answer use the same model. When the
+            # models differ, the extraction version would misidentify the answer model.
+            answer_version = str(getattr(config, "model_version", "") or "")
         return {
             "provider": str(getattr(config, "answer_base_url", "") or "none"),
-            "model": str(getattr(config, "answer_model", "") or "none"),
-            "version": str(
-                getattr(config, "answer_model_version", "")
-                or getattr(config, "model_version", "")
-                or "none"
-            ),
+            "model": answer_model or "none",
+            "version": answer_version or "none",
             "temperature": float(getattr(config, "temperature", 0.0)),
             "seed": None,
         }
@@ -136,20 +158,51 @@ def _llm_metadata(config: LLMConfig, answerer_mode: str) -> dict[str, object]:
     }
 
 
+def _llm_metadata_problems(metadata: Mapping[str, object]) -> list[str]:
+    """Validate the archived LLM identity; shared by preflight and post-run validation."""
+    problems: list[str] = []
+    for field in ("provider", "model", "version"):
+        value = metadata.get(field)
+        if not isinstance(value, str) or not value or value == "none":
+            problems.append(f"meta.llm.{field} is unset")
+    if not isinstance(metadata.get("temperature"), (int, float)):
+        problems.append("meta.llm.temperature is unset")
+    if metadata.get("seed") is not None:
+        problems.append("meta.llm.seed must be null when the request carries none")
+    return problems
+
+
+def _live_metadata_problems(config: LLMConfig, metadata: Mapping[str, object]) -> list[str]:
+    """Preflight checks for a live run, before any index or answer work."""
+    problems = _llm_metadata_problems(metadata)
+    answer_model = str(getattr(config, "answer_model", "") or "")
+    extraction_model = str(getattr(config, "model", "") or "")
+    answer_version = str(getattr(config, "answer_model_version", "") or "").strip()
+    if (
+        answer_model
+        and extraction_model
+        and answer_model != extraction_model
+        and not answer_version
+    ):
+        problems.append(
+            "ACGN_ANSWER_MODEL_VERSION is required when the answer model differs from the extraction model"
+        )
+    return problems
+
+
 def _validate_live_run(result: RunResult) -> list[str]:
     """Enforce the ROADMAP ④ definition of a real-LLM archive.
 
     A live run counts only when every row is answered and `meta.llm` records the actual provider,
     model, version and temperature. `seed` stays `None` because the request carries none.
     """
-    problems: list[str] = []
-    llm = result.meta.get("llm") or {}
-    for field in ("provider", "model", "version"):
-        value = llm.get(field)
-        if not isinstance(value, str) or not value or value == "none":
-            problems.append(f"meta.llm.{field} is unset")
-    if not isinstance(llm.get("temperature"), (int, float)):
-        problems.append("meta.llm.temperature is unset")
+    problems: list[str] = _llm_metadata_problems(result.meta.get("llm") or {})
+
+    build_identity = result.meta.get("build_identity") or {}
+    device = str(build_identity.get("device") or "").lower()
+    gpu_model = (result.meta.get("determinism") or {}).get("gpu_model")
+    if device.startswith("cuda") and not (isinstance(gpu_model, str) and gpu_model):
+        problems.append("meta.determinism.gpu_model is unset for a CUDA encoder")
 
     path = result.out_dir / "answers.jsonl"
     rows = [
@@ -167,6 +220,8 @@ def _validate_live_run(result: RunResult) -> list[str]:
         problems.append(
             f"{len(unanswered)}/{len(rows)} item(s) not answered: {', '.join(unanswered[:5])}"
         )
+    if not any(row.get("provider_completion") is True for row in rows):
+        problems.append("no returned provider completion in answers.jsonl")
     return problems
 
 
@@ -229,6 +284,12 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     settings = load_settings()
+    llm_metadata = _llm_metadata(settings.llm, args.answerer)
+    if args.answerer == "live":
+        metadata_problems = _live_metadata_problems(settings.llm, llm_metadata)
+        if metadata_problems:
+            print("ANSWERER CONFIG: " + "; ".join(metadata_problems), file=sys.stderr)
+            return 2
     try:
         answerer = _build_answerer(args.answerer, settings.llm)
     except (ImportError, ValueError) as exc:
@@ -301,7 +362,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"EVIDENCE RESOLVER FAILED: {exc}", file=sys.stderr)
         return 1
 
-    determinism = _configure_determinism()
+    determinism = _configure_determinism(device=str(build_identity.get("device") or ""))
     spec = RunSpec(
         snapshot_id=args.snapshot,
         window_start=window_start,
@@ -318,7 +379,7 @@ def main(argv: list[str] | None = None) -> int:
         collection=collection,
         counts=counts,
         chunker=chunker,
-        llm=_llm_metadata(settings.llm, args.answerer),
+        llm=llm_metadata,
         determinism=determinism,
         require_gpu=args.require_gpu,
         qa_validated=not args.allow_invalid_qa,
@@ -350,6 +411,7 @@ def main(argv: list[str] | None = None) -> int:
         reason = result.meta.get("non_reportable_reason") or "unknown"
         suffix = " (PR #48 GPU-first policy, pending)" if reason == "non_gpu_device" else ""
         print(f"NOT REPORTABLE: {reason}{suffix}", file=sys.stderr)
+        return 1
     print(f"hit@k:  {result.metrics['retrieval']['hit']}")
     print(f"mrr:    {result.metrics['retrieval']['mrr']}")
     print(f"recall: {result.metrics['retrieval']['evidence_recall']}")
