@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
+import time
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import UTC, datetime
@@ -645,6 +647,23 @@ def _item_urls(item: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(str(url) for url in urls)
 
 
+def _percentile(values: Sequence[float], fraction: float) -> float | None:
+    """Nearest-rank percentile; deterministic for the small QA sets used here."""
+    if not values:
+        return None
+    ordered = sorted(values)
+    index = max(0, math.ceil(fraction * len(ordered)) - 1)
+    return round(ordered[index], 3)
+
+
+def _latency_summary(values: Sequence[float]) -> dict[str, float | int | None]:
+    return {
+        "n": len(values),
+        "p50": _percentile(values, 0.50),
+        "p95": _percentile(values, 0.95),
+    }
+
+
 def _answer_record(
     item: Mapping[str, Any],
     chunks: Sequence[RetrievedChunk],
@@ -726,6 +745,7 @@ def run(
 
     cases: list[metrics.CaseResult] = []
     answers: list[dict[str, Any]] = []
+    retrieval_latencies: list[float] = []
     for item in items:
         gold_urls = _item_urls(item)
         window = item["window"]
@@ -735,7 +755,9 @@ def run(
             snapshot_id=spec.snapshot_id,
             filters=RetrievalFilters(since=str(window[0]), until=str(window[1])),
         )
+        started = time.perf_counter()
         chunks = search(query, store=store, embedder=embedder)
+        retrieval_latencies.append((time.perf_counter() - started) * 1000.0)
         answer: GroundedAnswer | None = None
         diagnostics: dict[str, Any] | None = None
         if answerer is not None:
@@ -813,6 +835,7 @@ def run(
             "mode": "vector",
             "top_k": spec.top_k,
             "over_fetch": spec.over_fetch,
+            "latency_ms": _latency_summary(retrieval_latencies),
         },
         "embed": _embed_metadata(spec.build_identity),
         "build_identity": dict(spec.build_identity),

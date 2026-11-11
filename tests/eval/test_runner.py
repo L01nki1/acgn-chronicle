@@ -16,6 +16,7 @@ from acgn_rag.core.eval.runner import (
     VECTOR_IDENTITY_KEYS,
     NullAnswerer,
     RunSpec,
+    _latency_summary,
     _run_id,
     bind_existing_collection,
     build_evidence_resolver,
@@ -1858,3 +1859,22 @@ def test_compare_tier1_runs_rejects_a_null_rate_with_nonzero_n(tmp_path: Path) -
 
     assert result["comparable"] is False
     assert result["reason"] == "metrics unavailable: retrieval.hit.all"
+
+
+def test_run_records_retrieval_latency(tmp_path: Path) -> None:
+    result = run(
+        _spec(tmp_path, run_id="latency"),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        qa_items=[_qa_item("A-001"), _qa_item("A-002")],
+    )
+
+    latency = result.meta["retrieval"]["latency_ms"]
+
+    assert latency["n"] == 2
+    assert latency["p50"] >= 0
+    assert latency["p95"] >= latency["p50"]
+
+
+def test_latency_summary_handles_no_values() -> None:
+    assert _latency_summary([]) == {"n": 0, "p50": None, "p95": None}
