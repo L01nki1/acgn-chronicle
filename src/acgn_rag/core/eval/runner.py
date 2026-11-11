@@ -633,6 +633,68 @@ def _answer_record(
     }
 
 
+FAILURE_CLASSES = (
+    "retrieval miss",
+    "chunk granularity",
+    "unsupported claim",
+    "wrong abstention",
+)
+
+
+def _failure_cell(value: object) -> str:
+    return str(value).replace("|", "\\|").replace("\n", " ").strip()
+
+
+def _write_failures_record(
+    out_dir: Path,
+    items: Sequence[Mapping[str, Any]],
+    answers: Sequence[Mapping[str, Any]],
+    cases: Sequence[metrics.CaseResult],
+) -> None:
+    """Write the per-item failure record; human label/class stay explicit for grading."""
+    items_by_id = {str(item["qa_id"]): item for item in items}
+    answers_by_id = {str(row["qa_id"]): row for row in answers}
+    lines = [
+        f"# Failure record — {out_dir.name}",
+        "",
+        "One row per QA item. `hit` means a retrieved URL matched a gold URL; `rank` is its first "
+        "position. `label` and `class` are human fields; fill them after grading from: "
+        + ", ".join(f"`{name}`" for name in FAILURE_CLASSES)
+        + ".",
+        "",
+        "| QA | Question | Gold URLs | Retrieved URLs | Hit | Rank | Answer | Label | Class |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
+    for case in cases:
+        if case.calibration:
+            continue
+        item = items_by_id.get(case.qa_id, {})
+        answer_row = answers_by_id.get(case.qa_id, {})
+        gold = {metrics.normalize_url(url) for url in case.gold_urls}
+        retrieved = [metrics.normalize_url(url) for url in case.retrieved_urls]
+        rank = next((index for index, url in enumerate(retrieved, start=1) if url in gold), None)
+        hit = "n/a" if not gold else "hit" if rank is not None else "miss"
+        answer_text = answer_row.get("answer")
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    _failure_cell(case.qa_id),
+                    _failure_cell(item.get("question", "")),
+                    _failure_cell(", ".join(case.gold_urls)),
+                    _failure_cell(", ".join(case.retrieved_urls)),
+                    hit,
+                    str(rank) if rank is not None else "-",
+                    _failure_cell(answer_text if answer_text is not None else "(not run)"),
+                    _failure_cell(case.answer_label or "unlabelled"),
+                    "unclassified",
+                ]
+            )
+            + " |"
+        )
+    (out_dir / "failures.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def run(
     spec: RunSpec,
     *,
@@ -828,6 +890,7 @@ def run(
         "# Disputes\n\nNo adjudications recorded for this run.\n",
         encoding="utf-8",
     )
+    _write_failures_record(out_dir, items, answers, cases)
     return RunResult(run_id=run_id, out_dir=out_dir, meta=meta, metrics=metrics_payload)
 
 

@@ -1797,3 +1797,27 @@ def test_compare_tier1_runs_rejects_a_null_rate_with_nonzero_n(tmp_path: Path) -
 
     assert result["comparable"] is False
     assert result["reason"] == "metrics unavailable: retrieval.hit.all"
+def test_run_writes_failures_record_for_qa_items_only(tmp_path: Path) -> None:
+    items = [
+        _qa_item("A-001"),
+        _qa_item("A-002", urls=("https://example.com/other",)),
+        {**_qa_item("C-001"), "calibration": True},
+    ]
+    result = run(
+        _spec(tmp_path, run_id="failures"),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        qa_items=items,
+        evidence_resolver=lambda urls: {url: ["c1"] for url in urls},
+    )
+
+    text = (result.out_dir / "failures.md").read_text(encoding="utf-8")
+
+    assert "A-001" in text
+    assert "A-002" in text
+    assert "C-001" not in text
+    assert "hit" in text
+    assert "miss" in text
+    assert "unlabelled" in text
+    assert "unclassified" in text
+    assert "When does it air?" in text
