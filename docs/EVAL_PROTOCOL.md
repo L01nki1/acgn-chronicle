@@ -192,7 +192,7 @@ number alone invites the obvious objection. The calibration set's own rates may 
 
 | File | Content |
 |---|---|
-| `meta.json` | snapshot, window, config, retrieval settings, **embed identity (model / backend / device / precision / library versions / batch)**, **chunker identity (`max_tokens` / `overlap` / `budget` / `max_seq_length` / `header_version`)**, llm provider/model/version/temperature/seed, git sha, metrics |
+| `meta.json` | snapshot, window, config, retrieval settings, **embed identity (model / backend / device / precision / library versions / batch)**, **chunker identity (`version` / `header_version` / `config` / `max_tokens` / `overlap` / `max_seq_length`)**, llm provider/model/version/temperature/seed, git sha, metrics |
 | `answers.jsonl` | the exact generated outputs that were graded — frozen, so grading can be replayed without the model |
 | `labels.jsonl` | the human labels, per item, with annotator |
 | `metrics.json` | the numbers the report quotes — retrieval totals carry **per-language blocks (`all` / `en` / `zh`) beside them** (§3.1) |
@@ -206,7 +206,7 @@ number alone invites the obvious objection. The calibration set's own rates may 
   "window_start": "2023-10-28",
   "window_end": "2026-10-28",
   "chunk_config": "A",
-  "chunker": {"max_tokens": 512, "overlap": 64, "budget": 508, "max_seq_length": 512, "header_version": "h1"},
+  "chunker": {"version": "composed-input-v2", "header_version": "h1", "config": "A", "max_tokens": 512, "overlap": 64, "max_seq_length": 512},
   "retrieval": {"mode": "vector", "top_k": 5, "over_fetch": 5},
   "embed": {"model": "intfloat/multilingual-e5-base", "backend": "torch", "device": "cpu", "precision": "fp32", "library_versions": {"torch": "2.15.0", "sentence_transformers": "6.1.0"}, "batch": 32},
   "llm": {"provider": "...", "model": "...", "version": "...", "temperature": 0.0, "seed": 0},

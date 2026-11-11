@@ -126,12 +126,12 @@ live LLM run yet.
 
 | Requirement | Minimum pass condition | Evidence required |
 |---|---|---|
-| ① Data prep + ≥2 chunking strategies | A vs A' (optionally A₀) differ, and the difference is explained without confounded variables; **each config's retrieval quality is measured on the same QA set and snapshot** | chunk-count table + **per-config retrieval metrics (hit@5 / MRR / evidence recall)** + config comparison + snapshot binding |
+| ① Data prep + ≥2 chunking strategies | A vs A' (optionally A₀) differ, and the difference is explained without confounded variables; **each reported config's retrieval quality is measured on the same QA set and snapshot** | chunk-count table + **per-config retrieval metrics (hit@k / MRR / evidence recall)** + config comparison + snapshot binding |
 | ② Knowledge base storage | vector database stores chunk embeddings; collections rebuild independently; metadata filters work | one successful build for each collection + filter tests |
 | ③ Retrieval mechanism | question is embedded; relevant chunks are retrieved by semantic similarity; filter combinations work | retrieval logs / tests; p95 under 500 ms locally |
-| ④ Grounded generation | `cited_chunk_ids ⊆ retrieved`; answer is generated only from retrieved chunks; unsupported questions refuse instead of guessing; clipping tests green | answer payloads + citation audit + abstention test cases |
+| ④ Grounded generation | `cited_chunk_ids ⊆ retrieved`; answer is generated only from retrieved chunks; unsupported questions refuse instead of guessing; clipping tests green | answer payloads + citation audit + abstention test cases **+ at least one archived real-LLM run, with a second rerun for the tier-2 spread (EVAL_PROTOCOL §8)** |
 | ⑤ Evaluation | ≥30 QA items (course minimum is 20); the run archive includes `snapshot_id`, `window`, `run_id` and metrics; three metrics reported; reruns on the same snapshot stay within the documented spread | `eval/runs/<run_id>/meta.json` + QA pack + repeat-run evidence |
-| Delivery | 6-page body drafted, contribution page signed, slides ready, 15-minute demo rehearsed | final report bundle + signature page |
+| Delivery | 6-page body drafted; contribution statement with **all** signatures on its own page — a separate page after the 6-page body and before the appended slides, not counted in the 6-page limit (course instruction 5: without it the submission is desk rejected); slides attached at the end of the report; individual contributions and ratios (%) stated; 15-minute demo rehearsed; source-code bundle contains no `data/` (`PROJECT.md` invariant 6) | final report bundle + signature page (checked daily from 11/20, R5) |
 
 #### ① Chunking comparison — how it is measured
 
@@ -139,22 +139,43 @@ The course brief asks for at least two chunking strategies **and their impact on
 Chunk counts alone show that two configs differ; they do not show what that difference costs or buys.
 So the comparison is a retrieval experiment, not a counting exercise:
 
-- **Configs.** `CHUNK_VARIANTS` (`core/chunk/variants.py`) is the single table: **A** (512/64), **A'** (256/0),
-  **A0** (512/0). `A vs A0` is the clean overlap-only contrast (same size, 64 vs 0); `A vs A'` changes size and
-  overlap together. At least two must be reported, and every reported config must be built from this table so the
-  comparison stays on one code path.
+- **Configs.** `CHUNK_VARIANTS` (`core/chunk/variants.py`) is the single table for the A-family chunking
+  parameters: **A** (512/64), **A'** (256/0), **A0** (512/0). **A vs A' is mandatory** (it is the pair
+  requirement ① names); **A0 is optional** — if it is built, report A vs A0 as well, because that is the cleaner
+  overlap-only contrast (same size, 64 vs 0, so only the overlap variable moves). Every reported config must be
+  built from this table so the comparison stays on one code path. Config **B** is a separate event-aggregation
+  strategy (`core/chunk/strategy_b.py`, still a placeholder), not a `CHUNK_VARIANTS` parameter variant; it is
+  **out of scope for G2** and is not part of this comparison.
 - **Held fixed.** Same frozen `snapshot_id`, same QA set, same `top_k`, same encoder identity and lane. A run
   that changes any of these is not a chunking comparison (hard check 2).
-- **Reported.** Per config: chunk count, and **hit@5 / MRR / evidence recall** over the same QA set
-  (`core/eval/metrics.py`; run via `scripts/run_eval.py --config <A|A'|A0>`). The metric deltas are explained
-  in the report — e.g. smaller chunks may raise evidence recall while lowering precision at k=5.
-- **Owner split.** F builds the three indexes on one snapshot; E guarantees the runs are comparable (only
-  `config` varies); D produces the side-by-side table and the impact analysis (`core/eval/report.py`).
+- **Reported.** Per config: chunk count, and **hit@k / MRR / evidence recall** over the same QA set
+  (`core/eval/metrics.py`; run via `scripts/run_eval.py --config "A'"`). `hit@k` is `hit_at_k` at the run's
+  recorded `top_k` (default 5, overridable with `--top-k`); the report states the `top_k` it used. The metric
+  deltas are explained in the report — e.g. smaller chunks may raise evidence recall while lowering hit@k.
+- **Owner split.** F builds the reported indexes (A and A', plus A0 if built) on one snapshot; E guarantees the
+  runs are comparable (only `config` varies); D produces the side-by-side table and the impact analysis
+  (`core/eval/report.py`).
+
+#### ④ The real-LLM run — what counts and who owns it
+
+Requirement ④'s evidence now includes an archived run that actually called a model. Today
+`scripts/run_eval.py` hardcodes `NullAnswerer()` and `eval/runs/` holds only `.gitkeep`, so no such run exists
+and none can be produced yet. `meta.llm` is populated from settings even under `NullAnswerer` while
+`answers.jsonl` records `status: "not_run"`, so a run can look LLM-configured without being one.
+
+- **Definition.** A run counts as a real-LLM run only when every `answers.jsonl` row has `status: "answered"`,
+  a non-empty `answer`, and `meta.json` records the actual provider, model, version and temperature (seed
+  recorded as unset when the request carries none).
+- **Owner.** E wires the live answerer into `scripts/run_eval.py`; B owns the run-record contract side (which
+  fields must be archived).
+- **Fallback.** If the provider is unavailable before the G2 window closes, the gate records the run as
+  **blocked with the reason**, and ④ is reported as partially met rather than passed on design alone. The
+  retrieval half of the evaluation is unaffected and still reportable.
 
 #### G2 hard checks (must be green before G2 closes)
 
 1. `snapshot_id` is bound to the corpus and every run uses a frozen snapshot.
-2. At least two chunking strategies are implemented and compared, and the comparison reports **retrieval quality per config** (hit@5 / MRR / evidence recall on the same QA set and snapshot), not chunk counts alone; it is not confounded by a different corpus, window, encoder or `top_k`.
+2. At least two chunking strategies are implemented and compared, and the comparison reports **retrieval quality per config** (hit@k / MRR / evidence recall on the same QA set and snapshot), not chunk counts alone; it is not confounded by a different corpus, window, encoder or `top_k`.
 3. Retrieval is vector-based and uses the same `snapshot_id` as the question.
 4. Answers are grounded in retrieved chunks; citations are reproducible and every cited chunk is actually in the retrieved set.
 5. Unanswerable questions produce `abstained=true` and a refusal reason instead of a guessed answer.
@@ -162,13 +183,14 @@ So the comparison is a retrieval experiment, not a counting exercise:
 7. The final report contains the required task-5 narrative: method, experiments, discussion, references, and the separate contribution/signature page.
 8. `cited_chunk_ids` equals the chunk ids of `citations` (a validator, not a convention), and every citation's `chunk_id` is in the retrieved set.
 9. Filter conversion is single-point: `RetrievalFilters` → store `where` happens in one function, covered by a test for each filter family and for `[]` (means "no filter", not "match nothing").
+10. Every qualitative claim in the report's discussion section traces to a specific `qa_id` in the archived `answers.jsonl` of the run it cites. No new archive file is required: `answers.jsonl` already records `question`, `retrieved_chunk_ids`, `retrieved_urls`, `answer`, `citations`, `cited_chunk_ids` and `abstained` per item, and the frozen QA set carries the `gold_evidence` urls needed to judge hit/miss. Failure classification is an analysis dimension of the report, not a per-run artifact.
 
 #### G2 stretch items (nice-to-have, cut first if schedule slips)
 
-- BM25 + RRF hybrid retrieval
+- BM25 + RRF hybrid retrieval — judged on **MRR headroom** as pre-registered (issue #14 P3), never on hit@k alone
 - multi-source daily digest sample
-- board / visual demo page
 - more aggressive query-time filtering and latency tuning
+- board / visual demo page — **cut first** if anything slips
 
 These are optional. The minimum success condition remains the grounded QA system, not the extra UI or board work.
 
