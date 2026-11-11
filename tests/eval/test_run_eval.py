@@ -122,6 +122,34 @@ def test_gpu_model_is_recorded_in_determinism() -> None:
     assert determinism["gpu_model"] is None or isinstance(determinism["gpu_model"], str)
 
 
+def _fake_torch(*, cuda_available: bool, name: str = "Tesla T4") -> SimpleNamespace:
+    return SimpleNamespace(
+        cuda=SimpleNamespace(
+            is_available=lambda: cuda_available,
+            get_device_name=lambda index: name,
+        ),
+        manual_seed=lambda seed: None,
+        use_deterministic_algorithms=lambda *args, **kwargs: None,
+    )
+
+
+def test_gpu_model_records_the_cuda_device(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "torch", _fake_torch(cuda_available=True))
+
+    determinism = run_eval._configure_determinism()
+
+    assert determinism["gpu_model"] == "Tesla T4"
+    assert determinism["torch_available"] is True
+
+
+def test_gpu_model_is_null_without_cuda(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "torch", _fake_torch(cuda_available=False))
+
+    determinism = run_eval._configure_determinism()
+
+    assert determinism["gpu_model"] is None
+
+
 def test_main_live_without_key_fails_before_store(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
