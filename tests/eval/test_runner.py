@@ -258,6 +258,7 @@ def test_run_writes_complete_archive(tmp_path: Path) -> None:
         "metrics.json",
         "resolved_evidence.json",
         "disputes.md",
+        "failures.md",
     ):
         assert (result.out_dir / name).exists(), name
 
@@ -1841,6 +1842,8 @@ def test_compare_tier1_runs_rejects_a_null_rate_with_nonzero_n(tmp_path: Path) -
 
     assert result["comparable"] is False
     assert result["reason"] == "metrics unavailable: retrieval.hit.all"
+
+
 def test_run_writes_failures_record_for_qa_items_only(tmp_path: Path) -> None:
     items = [
         _qa_item("A-001"),
