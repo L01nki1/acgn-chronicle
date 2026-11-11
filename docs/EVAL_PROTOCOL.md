@@ -192,7 +192,7 @@ number alone invites the obvious objection. The calibration set's own rates may 
 
 | File | Content |
 |---|---|
-| `meta.json` | snapshot, window, config, retrieval settings, **embed identity (model / backend / device / precision / library versions / batch)**, **chunker identity (`max_tokens` / `overlap` / `budget` / `max_seq_length` / `header_version`)**, llm provider/model/version/temperature/seed, git sha, metrics |
+| `meta.json` | snapshot, window, config, retrieval settings, **embed identity (model / backend / device / precision / library versions / batch)**, **chunker identity (`max_tokens` / `overlap` / `budget` / `max_seq_length` / `header_version`)**, llm provider/model/version/temperature/seed, **abstention threshold + calibration provenance** (`docs/RUNBOOK.md` §3.7), git sha, metrics |
 | `answers.jsonl` | the exact generated outputs that were graded — frozen, so grading can be replayed without the model |
 | `labels.jsonl` | the human labels, per item, with annotator |
 | `metrics.json` | the numbers the report quotes — retrieval totals carry **per-language blocks (`all` / `en` / `zh`) beside them** (§3.1) |
@@ -210,12 +210,23 @@ number alone invites the obvious objection. The calibration set's own rates may 
   "retrieval": {"mode": "vector", "top_k": 5, "over_fetch": 5},
   "embed": {"model": "intfloat/multilingual-e5-base", "backend": "torch", "device": "cpu", "precision": "fp32", "library_versions": {"torch": "2.15.0", "sentence_transformers": "6.1.0"}, "batch": 32},
   "llm": {"provider": "...", "model": "...", "version": "...", "temperature": 0.0, "seed": 0},
+  "abstention": {
+    "threshold": 0.86,
+    "source": "eval/snapshot_evidence.json#threshold_sweep_20261105",
+    "calibration_identity": {
+      "snapshot_id": "20261105-d797b5f0ae8e",
+      "chunk_config": "A",
+      "retrieval": {"mode": "vector", "top_k": 5, "over_fetch": 5},
+      "embed_model": "intfloat/multilingual-e5-base"
+    }
+  },
   "git_sha": "...",
   "metrics": {"retrieval_hit_rate": {"all": 0.0, "en": 0.0, "zh": 0.0}, "evidence_recall": {"all": 0.0, "en": 0.0, "zh": 0.0}, "answer_correctness": {}, "abstention_accuracy": {}}
 }
 ```
 
 - **A run without `snapshot_id` or `window` is invalid** (invariant 2, spec 02).
+- **A run with an abstention threshold whose `calibration_identity` does not equal its own snapshot / chunk config / retrieval mode / encoder identity / `top_k` / `over_fetch` is invalid** (`docs/RUNBOOK.md` §3.7, `ports.SCORE_SEMANTICS`, DECISIONS 2026-11-11): scores are comparable only within one identity, so a threshold calibrated elsewhere must never be applied and ported. The `source` field names the sweep evidence the threshold was selected from.
 - **Every number in the report carries a `run_id`.** A number produced in an interactive session, or in a
   notebook cell that was not archived as a run, is not reportable. If it is worth printing, it is worth
   archiving.
