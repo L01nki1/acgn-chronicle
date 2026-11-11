@@ -1878,3 +1878,71 @@ def test_run_records_retrieval_latency(tmp_path: Path) -> None:
 
 def test_latency_summary_handles_no_values() -> None:
     assert _latency_summary([]) == {"n": 0, "p50": None, "p95": None}
+
+
+class _UnboundedRejectingCollection(_FakeCollection):
+    def get(
+        self, *, include: list[str], limit: int | None = None, offset: int = 0
+    ) -> dict[str, Any]:
+        if limit is None:
+            raise AssertionError("collection.get() must be paged")
+        return super().get(include=include, limit=limit, offset=offset)
+
+
+def test_build_evidence_resolver_never_calls_get_without_limit() -> None:
+    collection = _UnboundedRejectingCollection([{"id": "c1", "url": "https://example.com/news/a"}])
+
+    resolve = build_evidence_resolver(collection)
+
+    assert resolve(["https://example.com/news/a"]) == {"https://example.com/news/a": ["c1"]}
+
+
+def test_a_prime_run_changes_only_config_identity(tmp_path: Path) -> None:
+    def _run(config: str, run_id: str, chunker: dict[str, object]) -> dict[str, Any]:
+        return run(
+            _spec(tmp_path, config=config, run_id=run_id, chunker=chunker),
+            store=FakeStore([_hit()]),
+            embedder=FakeEmbedder(),
+            qa_items=[_qa_item()],
+            evidence_resolver=lambda urls: {url: ["c1"] for url in urls},
+        ).meta
+
+    a = _run(
+        "A",
+        "matrix-a",
+        {
+            "version": "composed-input-v2",
+            "header_version": "h1",
+            "config": "A",
+            "max_tokens": 512,
+            "overlap": 64,
+            "max_seq_length": 512,
+        },
+    )
+    a_prime = _run(
+        "A'",
+        "matrix-aprime",
+        {
+            "version": "composed-input-v2",
+            "header_version": "h1",
+            "config": "A'",
+            "max_tokens": 256,
+            "overlap": 0,
+            "max_seq_length": 512,
+        },
+    )
+
+    for name in ("snapshot_id", "window_start", "window_end"):
+        assert a[name] == a_prime[name], name
+    for name in ("mode", "top_k", "over_fetch"):
+        assert a["retrieval"][name] == a_prime["retrieval"][name], name
+    assert a["qa"]["inputs_fingerprint"] == a_prime["qa"]["inputs_fingerprint"]
+    assert a["build_identity"] == a_prime["build_identity"]
+    assert a["embed"] == a_prime["embed"]
+    for name in ("version", "header_version", "max_seq_length"):
+        assert a["chunker"][name] == a_prime["chunker"][name], name
+
+    assert a["chunk_config"] != a_prime["chunk_config"]
+    assert a["chunker"]["config"] != a_prime["chunker"]["config"]
+    assert a["chunker"]["max_tokens"] != a_prime["chunker"]["max_tokens"]
+    assert a["chunker"]["overlap"] != a_prime["chunker"]["overlap"]
