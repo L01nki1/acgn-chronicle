@@ -164,8 +164,10 @@ and none can be produced yet. `meta.llm` is populated from settings even under `
 `answers.jsonl` records `status: "not_run"`, so a run can look LLM-configured without being one.
 
 - **Definition.** A run counts as a real-LLM run only when every `answers.jsonl` row has `status: "answered"`,
-  a non-empty `answer`, and `meta.json` records the actual provider, model, version and temperature (seed
-  recorded as unset when the request carries none).
+  a non-empty `answer`, and `meta.json` records the actual provider, model, version and temperature. The seed is
+  recorded as unset when the request carries none — E must populate `meta.llm` from the live answerer rather than
+  from settings, because `scripts/run_eval.py` currently writes `"seed": 0` from settings even under
+  `NullAnswerer()`, which is the same "looks LLM-configured without being one" problem described above.
 - **Owner.** E wires the live answerer into `scripts/run_eval.py`; B owns the run-record contract side (which
   fields must be archived).
 - **Fallback.** If the provider is unavailable before the G2 window closes, the gate records the run as
@@ -183,7 +185,7 @@ and none can be produced yet. `meta.llm` is populated from settings even under `
 7. The final report contains the required task-5 narrative: method, experiments, discussion, references, and the separate contribution/signature page.
 8. `cited_chunk_ids` equals the chunk ids of `citations` (a validator, not a convention), and every citation's `chunk_id` is in the retrieved set.
 9. Filter conversion is single-point: `RetrievalFilters` → store `where` happens in one function, covered by a test for each filter family and for `[]` (means "no filter", not "match nothing").
-10. Every qualitative claim in the report's discussion section traces to a specific `qa_id` in the archived `answers.jsonl` of the run it cites. No new archive file is required: `answers.jsonl` already records `question`, `retrieved_chunk_ids`, `retrieved_urls`, `answer`, `citations`, `cited_chunk_ids` and `abstained` per item, and the frozen QA set carries the `gold_evidence` urls needed to judge hit/miss. Failure classification is an analysis dimension of the report, not a per-run artifact.
+10. Every per-item failure or quality claim in the report's discussion section traces to a specific `qa_id` in the archived `answers.jsonl` of the run it cites; aggregate metric claims trace to that run's `metrics.json`. No new archive file is required: `answers.jsonl` already records `question`, `retrieved_chunk_ids`, `retrieved_urls`, `answer`, `citations`, `cited_chunk_ids` and `abstained` per item, and the frozen QA set carries the `gold_evidence` urls needed to judge hit/miss. Failure classification is an analysis dimension of the report, not a per-run artifact. D produces this traceability in `core/eval/report.py`, which is still a scaffold.
 
 #### G2 stretch items (nice-to-have, cut first if schedule slips)
 
