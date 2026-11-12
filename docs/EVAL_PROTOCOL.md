@@ -218,7 +218,8 @@ number alone invites the obvious objection. The calibration set's own rates may 
       "chunk_config": "A",
       "chunker": {"max_tokens": 512, "overlap": 64, "budget": 508, "max_seq_length": 512, "header_version": "h1"},
       "retrieval": {"mode": "vector", "top_k": 5, "over_fetch": 5},
-      "embed": {"model": "intfloat/multilingual-e5-base", "backend": "torch", "device": "cpu", "precision": "fp32", "library_versions": {"torch": "2.15.0", "sentence_transformers": "6.1.0"}, "batch": 32}
+      "embed": {"model": "intfloat/multilingual-e5-base", "backend": "torch", "device": "cpu", "precision": "fp32", "library_versions": {"torch": "2.15.0", "sentence_transformers": "6.1.0"}, "batch": 32},
+      "encoder_identity_slug": "multilingual-e5-base-torch-cuda-fp32-d2fa8669"
     }
   },
   "git_sha": "...",
@@ -227,7 +228,7 @@ number alone invites the obvious objection. The calibration set's own rates may 
 ```
 
 - **A run without `snapshot_id` or `window` is invalid** (invariant 2, spec 02).
-- **A run with an abstention threshold whose `calibration_identity` does not equal its own identity is invalid and non-reportable** (`docs/RUNBOOK.md` §3.7, `ports.SCORE_SEMANTICS`, DECISIONS 2026-11-11). The identity is the complete set of `snapshot_id`, `chunk_config` + `chunker` fields, `retrieval.mode` + `top_k` + `over_fetch`, and the full `embed` field set (model / backend / device / precision / library versions / batch) — a model name alone does not establish comparability. Scores are comparable across queries only inside that one identity, so a threshold calibrated elsewhere must never be ported; re-calibrate when any field changes.
+- **A run with an abstention threshold whose `calibration_identity` does not equal its own identity is invalid and non-reportable** (`docs/RUNBOOK.md` §3.7, `ports.SCORE_SEMANTICS`, DECISIONS 2026-11-11). The identity is the complete set of `snapshot_id`, `chunk_config` + `chunker` fields, `retrieval.mode` + `top_k` + `over_fetch`, and the full `embed` field set (model / backend / device / precision / library versions / batch), bound by the build's `encoder_identity_slug` — a model name alone does not establish comparability. Scores are comparable across queries only inside that one identity, so a threshold calibrated elsewhere must never be ported; re-calibrate when any field changes.
 - **`threshold` is the JSON number this run actually used as `ACGN_ANSWER_MIN_RETRIEVAL_SCORE`**, selected by `core/ground/calibration.py::choose_threshold()` from labelled per-item top retrieval scores over `eval/abstain_calibration.jsonl` (§6). `source` names the archived abstention calibration run holding `CalibrationResult.to_metadata()` and its identity; the labelled set is that run's input, not its provenance. **`eval/snapshot_evidence.json#threshold_sweep_20261105` is the dedup auxiliary-channel sweep** (`docs/RUNBOOK.md` §3.3): its 0.86 is a clustering threshold, never an abstention threshold. In-sample calibration rates stay in the calibration artifact and are never quoted as QA-set metrics.
 - **Angle-bracket values in the example are placeholders, not measured results.** A real `meta.json` stores a number in `threshold` and a concrete run id in `source`; no threshold is recordable until the calibration run at this identity has been archived.
 - **Every number in the report carries a `run_id`.** A number produced in an interactive session, or in a
