@@ -226,12 +226,17 @@ def test_gpu_model_is_recorded_in_determinism() -> None:
 
 
 def _fake_torch(
-    *, cuda_available: bool, name: str = "Tesla T4", names: dict[int, str] | None = None
+    *,
+    cuda_available: bool,
+    name: str = "Tesla T4",
+    names: dict[int, str] | None = None,
+    current_device: int = 0,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         cuda=SimpleNamespace(
             is_available=lambda: cuda_available,
             get_device_name=lambda index: (names or {}).get(index, name),
+            current_device=lambda: current_device,
         ),
         manual_seed=lambda seed: None,
         use_deterministic_algorithms=lambda *args, **kwargs: None,
@@ -247,6 +252,24 @@ def test_gpu_model_records_the_cuda_device(monkeypatch: pytest.MonkeyPatch) -> N
     assert determinism["torch_available"] is True
 
 
+def test_gpu_model_uses_the_current_device_for_unnumbered_cuda(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        _fake_torch(
+            cuda_available=True,
+            names={0: "GPU-0", 1: "GPU-1"},
+            current_device=1,
+        ),
+    )
+
+    determinism = run_eval._configure_determinism(device="cuda")
+
+    assert determinism["gpu_model"] == "GPU-1"
+
+
 def test_gpu_model_uses_the_encoder_device_index(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(
         sys.modules, "torch", _fake_torch(cuda_available=True, names={0: "GPU-0", 1: "GPU-1"})
@@ -255,6 +278,14 @@ def test_gpu_model_uses_the_encoder_device_index(monkeypatch: pytest.MonkeyPatch
     determinism = run_eval._configure_determinism(device="cuda:1")
 
     assert determinism["gpu_model"] == "GPU-1"
+
+
+@pytest.mark.parametrize("device", ["cuda:-1", "cuda:abc", "cuda:0:1"])
+def test_malformed_cuda_device_is_rejected(device: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "torch", _fake_torch(cuda_available=True))
+
+    with pytest.raises(ValueError, match="invalid CUDA device"):
+        run_eval._configure_determinism(device=device)
 
 
 def test_gpu_model_is_null_for_cpu_on_a_gpu_host(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -271,6 +302,18 @@ def test_gpu_model_is_null_without_cuda(monkeypatch: pytest.MonkeyPatch) -> None
     determinism = run_eval._configure_determinism(device="cuda")
 
     assert determinism["gpu_model"] is None
+
+
+def test_nonreportable_result_returns_one() -> None:
+    result = SimpleNamespace(meta={"reportable": False, "non_reportable_reason": "non_gpu_device"})
+
+    assert run_eval._nonreportable_exit(result) == 1
+
+
+def test_reportable_result_returns_zero() -> None:
+    result = SimpleNamespace(meta={"reportable": True})
+
+    assert run_eval._nonreportable_exit(result) == 0
 
 
 def test_main_live_without_key_fails_before_store(

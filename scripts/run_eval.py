@@ -62,17 +62,28 @@ def _git_sha() -> str:
     return completed.stdout.strip() or "unknown"
 
 
+_CURRENT_CUDA_DEVICE = -1
+
+
 def _cuda_index(device: str | None) -> int | None:
-    """Return the CUDA index named by the encoder device, or None for a non-CUDA device."""
+    """Return the CUDA index named by the encoder device.
+
+    An unnumbered `cuda` means the current CUDA device in PyTorch, not device 0; it returns the
+    sentinel `_CURRENT_CUDA_DEVICE` for the caller to resolve. A malformed CUDA string raises:
+    silently recording "no GPU" would hide a bad build sidecar.
+    """
     value = str(device or "").strip().lower()
     if value == "cuda":
-        return 0
+        return _CURRENT_CUDA_DEVICE
     if value.startswith("cuda:"):
+        suffix = value.split(":", 1)[1]
         try:
-            index = int(value.split(":", 1)[1])
-        except ValueError:
-            return None
-        return index if index >= 0 else None
+            index = int(suffix)
+        except ValueError as exc:
+            raise ValueError(f"invalid CUDA device {device!r}") from exc
+        if index < 0:
+            raise ValueError(f"invalid CUDA device {device!r}")
+        return index
     return None
 
 
@@ -82,6 +93,7 @@ def _configure_determinism(seed: int = 0, *, device: str | None = None) -> dict[
     `device` is the encoder's actual device from the build sidecar. A CUDA run must record the
     name of that device, not device 0, or a two-device host collapses to one physical model.
     """
+    index = _cuda_index(device)
     try:
         import torch
     except Exception:
@@ -93,8 +105,9 @@ def _configure_determinism(seed: int = 0, *, device: str | None = None) -> dict[
             "gpu_model": None,
         }
     gpu_model: str | None = None
-    index = _cuda_index(device)
     try:
+        if index == _CURRENT_CUDA_DEVICE:
+            index = int(torch.cuda.current_device()) if torch.cuda.is_available() else None
         if index is not None and torch.cuda.is_available():
             gpu_model = str(torch.cuda.get_device_name(index))
     except Exception:
@@ -223,6 +236,16 @@ def _validate_live_run(result: RunResult) -> list[str]:
     if not any(row.get("provider_completion") is True for row in rows):
         problems.append("no returned provider completion in answers.jsonl")
     return problems
+
+
+def _nonreportable_exit(result: RunResult) -> int:
+    """Return 1 for a non-reportable archive; print the reason for the operator."""
+    if result.meta.get("reportable", False):
+        return 0
+    reason = result.meta.get("non_reportable_reason") or "unknown"
+    suffix = " (PR #48 GPU-first policy, pending)" if reason == "non_gpu_device" else ""
+    print(f"NOT REPORTABLE: {reason}{suffix}", file=sys.stderr)
+    return 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -362,7 +385,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"EVIDENCE RESOLVER FAILED: {exc}", file=sys.stderr)
         return 1
 
-    determinism = _configure_determinism(device=str(build_identity.get("device") or ""))
+    try:
+        determinism = _configure_determinism(device=str(build_identity.get("device") or ""))
+    except ValueError as exc:
+        print(f"DETERMINISM CONFIG: {exc}", file=sys.stderr)
+        return 1
     spec = RunSpec(
         snapshot_id=args.snapshot,
         window_start=window_start,
@@ -407,10 +434,7 @@ def main(argv: list[str] | None = None) -> int:
             "from retrieval metrics and this run is not reportable.",
             file=sys.stderr,
         )
-    if not result.meta.get("reportable", False):
-        reason = result.meta.get("non_reportable_reason") or "unknown"
-        suffix = " (PR #48 GPU-first policy, pending)" if reason == "non_gpu_device" else ""
-        print(f"NOT REPORTABLE: {reason}{suffix}", file=sys.stderr)
+    if _nonreportable_exit(result):
         return 1
     print(f"hit@k:  {result.metrics['retrieval']['hit']}")
     print(f"mrr:    {result.metrics['retrieval']['mrr']}")
