@@ -173,8 +173,15 @@ def _write_sheet(rows: list[dict[str, Any]], path: Path) -> None:
         writer.writerows(rows)
 
 
-def _score(path: Path) -> int:
-    """Score a completed sheet: precision per threshold, and the value that maximizes it."""
+def _score(path: Path, *, required: int = 20, exploratory: bool = False) -> int:
+    """Score a completed sheet: precision per threshold, and the value that maximizes it.
+
+    Gate evidence requires ``required`` non-skip judgements per threshold (RUNBOOK §3.3:
+    20 hand-checked pairs per value). A sheet below that is marked ``insufficient`` and, in
+    gate mode, exits 2 instead of inventing precision from a sparse sheet; ``skip`` never
+    counts towards the requirement. ``--exploratory`` scores any sheet but tags the report
+    as non-gate evidence and never fails it.
+    """
     with path.open(encoding="utf-8-sig", newline="") as handle:
         rows = list(csv.DictReader(handle))
     if not rows:
@@ -195,22 +202,50 @@ def _score(path: Path) -> int:
         if decision not in {"duplicate", "not_duplicate", "skip"}:
             print(f"{row['pair_id']}: unknown decision {row['decision']!r}", file=sys.stderr)
             return 2
-        bucket = by_threshold.setdefault(row["threshold"], {"duplicate": 0, "not_duplicate": 0})
-        if decision != "skip":
+        bucket = by_threshold.setdefault(
+            row["threshold"], {"duplicate": 0, "not_duplicate": 0, "skipped": 0}
+        )
+        if decision == "skip":
+            bucket["skipped"] += 1
+        else:
             bucket[decision] += 1
 
-    report: dict[str, Any] = {"sheet": str(path), "thresholds": {}}
+    report: dict[str, Any] = {
+        "sheet": str(path),
+        "mode": "exploratory — not gate evidence" if exploratory else "gate",
+        "required_judged_per_threshold": required,
+        "thresholds": {},
+    }
+    insufficient: list[str] = []
     for threshold in sorted(by_threshold):
         counts = by_threshold[threshold]
         judged = counts["duplicate"] + counts["not_duplicate"]
         precision = counts["duplicate"] / judged if judged else None
+        enough = judged >= required
+        if not enough:
+            insufficient.append(threshold)
         report["thresholds"][threshold] = {
             "judged": judged,
+            "skipped": counts["skipped"],
             "duplicate": counts["duplicate"],
             "not_duplicate": counts["not_duplicate"],
             "precision": None if precision is None else round(precision, 4),
+            "insufficient": not enough,
         }
+    report["gate"] = "INSUFFICIENT" if insufficient else "PASS"
+    if insufficient and not exploratory:
+        detail = ", ".join(
+            f"{t}: judged {report['thresholds'][t]['judged']}/{required}" for t in insufficient
+        )
+        print(
+            f"{path}: insufficient hand labels for gate reporting ({detail}); label at least "
+            f"{required} non-skip pairs per threshold (RUNBOOK §3.3), or pass --exploratory "
+            "to score outside the gate",
+            file=sys.stderr,
+        )
     print(json.dumps(report, indent=2))
+    if insufficient and not exploratory:
+        return 2
     return 0
 
 
@@ -220,10 +255,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-root", default=None, help="data root; default ACGN_DATA_DIR")
     parser.add_argument("--out", default="eval/dedup_g1b", help="output directory")
     parser.add_argument("--score", default=None, help="score a completed label sheet and exit")
+    parser.add_argument(
+        "--required-judged",
+        type=int,
+        default=20,
+        help="minimum non-skip judgements per threshold for gate scoring (RUNBOOK §3.3)",
+    )
+    parser.add_argument(
+        "--exploratory",
+        action="store_true",
+        help="score any sheet for exploration; the report is tagged as not gate evidence",
+    )
     args = parser.parse_args(argv)
 
     if args.score:
-        return _score(Path(args.score))
+        return _score(Path(args.score), required=args.required_judged, exploratory=args.exploratory)
     if not args.snapshot:
         print("--snapshot is required unless --score is used", file=sys.stderr)
         return 2

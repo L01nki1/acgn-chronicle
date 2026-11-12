@@ -28,8 +28,11 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import sys
+import tempfile
 import time
+import uuid
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -245,17 +248,20 @@ class StubExtractionClient:
         )
 
 
-def _docs_path(snapshot: str, data_root: Path, limit: int | None) -> tuple[Path, int]:
+def _docs_path(
+    snapshot: str, source_root: Path, work_root: Path, limit: int | None
+) -> tuple[Path, int]:
     """Materialize the snapshot's representatives as the build's docs.jsonl input.
 
     ``build_index.py`` takes a docs.jsonl until A's reader is wired into it (its module TODO),
-    so the smoke writes the same rows the snapshot holds; nothing is re-normalized.
+    so the smoke writes the same rows the snapshot holds; nothing is re-normalized. The rows
+    are read from the source snapshot in place; the file lands in the isolated workspace.
     """
-    out = data_root / "smoke" / snapshot / "docs.jsonl"
+    out = work_root / "smoke" / snapshot / "docs.jsonl"
     out.parent.mkdir(parents=True, exist_ok=True)
     count = 0
     with out.open("w", encoding="utf-8") as handle:
-        for item in iter_snapshot_items(snapshot, data_root=data_root, representatives_only=True):
+        for item in iter_snapshot_items(snapshot, data_root=source_root, representatives_only=True):
             handle.write(json.dumps(item.to_dict(), ensure_ascii=False) + "\n")
             count += 1
             if limit is not None and count >= limit:
@@ -263,7 +269,7 @@ def _docs_path(snapshot: str, data_root: Path, limit: int | None) -> tuple[Path,
     return out, count
 
 
-def _build(snapshot: str, docs: Path, data_root: Path) -> dict[str, Any]:
+def _build(snapshot: str, docs: Path, work_root: Path) -> dict[str, Any]:
     model = HashModel()
     started = time.monotonic()
     code = build_index.main(
@@ -275,7 +281,7 @@ def _build(snapshot: str, docs: Path, data_root: Path) -> dict[str, Any]:
             "--config",
             CONFIG,
             "--data-root",
-            str(data_root),
+            str(work_root),
             "--fresh",
         ],
         tokenizer=model.tokenizer,
@@ -284,7 +290,7 @@ def _build(snapshot: str, docs: Path, data_root: Path) -> dict[str, Any]:
     return {"exit_code": code, "seconds": round(time.monotonic() - started, 3)}
 
 
-def _export(snapshot: str, data_root: Path) -> dict[str, Any]:
+def _export(snapshot: str, work_root: Path) -> dict[str, Any]:
     started = time.monotonic()
     code = export_fact_chunks.main(
         [
@@ -293,7 +299,7 @@ def _export(snapshot: str, data_root: Path) -> dict[str, Any]:
             "--config",
             CONFIG,
             "--data-root",
-            str(data_root),
+            str(work_root),
             "--output",
             f"smoke/{snapshot}/chunks.jsonl",
         ]
@@ -301,21 +307,25 @@ def _export(snapshot: str, data_root: Path) -> dict[str, Any]:
     return {"exit_code": code, "seconds": round(time.monotonic() - started, 3)}
 
 
-def _facts(snapshot: str, data_root: Path, limit: int | None) -> dict[str, Any]:
+def _facts(snapshot: str, work_root: Path, limit: int | None) -> dict[str, Any]:
     """Run the extractor over the exported chunks with a stub vendor, then audit the rows.
 
     ``extract_facts.py`` has no ``--data-root``: it reads ``ACGN_DATA_DIR`` through
-    ``load_settings()``. The smoke points that variable at the same root for the call and
-    restores it afterwards, so one run never leaves the process on another root.
+    ``load_settings()``. The smoke points that variable at the isolated workspace for the
+    call and restores it afterwards, so one run never leaves the process on another root —
+    and never writes facts outside it.
     """
-    chunks = data_root / "chunks" / "smoke" / snapshot / "chunks.jsonl"
+    chunks = work_root / "chunks" / "smoke" / snapshot / "chunks.jsonl"
     argv = ["--snapshot", snapshot, "--input", str(chunks)]
+    preview_id: str | None = None
     if limit is not None:
-        # A limited write needs a single-use preview id (RUNBOOK §1).
-        argv += ["--limit", str(limit), "--preview", "--preview-id", f"smoke-{snapshot}"]
+        # A limited write needs a single-use preview id (RUNBOOK §1); the random suffix keeps
+        # repeated smoke runs against a persistent --workspace from colliding.
+        preview_id = f"smoke-{snapshot}-{uuid.uuid4().hex[:8]}"
+        argv += ["--limit", str(limit), "--preview", "--preview-id", preview_id]
     client = StubExtractionClient()
     previous = os.environ.get("ACGN_DATA_DIR")
-    os.environ["ACGN_DATA_DIR"] = str(data_root)
+    os.environ["ACGN_DATA_DIR"] = str(work_root)
     started = time.monotonic()
     try:
         code = extract_facts.main(argv, client=client)
@@ -328,12 +338,10 @@ def _facts(snapshot: str, data_root: Path, limit: int | None) -> dict[str, Any]:
     if code != 0:
         return {"exit_code": code, "seconds": seconds}
 
-    if limit is not None:
-        facts_path = (
-            data_root / "previews" / f"smoke-{snapshot}" / "facts" / snapshot / "facts.jsonl"
-        )
+    if preview_id is not None:
+        facts_path = work_root / "previews" / preview_id / "facts" / snapshot / "facts.jsonl"
     else:
-        facts_path = data_root / "facts" / snapshot / "facts.jsonl"
+        facts_path = work_root / "facts" / snapshot / "facts.jsonl"
     rows = [
         json.loads(line)
         for line in facts_path.read_text(encoding="utf-8").splitlines()
@@ -352,13 +360,13 @@ def _facts(snapshot: str, data_root: Path, limit: int | None) -> dict[str, Any]:
     }
 
 
-def _retrieval(snapshot: str, data_root: Path, settings: Settings, top_k: int) -> dict[str, Any]:
+def _retrieval(snapshot: str, work_root: Path, settings: Settings, top_k: int) -> dict[str, Any]:
     from acgn_rag.core.eval import runner
     from acgn_rag.core.retrieve.vector import search
 
-    store = ChromaStore(data_root / "index" / "chroma", settings.store)
+    store = ChromaStore(work_root / "index" / "chroma", settings.store)
     build_identity, collection, counts, chunker = runner.load_build_records(
-        data_root / "index", snapshot_id=snapshot, config=CONFIG, label=LABEL
+        work_root / "index", snapshot_id=snapshot, config=CONFIG, label=LABEL
     )
     runner.bind_existing_collection(
         store, snapshot_id=snapshot, chunk_config=LABEL, collection=collection
@@ -384,7 +392,8 @@ def _retrieval(snapshot: str, data_root: Path, settings: Settings, top_k: int) -
 
 def _ask(
     snapshot: str,
-    data_root: Path,
+    work_root: Path,
+    source_root: Path,
     settings: Settings,
     top_k: int,
     retrieval: dict[str, Any],
@@ -404,12 +413,12 @@ def _ask(
     from acgn_rag.core.retrieve.vector import search
     from acgn_rag.web.api import create_app
 
-    store = ChromaStore(data_root / "index" / "chroma", settings.store)
+    store = ChromaStore(work_root / "index" / "chroma", settings.store)
     store.bind_existing(snapshot, LABEL)
     embedder = Embedder(settings.embed, model=HashModel())
     client_stub = StubAnswerClient()
     answerer = GroundedAnswerer(client_stub)
-    snapshot_meta = _snapshot_meta(data_root, snapshot)
+    snapshot_meta = _snapshot_meta(source_root, snapshot)
 
     class Backend:
         def inventory(self) -> SnapshotInventory:
@@ -466,7 +475,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Offline end-to-end smoke on a frozen snapshot")
     parser.add_argument("--snapshot", required=True, help="frozen snapshot id under data/snapshots")
     parser.add_argument(
-        "--data-root", default=None, help="data root; default ACGN_DATA_DIR or ./data"
+        "--data-root",
+        default=None,
+        help="data root holding the frozen snapshot; default ACGN_DATA_DIR or ./data",
+    )
+    parser.add_argument(
+        "--workspace",
+        default=None,
+        help="isolated workspace for every smoke output (index, cache, chunks, facts); "
+        "default a fresh temp directory",
     )
     parser.add_argument(
         "--limit", type=int, default=None, help="build from at most N representatives"
@@ -488,29 +505,44 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
+    work_root = (
+        Path(args.workspace) if args.workspace else Path(tempfile.mkdtemp(prefix="acgn-smoke-"))
+    )
+    work_root.mkdir(parents=True, exist_ok=True)
+    # build_index validates the window from <work-root>/snapshots/<id>; copy the small
+    # metadata files so the isolated workspace passes the same checks without writing
+    # anything next to the source snapshot.
+    for name in ("manifest.json", "snapshot.json"):
+        source_file = data_root / "snapshots" / args.snapshot / name
+        if source_file.exists():
+            (work_root / "snapshots" / args.snapshot).mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_file, work_root / "snapshots" / args.snapshot / name)
+
     report: dict[str, Any] = {
         "snapshot_id": args.snapshot,
         "config": CONFIG,
         "limit": args.limit,
+        "source_data_root": str(data_root),
+        "workspace": str(work_root),
         "fakes": "hash encoder + stub answer client: plumbing evidence only, not quality evidence",
         "steps": {},
     }
     started = time.monotonic()
     try:
-        docs, doc_count = _docs_path(args.snapshot, data_root, args.limit)
+        docs, doc_count = _docs_path(args.snapshot, data_root, work_root, args.limit)
         report["steps"]["docs"] = {"path": str(docs), "documents": doc_count}
-        report["steps"]["build"] = _build(args.snapshot, docs, data_root)
+        report["steps"]["build"] = _build(args.snapshot, docs, work_root)
         if report["steps"]["build"]["exit_code"] != 0:
             raise RuntimeError("build_index failed; see stderr above")
-        report["steps"]["export"] = _export(args.snapshot, data_root)
+        report["steps"]["export"] = _export(args.snapshot, work_root)
         if report["steps"]["export"]["exit_code"] != 0:
             raise RuntimeError("export_fact_chunks failed; see stderr above")
-        report["steps"]["facts"] = _facts(args.snapshot, data_root, args.limit)
+        report["steps"]["facts"] = _facts(args.snapshot, work_root, args.limit)
         if report["steps"]["facts"]["exit_code"] != 0:
             raise RuntimeError("extract_facts failed; see stderr above")
-        report["steps"]["retrieval"] = _retrieval(args.snapshot, data_root, settings, args.top_k)
+        report["steps"]["retrieval"] = _retrieval(args.snapshot, work_root, settings, args.top_k)
         report["steps"]["ask"] = _ask(
-            args.snapshot, data_root, settings, args.top_k, report["steps"]["retrieval"]
+            args.snapshot, work_root, data_root, settings, args.top_k, report["steps"]["retrieval"]
         )
     except Exception as exc:  # report the failing step rather than a bare traceback
         report["error"] = f"{type(exc).__name__}: {exc}"

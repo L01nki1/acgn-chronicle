@@ -148,3 +148,64 @@ def test_extraction_stub_answers_one_object_per_numbered_slot() -> None:
     assert len(rows) == 3
     assert set(rows[0]) == {"title", "release_date", "platforms", "event_type", "relevance"}
     assert stub.calls == 1
+
+
+def test_smoke_never_touches_an_existing_collection_or_fact_file(
+    data_root: Path, tmp_path: Path
+) -> None:
+    """F's #75 review, P1: a smoke run must not replace real indexes or fact files."""
+    pytest.importorskip("chromadb")
+    pytest.importorskip("fastapi")
+
+    snapshot = _publish(data_root, count=6)
+
+    # Seed the source root the way a previous full run would have left it: a complete
+    # collection with its build record, and a fact file at the ordinary facts path.
+    docs, _ = smoke_e2e._docs_path(snapshot, data_root, data_root, None)
+    assert smoke_e2e._build(snapshot, docs, data_root)["exit_code"] == 0
+    facts_file = data_root / "facts" / snapshot / "facts.jsonl"
+    facts_file.parent.mkdir(parents=True, exist_ok=True)
+    facts_file.write_bytes(b'{"seed": true}\n')
+
+    from acgn_rag.config import load_settings
+    from acgn_rag.core.store.chroma_store import ChromaStore
+
+    store = ChromaStore(data_root / "index" / "chroma", load_settings().store)
+    store.bind(snapshot, smoke_e2e.LABEL)
+    before_count = store.count()
+    assert before_count == 6
+    build_record = (data_root / "index" / snapshot / smoke_e2e.LABEL / "build.json").read_bytes()
+
+    # A limited smoke run must not touch any of it.
+    assert (
+        smoke_e2e.main(["--snapshot", snapshot, "--data-root", str(data_root), "--limit", "2"]) == 0
+    )
+    assert store.count() == before_count
+    assert (
+        data_root / "index" / snapshot / smoke_e2e.LABEL / "build.json"
+    ).read_bytes() == build_record
+    assert facts_file.read_bytes() == b'{"seed": true}\n'
+
+    # Neither must an unlimited run — the ordinary facts path was the old overwrite vector.
+    assert (
+        smoke_e2e.main(
+            [
+                "--snapshot",
+                snapshot,
+                "--data-root",
+                str(data_root),
+                "--out",
+                str(tmp_path / "unlimited.json"),
+            ]
+        )
+        == 0
+    )
+    assert store.count() == before_count
+    assert (
+        data_root / "index" / snapshot / smoke_e2e.LABEL / "build.json"
+    ).read_bytes() == build_record
+    assert facts_file.read_bytes() == b'{"seed": true}\n'
+
+    report = json.loads((tmp_path / "unlimited.json").read_text(encoding="utf-8"))
+    workspace = Path(report["workspace"])
+    assert (workspace / "index" / "chroma").is_dir()
