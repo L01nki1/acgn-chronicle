@@ -118,6 +118,8 @@ class AnswerDiagnostics:
     # best retrieved score this request actually had, so a sweep never needs a second run.
     min_retrieval_score: float | None = None
     retrieval_top_score: float | None = None
+    # A returned completion counts even when its claims are rejected.
+    provider_completion: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -336,6 +338,7 @@ def generate_grounded_answer_run(
                 abstain_code=code,
                 min_retrieval_score=min_retrieval_score,
                 retrieval_top_score=retrieval_top_score,
+                provider_completion=True,
             ),
         )
 
@@ -357,6 +360,7 @@ def generate_grounded_answer_run(
             abstain_code=None,
             min_retrieval_score=min_retrieval_score,
             retrieval_top_score=retrieval_top_score,
+            provider_completion=True,
         ),
     )
 
