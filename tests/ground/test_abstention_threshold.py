@@ -105,6 +105,7 @@ def test_below_threshold_refuses_before_the_provider_is_called() -> None:
     assert list(run.answer.citations) == []
     assert list(run.answer.cited_chunk_ids) == []
     assert run.diagnostics.abstain_code == ABSTAIN_RETRIEVAL_BELOW_THRESHOLD
+    assert run.diagnostics.provider_completion is False
     assert run.diagnostics.min_retrieval_score == 0.5
     assert run.diagnostics.retrieval_top_score == pytest.approx(0.42)
 
