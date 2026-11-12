@@ -11,10 +11,11 @@ Scope and interpretation
   CalibrationResult.to_metadata describe the calibration set only. Quoting them as QA-set
   results would be leakage; the disjoint QA set is what measures abstention
   (docs/EVAL_PROTOCOL.md section 6).
-* A retrieval score is ordinal within one response only (ports.SCORE_SEMANTICS). The
-  selected threshold therefore belongs to the exact snapshot, chunk configuration, retrieval
-  mode and encoder identity that produced these scores. It must be re-calibrated when any of
-  those changes and must never be ported across retrieval modes.
+* Scores are comparable across queries only within one identity: the same snapshot, chunk
+  configuration, retrieval mode, encoder identity, top-k and over-fetch (ports.SCORE_SEMANTICS;
+  per-query filters may differ). The selected threshold therefore belongs to that identity and
+  must be re-calibrated when any of those changes; it must never be ported across identities or
+  retrieval modes.
 * At a fixed threshold, refusals are part of the protocol's deterministic tier
   (docs/EVAL_PROTOCOL.md section 8): the sweep order, tie-breaks and rate arithmetic below
   are deterministic for a given sample set, independent of input order.

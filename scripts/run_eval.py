@@ -91,7 +91,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--qa", default="eval/qa_set.jsonl", help="QA JSONL path")
     parser.add_argument("--out", default="eval/runs", help="run archive root")
     parser.add_argument("--top-k", type=int, default=5)
-    parser.add_argument("--run-id", default=None, help="override the generated run id")
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        help="override the generated identity-scoped run id",
+    )
     parser.add_argument(
         "--window-start",
         default=None,

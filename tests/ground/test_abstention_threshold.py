@@ -182,6 +182,34 @@ def test_unset_or_empty_env_keeps_the_threshold_disabled(
     assert config.answer_min_retrieval_score is None
 
 
+@pytest.mark.parametrize("raw", ["   ", "\t", "\n", " \t\n "])
+def test_whitespace_only_env_threshold_behaves_like_unset(
+    monkeypatch: pytest.MonkeyPatch, raw: str
+) -> None:
+    monkeypatch.setenv(ENV_KEY, raw)
+    config = LLMConfig(answer_base_url="http://example.invalid", answer_model="m")
+    client = FakeAnswerClient(_response())
+
+    assert config.answer_min_retrieval_score is None
+    answerer = GroundedAnswerer.from_config(config, client)
+    assert answerer.min_retrieval_score is None
+    # A negative score distinguishes "disabled" from a 0.0 threshold: under 0.0 the strict rule
+    # would refuse it, so answering proves the gate is off rather than set to zero.
+    answer = answerer.answer(_query(), [_chunk(1, score=-0.1)])
+    assert not answer.abstained
+    assert len(client.calls) == 1
+
+
+@pytest.mark.parametrize(("raw", "expected"), [("0.75", 0.75), (" 0.75 ", 0.75), ("0", 0.0)])
+def test_valid_env_threshold_still_parses(
+    monkeypatch: pytest.MonkeyPatch, raw: str, expected: float
+) -> None:
+    monkeypatch.setenv(ENV_KEY, raw)
+    config = LLMConfig(answer_base_url="http://example.invalid", answer_model="m")
+
+    assert config.answer_min_retrieval_score == expected
+
+
 def test_zero_env_threshold_is_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(ENV_KEY, "0")
     config = LLMConfig(answer_base_url="http://example.invalid", answer_model="m")
@@ -259,7 +287,7 @@ def test_threshold_refusal_is_deterministic() -> None:
     assert first.diagnostics == second.diagnostics
 
 
-@pytest.mark.parametrize("raw", ["nan", "inf", "-inf"])
+@pytest.mark.parametrize("raw", ["nan", "inf", "-inf", " inf "])
 def test_non_finite_env_threshold_fails_loudly(monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
     monkeypatch.setenv(ENV_KEY, raw)
 
@@ -277,6 +305,57 @@ def test_non_finite_threshold_argument_is_rejected(threshold: float) -> None:
         )
 
     assert client.calls == []
+
+
+@pytest.mark.parametrize("threshold", [True, False])
+def test_bool_threshold_is_rejected(threshold: bool) -> None:
+    client = FakeAnswerClient(_response())
+
+    with pytest.raises(ValueError, match=r"min_retrieval_score.*not a bool"):
+        generate_grounded_answer_run(
+            _query(), [_chunk(1, score=0.5)], client, min_retrieval_score=threshold
+        )
+    with pytest.raises(ValueError, match=r"min_retrieval_score.*not a bool"):
+        GroundedAnswerer(client, min_retrieval_score=threshold).answer(
+            _query(), [_chunk(1, score=0.5)]
+        )
+
+    assert client.calls == []
+
+
+def test_numeric_threshold_and_none_still_work() -> None:
+    answered_client = FakeAnswerClient(_response())
+    answered = generate_grounded_answer_run(
+        _query(), [_chunk(1, score=0.9)], answered_client, min_retrieval_score=0.5
+    )
+    assert not answered.answer.abstained
+    assert answered.diagnostics.min_retrieval_score == 0.5
+    assert len(answered_client.calls) == 1
+
+    disabled_client = FakeAnswerClient(_response())
+    disabled = generate_grounded_answer_run(
+        _query(), [_chunk(1, score=-0.1)], disabled_client, min_retrieval_score=None
+    )
+    assert not disabled.answer.abstained
+    assert disabled.diagnostics.min_retrieval_score is None
+    assert len(disabled_client.calls) == 1
+
+
+def test_int_threshold_is_accepted_as_a_number() -> None:
+    # bool is rejected, but a real int must keep working: it is a number, not a flag.
+    refused = generate_grounded_answer_run(
+        _query(), [_chunk(1, score=0.9)], FakeAnswerClient(_response()), min_retrieval_score=1
+    )
+    assert refused.answer.abstained
+    assert refused.diagnostics.abstain_code == ABSTAIN_RETRIEVAL_BELOW_THRESHOLD
+
+    answered_client = FakeAnswerClient(_response())
+    answered = generate_grounded_answer_run(
+        _query(), [_chunk(1, score=1.0)], answered_client, min_retrieval_score=1
+    )
+    assert not answered.answer.abstained
+    assert answered.diagnostics.min_retrieval_score == 1
+    assert len(answered_client.calls) == 1
 
 
 @pytest.mark.parametrize(

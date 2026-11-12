@@ -32,7 +32,10 @@ def _env_int(key: str, default: int) -> int:
 
 def _env_float(key: str, default: float | None = None) -> float | None:
     raw = _env(key)
-    if raw is None:
+    # A whitespace-only value means "unset" for a float setting: otherwise a stray blank in
+    # .env turns the documented "unset disables the threshold" behaviour into a ValueError.
+    # Handled here, not in _env, so string settings keep their exact raw value.
+    if raw is None or not raw.strip():
         return default
     value = float(raw)
     if not math.isfinite(value):

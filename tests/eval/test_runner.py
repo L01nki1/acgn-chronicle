@@ -16,8 +16,10 @@ from acgn_rag.core.eval.runner import (
     VECTOR_IDENTITY_KEYS,
     NullAnswerer,
     RunSpec,
+    _run_id,
     bind_existing_collection,
     build_evidence_resolver,
+    compare_tier1_runs,
     load_build_records,
     load_snapshot_member_urls,
     resolve_window,
@@ -391,13 +393,89 @@ def test_run_uses_item_window_as_filters(tmp_path: Path) -> None:
 
 
 def test_run_id_uses_a_prime_token(tmp_path: Path) -> None:
+    chunker = {
+        "version": "composed-input-v2",
+        "header_version": "h1",
+        "config": "A'",
+        "max_tokens": 512,
+        "overlap": 64,
+        "max_seq_length": 512,
+    }
     result = run(
-        _spec(tmp_path, config="A'", run_id=None),
+        _spec(tmp_path, config="A'", run_id=None, chunker=chunker),
         store=FakeStore([_hit()]),
         embedder=FakeEmbedder(),
         qa_items=[_qa_item()],
     )
-    assert result.run_id == "20261030-A-prime-20261028abcdef"
+    assert result.run_id == ("20261030-A-prime-20261028abcdef-fake-torch-cuda-fp32-b32-12345678")
+
+
+def test_run_id_is_stable_for_same_identity(tmp_path: Path) -> None:
+    spec = _spec(tmp_path, run_id=None)
+    assert _run_id(spec) == _run_id(spec)
+
+
+def test_run_id_changes_with_identity_slug(tmp_path: Path) -> None:
+    base = _spec(tmp_path, run_id=None)
+    identity = dict(base.build_identity)
+    identity["identity_slug"] = "fake-torch-cpu-fp32-12345678"
+    other = _spec(tmp_path, run_id=None, build_identity=identity)
+
+    assert _run_id(base) != _run_id(other)
+    assert _run_id(other).endswith("fake-torch-cpu-fp32-12345678")
+
+
+def test_run_id_changes_with_config(tmp_path: Path) -> None:
+    assert _run_id(_spec(tmp_path, run_id=None, config="A")) != _run_id(
+        _spec(tmp_path, run_id=None, config="A'")
+    )
+
+
+def test_explicit_run_id_overrides_generated(tmp_path: Path) -> None:
+    assert _run_id(_spec(tmp_path, run_id="manual-run")) == "manual-run"
+
+
+def test_run_id_requires_identity_slug(tmp_path: Path) -> None:
+    spec = _spec(tmp_path, run_id=None)
+    identity = dict(spec.build_identity)
+    identity["identity_slug"] = ""
+    with pytest.raises(ValueError, match="identity_slug"):
+        _run_id(_spec(tmp_path, run_id=None, build_identity=identity))
+
+
+def test_run_id_rejects_unsafe_segments(tmp_path: Path) -> None:
+    for unsafe in ("../escape", "manual.", "manual/"):
+        with pytest.raises(ValueError, match="run_id"):
+            _run_id(_spec(tmp_path, run_id=unsafe))
+
+    spec = _spec(tmp_path, run_id=None)
+    identity = dict(spec.build_identity)
+    identity["identity_slug"] = "../escape"
+    with pytest.raises(ValueError, match="identity_slug"):
+        _run_id(_spec(tmp_path, run_id=None, build_identity=identity))
+
+
+def test_run_id_matches_meta_identity_slug(tmp_path: Path) -> None:
+    result = run(
+        _spec(tmp_path, run_id=None),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        answerer=NullAnswerer(),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["doc::A::1"] for url in urls},
+    )
+    meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
+
+    assert result.run_id.endswith(meta["build_identity"]["identity_slug"])
+    assert meta["build_identity"]["identity_slug"] in result.run_id
+
+
+def test_run_id_ignores_batch_size_change(tmp_path: Path) -> None:
+    base = _spec(tmp_path, run_id=None)
+    identity = dict(base.build_identity)
+    identity["batch_size"] = 64
+
+    assert _run_id(base) == _run_id(_spec(tmp_path, run_id=None, build_identity=identity))
 
 
 def test_run_requires_snapshot_and_window(tmp_path: Path) -> None:
@@ -1184,3 +1262,538 @@ def test_build_evidence_resolver_maps_normalized_urls_to_chunk_ids() -> None:
     assert resolve(["https://EXAMPLE.com/news/a"]) == {"https://EXAMPLE.com/news/a": ["c1", "c2"]}
     assert resolve(["https://example.com/news/b"]) == {"https://example.com/news/b": ["c3"]}
     assert resolve(["https://example.com/news/missing"]) == {"https://example.com/news/missing": []}
+
+
+def _tier1_archive(tmp_path: Path, name: str, **overrides: object) -> Path:
+    result = run(
+        _spec(tmp_path, run_id=name, **overrides),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        answerer=NullAnswerer(),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["doc::A::1"] for url in urls},
+    )
+    return result.out_dir
+
+
+def test_compare_tier1_runs_identical_archives(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is True
+    assert result["comparable"] is True
+    assert result["checked_items"] == 1
+    assert result["metric_mismatches"] == []
+    assert result["item_mismatches"] == []
+
+
+def test_compare_tier1_runs_reports_metric_drift(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    metrics_path = right / "metrics.json"
+    payload = json.loads(metrics_path.read_text(encoding="utf-8"))
+    payload["retrieval"]["hit"]["all"]["value"] = 0.123
+    metrics_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is False
+    assert result["comparable"] is True
+    assert result["metric_mismatches"][0]["field"] == "retrieval"
+
+
+def test_compare_tier1_runs_reports_item_order_drift(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    answers_path = right / "answers.jsonl"
+    rows = [json.loads(line) for line in answers_path.read_text(encoding="utf-8").splitlines()]
+    rows[0]["retrieved_chunk_ids"] = [*list(reversed(rows[0]["retrieved_chunk_ids"])), "c0"]
+    answers_path.write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is False
+    assert result["item_mismatches"][0]["field"] == "retrieved_chunk_ids"
+
+
+def test_compare_tier1_runs_handles_unicode_line_separators(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    answers_path = right / "answers.jsonl"
+    rows = [
+        json.loads(line)
+        for line in answers_path.read_text(encoding="utf-8").split("\n")
+        if line.strip()
+    ]
+    rows[0]["answer"] = "line\u2028separator"
+    answers_path.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is True
+    assert result["checked_items"] == 1
+
+
+def test_compare_tier1_runs_ignores_generation_fields(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    answers_path = right / "answers.jsonl"
+    rows = [
+        json.loads(line)
+        for line in answers_path.read_text(encoding="utf-8").split("\n")
+        if line.strip()
+    ]
+    rows[0]["cited_chunk_ids"] = ["c1"]
+    rows[0]["status"] = "answered"
+    answers_path.write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is True
+    assert result["item_mismatches"] == []
+
+
+def test_compare_tier1_runs_warns_on_git_sha_drift(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right", git_sha="other-sha")
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is True
+    assert result["comparable"] is True
+    assert result["warnings"] == [{"field": "git_sha", "left": "test-sha", "right": "other-sha"}]
+
+
+def test_compare_tier1_runs_rejects_identity_mismatch(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    identity = dict(_spec(tmp_path, run_id=None).build_identity)
+    identity["identity_slug"] = "other-torch-cpu-fp32-12345678"
+    right = _tier1_archive(tmp_path, "right", build_identity=identity)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is False
+    assert result["comparable"] is False
+    assert result["reason"] == "identity mismatch"
+    assert result["identity_mismatches"][0]["field"] == "identity_slug"
+
+
+def test_compare_tier1_runs_rejects_different_snapshot(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    meta_path = right / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["snapshot_id"] = "20261029abcdef"
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["identity_mismatches"][0]["field"] == "snapshot_id"
+
+
+def test_compare_tier1_runs_rejects_missing_archive_file(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    (right / "answers.jsonl").unlink()
+
+    with pytest.raises(ValueError, match="invalid run archive"):
+        compare_tier1_runs(left, right)
+
+
+def _archive_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_archive_json(path: Path, payload: dict[str, Any]) -> None:
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _archive_rows(path: Path) -> list[dict[str, Any]]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").split("\n") if line]
+
+
+def _write_archive_rows(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+
+def test_compare_tier1_runs_detects_changed_question(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    answers_path = right / "answers.jsonl"
+    rows = _archive_rows(answers_path)
+    rows[0]["question"] = "A different question with the same qa_id"
+    _write_archive_rows(answers_path, rows)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is False
+    assert result["comparable"] is True
+    assert result["item_mismatches"][0]["field"] == "question"
+
+
+def test_compare_tier1_runs_rejects_chunker_drift(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    meta_path = right / "meta.json"
+    meta = _archive_json(meta_path)
+    meta["chunker"]["header_version"] = "h2"
+    _write_archive_json(meta_path, meta)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is False
+    assert result["comparable"] is False
+    assert result["reason"] == "identity mismatch"
+    assert result["identity_mismatches"][0]["field"] == "chunker"
+
+
+def test_compare_tier1_runs_rejects_retrieval_mode_drift(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    meta_path = right / "meta.json"
+    meta = _archive_json(meta_path)
+    meta["retrieval"]["mode"] = "bm25"
+    _write_archive_json(meta_path, meta)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == "identity mismatch"
+    assert result["identity_mismatches"][0]["field"] == "retrieval_mode"
+
+
+def test_compare_tier1_runs_rejects_two_empty_answer_files(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    (left / "answers.jsonl").write_text("", encoding="utf-8")
+    (right / "answers.jsonl").write_text("", encoding="utf-8")
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is False
+    assert result["comparable"] is False
+    assert result["reason"].startswith("answer count mismatch")
+
+
+def test_compare_tier1_runs_rejects_equally_truncated_answer_files(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        meta_path = archive / "meta.json"
+        meta = _archive_json(meta_path)
+        meta["qa"]["count"] = 2
+        _write_archive_json(meta_path, meta)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"].startswith("answer count mismatch")
+
+
+def test_compare_tier1_runs_rejects_qa_fingerprint_drift(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    meta_path = right / "meta.json"
+    meta = _archive_json(meta_path)
+    meta["qa"]["inputs_fingerprint"] = "0" * 64
+    _write_archive_json(meta_path, meta)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == "identity mismatch"
+    assert result["identity_mismatches"][0]["field"] == "qa_inputs_fingerprint"
+
+
+def test_compare_tier1_runs_requires_a_qa_fingerprint(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        meta_path = archive / "meta.json"
+        meta = _archive_json(meta_path)
+        del meta["qa"]["inputs_fingerprint"]
+        _write_archive_json(meta_path, meta)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == "identity unavailable: qa_inputs_fingerprint"
+
+
+def test_compare_tier1_runs_rejects_one_sided_truncation(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    (right / "answers.jsonl").write_text("", encoding="utf-8")
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"].startswith("answer count mismatch")
+
+
+def test_compare_tier1_runs_requires_identity_slug(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        meta_path = archive / "meta.json"
+        meta = _archive_json(meta_path)
+        meta["build_identity"]["identity_slug"] = ""
+        _write_archive_json(meta_path, meta)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == "identity unavailable: identity_slug"
+
+
+def test_compare_tier1_runs_requires_chunker_identity(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        meta_path = archive / "meta.json"
+        meta = _archive_json(meta_path)
+        del meta["chunker"]
+        _write_archive_json(meta_path, meta)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == "identity unavailable: chunker"
+
+
+@pytest.mark.parametrize(
+    "field", ["question", "retrieved_chunk_ids", "retrieved_urls", "abstained"]
+)
+def test_compare_tier1_runs_rejects_a_required_answer_field_missing_from_both(
+    tmp_path: Path, field: str
+) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        answers_path = archive / "answers.jsonl"
+        rows = _archive_rows(answers_path)
+        del rows[0][field]
+        _write_archive_rows(answers_path, rows)
+
+    with pytest.raises(ValueError, match=field):
+        compare_tier1_runs(left, right)
+
+
+def test_compare_tier1_runs_rejects_a_wrong_typed_retrieval_field(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        answers_path = archive / "answers.jsonl"
+        rows = _archive_rows(answers_path)
+        rows[0]["retrieved_chunk_ids"] = "c1"
+        _write_archive_rows(answers_path, rows)
+
+    with pytest.raises(ValueError, match="retrieved_chunk_ids"):
+        compare_tier1_runs(left, right)
+
+
+def test_compare_tier1_runs_allows_a_null_abstained_in_both(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        answers_path = archive / "answers.jsonl"
+        rows = _archive_rows(answers_path)
+        rows[0]["abstained"] = None
+        _write_archive_rows(answers_path, rows)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is True
+    assert result["comparable"] is True
+
+
+def test_run_id_rejects_path_shaped_generated_segments(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="run_date"):
+        _run_id(_spec(tmp_path, run_id=None, run_date="../20261030"))
+    with pytest.raises(ValueError, match="snapshot_id"):
+        _run_id(_spec(tmp_path, run_id=None, snapshot_id="../escape"))
+    with pytest.raises(ValueError, match="config"):
+        _run_id(_spec(tmp_path, run_id=None, config="A/../B"))
+
+
+@pytest.mark.parametrize(
+    ("path", "name"),
+    [
+        (("window_verified",), "window_verified"),
+        (("qa", "validated"), "qa_validated"),
+        (("reportable",), "reportable"),
+        (("retrieval", "mode"), "retrieval_mode"),
+    ],
+    ids=["window-verified", "qa-validated", "reportable", "retrieval-mode"],
+)
+def test_compare_tier1_runs_requires_identity_flags(
+    tmp_path: Path, path: tuple[str, ...], name: str
+) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        meta_path = archive / "meta.json"
+        meta = _archive_json(meta_path)
+        node = meta
+        for part in path[:-1]:
+            node = node[part]
+        del node[path[-1]]
+        _write_archive_json(meta_path, meta)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == f"identity unavailable: {name}"
+
+
+@pytest.mark.parametrize(
+    ("path", "name", "value"),
+    [
+        (("qa", "inputs_fingerprint"), "qa_inputs_fingerprint", "not-a-fingerprint"),
+        (("retrieval", "top_k"), "top_k", "5"),
+    ],
+    ids=["fingerprint", "top-k"],
+)
+def test_compare_tier1_runs_rejects_invalid_identity_types(
+    tmp_path: Path, path: tuple[str, str], name: str, value: object
+) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        meta_path = archive / "meta.json"
+        meta = _archive_json(meta_path)
+        meta[path[0]][path[1]] = value
+        _write_archive_json(meta_path, meta)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == f"identity unavailable: {name}"
+
+
+@pytest.mark.parametrize(
+    ("path", "name"),
+    [
+        (("retrieval",), "retrieval"),
+        (("counts",), "counts"),
+        (("provisional",), "provisional"),
+        (("reporting",), "reporting"),
+        (("reporting", "retrieval"), "reporting.retrieval"),
+    ],
+    ids=["retrieval", "counts", "provisional", "reporting", "reporting-retrieval"],
+)
+def test_compare_tier1_runs_requires_metric_blocks(
+    tmp_path: Path, path: tuple[str, ...], name: str
+) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        metrics_path = archive / "metrics.json"
+        metrics = _archive_json(metrics_path)
+        node = metrics
+        for part in path[:-1]:
+            node = node[part]
+        del node[path[-1]]
+        _write_archive_json(metrics_path, metrics)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == f"metrics unavailable: {name}"
+
+
+def test_run_rejects_incomplete_chunker_identity(tmp_path: Path) -> None:
+    spec = _spec(tmp_path, chunker={"version": "composed-input-v2"})
+
+    with pytest.raises(ValueError, match="chunker identity is missing"):
+        run(spec, store=FakeStore([_hit()]), embedder=FakeEmbedder(), qa_items=[_qa_item()])
+
+
+def test_compare_tier1_runs_rejects_incomplete_chunker_identity(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        meta_path = archive / "meta.json"
+        meta = _archive_json(meta_path)
+        meta["chunker"] = {"version": "composed-input-v2"}
+        _write_archive_json(meta_path, meta)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == "identity unavailable: chunker"
+
+
+@pytest.mark.parametrize("name", ["hit", "evidence_recall"])
+def test_compare_tier1_runs_rejects_missing_tier1_metric(tmp_path: Path, name: str) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        metrics_path = archive / "metrics.json"
+        metrics = _archive_json(metrics_path)
+        del metrics["retrieval"][name]
+        _write_archive_json(metrics_path, metrics)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == f"metrics unavailable: retrieval.{name}"
+
+
+def test_compare_tier1_runs_rejects_a_missing_language_block(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        metrics_path = archive / "metrics.json"
+        metrics = _archive_json(metrics_path)
+        del metrics["retrieval"]["hit"]["en"]
+        _write_archive_json(metrics_path, metrics)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == "metrics unavailable: retrieval.hit.en"
+
+
+def test_compare_tier1_runs_allows_null_metric_values(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    empty = {"value": None, "n": 0}
+    for archive in (left, right):
+        metrics_path = archive / "metrics.json"
+        metrics = _archive_json(metrics_path)
+        metrics["retrieval"]["hit"] = {"all": empty, "en": empty, "zh": empty}
+        metrics["retrieval"]["evidence_recall"] = {"all": empty, "en": empty, "zh": empty}
+        _write_archive_json(metrics_path, metrics)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is True
+    assert result["comparable"] is True
+
+
+def test_compare_tier1_runs_rejects_a_null_rate_with_nonzero_n(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        metrics_path = archive / "metrics.json"
+        metrics = _archive_json(metrics_path)
+        metrics["retrieval"]["hit"]["all"] = {"value": None, "n": 1}
+        _write_archive_json(metrics_path, metrics)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == "metrics unavailable: retrieval.hit.all"
