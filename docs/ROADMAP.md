@@ -35,6 +35,20 @@ Run: `python scripts/probe_sources.py` to size the window, then `python scripts/
 then compare `snapshot_id` on a rebuild. The chosen window is frozen into `docs/DECISIONS.md` and into every
 run's `meta.json`.
 
+**G1a outcome — recorded 2026-11-10: PASSED.** All eight checks above are green on `main` at `84c052e`
+([PR #47](https://github.com/L01nki1/acgn-chronicle/pull/47) merged 2026-11-10T04:29Z), closing the
+2026-11-07 partial record and its carry-over to the 2026-11-09 corpus re-checkpoint. Evidence:
+`eval/snapshot_evidence.json` and `eval/source_depth_probe.csv` — size `36,167` items / `36,121` deduped,
+span `2023-11-05..2026-11-05`, probe 81 rows across `90d`/`1y`/`2y`/`3y`/`all` recorded before the window
+freeze, category balance `anime=22,428` / `manga=6,781` / `game=4,507` / `light_novel=2,149`, idempotency
+proven by a forward-vs-reversed rebuild with `byte_diff_count=0` across all seven snapshot files, and
+failure visibility via `EmptyBackfillWindowError` + unknown-adapter `KeyError` + per-source `status`.
+The contract row passed at the gate (#26 `22d404e`, schema 0.2.3; post-gate #40 `fb02d3a`).
+Two recorded non-blockers are accepted explicitly, not silently: `coverage_complete=false` with the eight
+structural `coverage_gaps`, and `dedup_calibration_status=provisional_pending_g1b_sweep` — neither is a G1a
+threshold and both carry into G1b. #47's E/F review is waived by team agreement and is not a gate condition.
+See `docs/DECISIONS.md` 2026-11-10.
+
 **WP4 / B status — 0.2.3 merged; 0.2.4 candidate (2026-11-01).**
 [PR #26](https://github.com/L01nki1/acgn-chronicle/pull/26) merged as `22d404e`. C's
 [0.2.3 approval](https://github.com/L01nki1/acgn-chronicle/pull/26#pullrequestreview-5724246386)
@@ -59,9 +73,9 @@ seam, local entity-registry namespace and canonical full-id/manifest design agre
 Publisher remains display text; no `publisher_id` is adopted without a separate real organization/alias
 registry and propagation/default proposal. B reproduced the synthetic **1,348-byte** manifest and id
 `20261028-7576782837e7`, including order independence and an id change after body-hash mutation.
-This is design/format evidence: real corpus counts, source-depth probe and two actual rebuilds remain
-pending. A/D's partial-gate discussion is still a proposal; no gate date, threshold or evidence waiver
-is adopted here. **G1a remains open.**
+This is design/format evidence as recorded on 2026-11-01: real corpus counts, source-depth probe and
+two actual rebuilds were pending at that date. **G1a has since passed** — see the 2026-11-10 outcome
+record above and `docs/DECISIONS.md`.
 
 The [PM's existing resolution](https://github.com/L01nki1/acgn-chronicle/issues/4#issuecomment-6502751345)
 keeps real curl/filter/refusal/retirement checks with W2's running service. It does not defer the full-id

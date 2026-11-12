@@ -24,12 +24,13 @@ empty form. `--host` and `--port` are also accepted.
 | query page skeleton (typing a question renders result cards) | `static/index.html`, `static/app.mjs` |
 | data from a mock | `mock_port.py` — five fixed records, all URLs on `example.com` |
 | snapshot picker + visible `snapshot_id` per response | `static/app.mjs` |
-| citation jump left blank, marked "跳转将在 G2 启用" | `static/app.mjs` |
+| clickable citation jump (new window, `noopener noreferrer`) | `static/app.mjs` |
 | empty vs refused as different panels and states | `contract.mjs` `viewState`, `app.mjs` |
 | client-side second clipping (200 code points) and "no URL, no render" | `contract.mjs` |
 | cache key `(snapshot_id, text, filters, top_k, config)` | `contract.mjs` `cacheKey` |
 
-G2 adds clickable citation jumps, the evaluation view and the demo script. G3 adds the optional
+G2 has started with clickable citation jumps; the evaluation view and the demo script follow once
+E's runner produces a real run directory and D fixes the metric tables. G3 adds the optional
 `/daily` consumer; `/daily` currently answers `501`.
 
 ## Routes

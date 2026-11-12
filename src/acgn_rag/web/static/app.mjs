@@ -398,10 +398,24 @@ function renderExcerptCard(excerpt) {
 }
 
 function renderCitationUrl(citation) {
+  // `isRenderableCitation` already rejected non-http(s) URLs before this card was built, so the
+  // anchor can carry the original URL. `noopener` keeps the opened page out of `window.opener`.
+  const link = element("a", {
+    className: "citation-url-value",
+    text: citation.url,
+    attrs: {
+      href: citation.url,
+      target: "_blank",
+      rel: "noopener noreferrer",
+      title: "在新窗口打开原文",
+    },
+  });
+  link.append(
+    element("span", { className: "jump-mark", attrs: { "aria-hidden": "true" }, text: " ↗" }),
+  );
   return element("div", { className: "citation-url" }, [
     element("span", { className: "citation-url-label", text: "来源" }),
-    element("span", { className: "citation-url-value", text: citation.url }),
-    element("span", { className: "jump-note", text: "跳转将在 G2 启用" }),
+    link,
   ]);
 }
 
@@ -423,7 +437,7 @@ function renderAnswer(payload, request) {
       meta,
       element("p", {
         className: "answer-caveat",
-        text: "这是 G1a 模拟回答；服务端负责 cited_chunk_ids ⊆ retrieved，客户端只检查引用能否展示。",
+        text: "当前回答来自本地 mock 数据；服务端负责 cited_chunk_ids ⊆ retrieved，客户端只检查引用能否展示。",
       }),
     ]),
   );
@@ -432,7 +446,7 @@ function renderAnswer(payload, request) {
     container.append(
       element("p", {
         className: "compliance-note",
-        text: `${visible.length} 条引用带 URL 与来源字段，按契约展示；跳转链接留到 G2。`,
+        text: `${visible.length} 条引用带 URL 与来源字段，按契约展示；点击来源可在新窗口打开原文。`,
       }),
     );
     visible.forEach((citation) => {
