@@ -230,8 +230,16 @@ def generate_grounded_answer_run(
     min_retrieval_score: float | None = None,
 ) -> GroundedAnswerRun:
     """Generate one answer and keep the diagnostics a calibration run must record."""
-    if min_retrieval_score is not None and not math.isfinite(min_retrieval_score):
-        raise ValueError(f"min_retrieval_score must be finite, got {min_retrieval_score!r}")
+    if min_retrieval_score is not None:
+        # bool is an int subclass, so math.isfinite(True) is True and True would silently act
+        # as 1.0 -- a threshold nobody asked for. Reject it before the finite check.
+        if isinstance(min_retrieval_score, bool):
+            raise ValueError(
+                "min_retrieval_score must be a real number, not a bool, "
+                f"got {min_retrieval_score!r}"
+            )
+        if not math.isfinite(min_retrieval_score):
+            raise ValueError(f"min_retrieval_score must be finite, got {min_retrieval_score!r}")
     if not chunks:
         return _abstain_run(
             ABSTAIN_NO_EVIDENCE,

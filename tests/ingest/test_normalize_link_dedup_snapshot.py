@@ -1854,6 +1854,44 @@ def test_committed_snapshot_evidence_internal_consistency() -> None:
     )
     assert evidence["daily_discovery_verification"].get("metadata_drift_doc_ids_truncated_to") == 20
 
+    # Verify threshold_sweep_20261105 stays locked to the committed 20261105 snapshot (Issue #70)
+    sweep = evidence.get("threshold_sweep_20261105") or {}
+    sweep_snap_id = sweep.get("snapshot_id")
+    assert sweep_snap_id in snapshots, f"Unknown sweep snapshot_id: {sweep_snap_id!r}"
+    sweep_snap = snapshots[sweep_snap_id]
+    sweep_table = sweep.get("sweep_table") or []
+    assert [row["threshold"] for row in sweep_table] == [0.82, 0.84, 0.86, 0.88]
+    for row in sweep_table:
+        assert row["total_items"] == sweep_snap["item_count"]
+        assert (
+            row["cluster_count"] + row["clustered_duplicates_collapsed"] == sweep_snap["item_count"]
+        )
+        assert 0 <= row["non_singleton_clusters"] <= row["clustered_duplicates_collapsed"]
+
+    cluster_counts = [row["cluster_count"] for row in sweep_table]
+    non_singletons = [row["non_singleton_clusters"] for row in sweep_table]
+    assert cluster_counts == sorted(cluster_counts)
+    assert non_singletons == sorted(non_singletons, reverse=True)
+
+    selected_threshold = float(sweep["selected_threshold"])
+    selected_rows = [
+        row for row in sweep_table if abs(float(row["threshold"]) - selected_threshold) < 1e-9
+    ]
+    assert len(selected_rows) == 1
+    selected_row = selected_rows[0]
+    assert selected_row["cluster_count"] == sweep_snap["deduped_count"]
+    assert (
+        selected_row["clustered_duplicates_collapsed"]
+        == sweep_snap["item_count"] - sweep_snap["deduped_count"]
+    )
+
+    samples = sweep.get("sample_merged_clusters_at_0_86") or []
+    assert 0 < len(samples) <= selected_row["non_singleton_clusters"]
+    for sample in samples:
+        assert str(sample["cluster_id"]).startswith("cluster_")
+        assert str(sample["representative_doc_id"]).startswith("doc_")
+        assert int(sample["member_count"]) >= 2
+
     from acgn_rag.core.ingest.normalize import strip_html_boilerplate
 
     wp_mixed_html = "<p>First paragraph line 1<br>line 2</p><p>Second paragraph</p>"
