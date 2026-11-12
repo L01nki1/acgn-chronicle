@@ -31,6 +31,7 @@ from stat import S_ISREG
 from typing import Any
 
 from acgn_rag.config import StoreConfig
+from acgn_rag.core.store.build_state import assert_no_incomplete_build
 from acgn_rag.core.store.payload import ChunkPayload, payload_from_metadata, to_payload
 
 _SNAP_PREFIX = "snap_"
@@ -49,9 +50,11 @@ _PERSISTENT_DB = "chroma.sqlite3"
 class ScoredPayload:
     """One query hit: the round-tripped chunk plus its score.
 
-    ``score`` is cosine similarity (1 - Chroma cosine distance); it is ordinal within one
-    response only - never compare across queries, chunk configurations or snapshots
-    (ports.SCORE_SEMANTICS).
+    ``score`` is cosine similarity (1 - Chroma cosine distance). It is comparable across
+    queries only within one identity (same snapshot, chunk configuration, retrieval mode,
+    encoder identity, top-k and over-fetch; per-query filters may differ) and only for
+    abstention-threshold calibration; never across identities, and never averaged as a quality
+    metric (ports.SCORE_SEMANTICS).
     """
 
     payload: ChunkPayload
@@ -400,6 +403,10 @@ class ChromaStore:
         This does not enforce read-only access or protect against concurrent deletion.
         """
         name = collection_name(snapshot_id, chunk_config)
+        try:
+            assert_no_incomplete_build(self.root.parent, snapshot_id, chunk_config)
+        except ValueError as exc:
+            raise RuntimeError(str(exc)) from exc
         if self._client is None:
             # PersistentClient initializes an empty database if its storage file is missing.
             try:
@@ -434,8 +441,10 @@ class ChromaStore:
     ) -> None:
         """Upsert chunks into the bound collection: ids = chunk_id, documents = body.
 
-        Metadata rows come from ``to_payload`` (flat scalars + media_ids as int[]). Upsert,
-        not add: rebuilding the same snapshot must be idempotent, not duplicate-keyed.
+        Metadata rows come from ``to_payload``. Upsert merges metadata, so absent optional
+        values use Chroma's None removal marker to clear values from an earlier row.
+        A later batch failure does not roll back earlier batches; callers must mark incomplete
+        builds before writing and publish success only after every batch succeeds.
         """
         collection = self._require_collection()
         if len(payloads) != len(embeddings):
@@ -446,12 +455,30 @@ class ChromaStore:
             return
         if any(payload.snapshot_id != self._bound_snapshot_id for payload in payloads):
             raise ValueError("payload snapshot_id must match the bound snapshot")
-        collection.upsert(
-            ids=[payload.chunk_id for payload in payloads],
-            embeddings=[_floats(embedding) for embedding in embeddings],
-            documents=[payload.body for payload in payloads],
-            metadatas=[to_payload(payload) for payload in payloads],
-        )
+        ids = [payload.chunk_id for payload in payloads]
+        if len(set(ids)) != len(ids):
+            raise ValueError("duplicate chunk ids in upsert")
+        metadatas = []
+        for payload in payloads:
+            metadata = to_payload(payload)
+            if not payload.media_ids:
+                metadata["media_ids"] = None
+            if payload.ingest_category is None:
+                metadata["ingest_category"] = None
+            metadatas.append(metadata)
+        vectors = [_floats(embedding) for embedding in embeddings]
+        documents = [payload.body for payload in payloads]
+        batch_size = self.client.get_max_batch_size()
+        if not isinstance(batch_size, int) or isinstance(batch_size, bool) or batch_size <= 0:
+            raise ValueError(f"invalid Chroma maximum batch size: {batch_size!r}")
+        for start in range(0, len(ids), batch_size):
+            end = start + batch_size
+            collection.upsert(
+                ids=ids[start:end],
+                embeddings=vectors[start:end],
+                documents=documents[start:end],
+                metadatas=metadatas[start:end],
+            )
 
     def _fetch_rows(
         self, embedding: Sequence[float], n_results: int, where: dict[str, Any] | None

@@ -173,11 +173,70 @@ def test_build_where_naive_datetime_is_utc() -> None:
     }
 
 
-def test_build_where_fractional_until_is_not_truncated() -> None:
-    value = "2026-10-28T12:00:00.500000+00:00"
-    where = build_where(RetrievalFilters(until=value))
-    assert where == {"published_ts": {"$lt": _ts(value)}}
-    assert where["published_ts"]["$lt"] % 1 == 0.5
+def test_build_where_rejects_fractional_bounds() -> None:
+    fractional = (
+        RetrievalFilters(since="2026-10-28T12:00:00.3Z"),
+        RetrievalFilters(until="2026-10-28T12:00:00.500000+00:00"),
+        RetrievalFilters(since="2026-10-28T21:00:00.5+09:00"),
+    )
+    for filters in fractional:
+        with pytest.raises(ValueError, match="fractional-second"):
+            build_where(filters)
+
+
+def test_build_where_whole_second_datetime_stays_exact() -> None:
+    assert build_where(RetrievalFilters(since="2026-10-28T12:00:00.000Z")) == {
+        "published_ts": {"$gte": _ts("2026-10-28T12:00:00+00:00")}
+    }
+
+
+def test_build_where_rejects_sub_microsecond_bounds() -> None:
+    fractional = (
+        RetrievalFilters(since="2026-11-09T00:00:00.0000001Z"),
+        RetrievalFilters(until="2026-11-09T00:00:00.0000001Z"),
+        RetrievalFilters(since="2026-11-09T00:00:00.0000001+09:00"),
+    )
+    for filters in fractional:
+        with pytest.raises(ValueError, match="fractional-second"):
+            build_where(filters)
+
+
+def test_build_where_rejects_fractional_timezone_offsets() -> None:
+    fractional = (
+        RetrievalFilters(since="2026-11-09T00:00:00-09:00:00.0000001"),
+        RetrievalFilters(until="2026-11-09T00:00:00-09:00:00.0000001"),
+        # An all-zero time fraction must not hide a later nonzero offset fraction.
+        RetrievalFilters(since="2026-11-09T00:00:00.0000000-09:00:00.0000001"),
+    )
+    for filters in fractional:
+        with pytest.raises(ValueError, match="fractional-second"):
+            build_where(filters)
+
+
+def test_build_where_accepts_whole_second_offset_forms() -> None:
+    expected = _ts("2026-11-09T09:00:00+00:00")
+    assert build_where(RetrievalFilters(since="2026-11-09T00:00:00-09:00")) == {
+        "published_ts": {"$gte": expected}
+    }
+    assert build_where(RetrievalFilters(until="2026-11-09T00:00:00-09:00:00.0000000")) == {
+        "published_ts": {"$lt": expected}
+    }
+
+
+def test_build_where_lowercase_t_is_a_datetime_separator() -> None:
+    expected = _ts("2026-11-09T12:00:00+00:00")
+    assert build_where(RetrievalFilters(until="2026-11-09t12:00:00Z")) == {
+        "published_ts": {"$lt": expected}
+    }
+    assert build_where(RetrievalFilters(since="2026-11-09t12:00:00Z")) == {
+        "published_ts": {"$gte": expected}
+    }
+
+
+def test_build_where_accepts_an_all_zero_fraction_as_a_whole_second() -> None:
+    assert build_where(RetrievalFilters(since="2026-11-09T00:00:00.0000000Z")) == {
+        "published_ts": {"$gte": _ts("2026-11-09T00:00:00+00:00")}
+    }
 
 
 def test_build_where_empty_source_types_keeps_other_families() -> None:

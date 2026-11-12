@@ -26,6 +26,11 @@
 **Assertion**: no outbound path (`to_dict()` / `model_dump()`) may carry raw-zone text. Clipping happens only in
 `core/ground/serialize.py`; other modules must not build responses on their own.
 
+**LLM generation context:** the answerer sends the retrieved chunk text to the configured answer provider as
+transient generation context — Topic 5 requires an LLM API over the question and retrieved chunks. That is not an
+outbound payload: nothing is persisted beyond the call, and the wire response still carries only citations plus
+≤200-character excerpts. No other third party receives the text.
+
 ## C3 — Four-part outbound payload (<=200 characters)
 
 ```
@@ -86,4 +91,4 @@ Never: serve full text | paraphrase media commentary | train models | commercial
 |---|---|
 | `test_serialize_limits.py` | <=200 chars (CJK and ASCII), ellipsis inside the budget, whitespace collapsed, payload carries a url |
 | `test_media_no_paraphrase.py` | the no-paraphrase clause exists in the prompt |
-| `test_no_raw_export.py` | no API response contains full text (pending WP4) |
+| `test_no_raw_export.py` | no serialized answer/refusal carries the full raw-zone body; citations expose metadata only; an over-budget copied body is rejected (HTTP `/ask` end-to-end check is deferred until the real retrieval+generation backend replaces the mock) |

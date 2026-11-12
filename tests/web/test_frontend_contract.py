@@ -45,6 +45,21 @@ def test_an_action_during_an_in_flight_request_is_queued_not_dropped() -> None:
     assert "markFormChanged" in source
 
 
+def test_citation_url_renders_as_a_safe_link() -> None:
+    """G2: the citation URL is a real anchor, not text plus a "coming later" note.
+
+    `isRenderableCitation` has already rejected non-http(s) URLs before a card is built, so the
+    anchor may carry the original URL; `noopener noreferrer` keeps the opened page out of
+    `window.opener`.
+    """
+    source = APP_FILE.read_text(encoding="utf-8")
+    assert "跳转将在 G2 启用" not in source
+    assert 'element("a", {' in source
+    assert "href: citation.url" in source
+    assert 'target: "_blank"' in source
+    assert 'rel: "noopener noreferrer"' in source
+
+
 @pytest.mark.skipif(
     NODE is None, reason="Node.js is not installed; skipping the .mjs contract tests"
 )

@@ -35,7 +35,7 @@ import build_index  # noqa: E402
 from acgn_rag.config import StoreConfig  # noqa: E402
 from acgn_rag.core.chunk import chunk_text  # noqa: E402
 from acgn_rag.core.embed import build_header  # noqa: E402
-from acgn_rag.core.store.chroma_store import ChromaStore, collection_name  # noqa: E402
+from acgn_rag.core.store.chroma_store import ChromaStore, collection_name, media_filter  # noqa: E402
 
 SNAP = "20261028abcdef1234"
 LABELS = {"A": "A", "A'": "A-prime", "A0": "A0"}
@@ -269,7 +269,19 @@ def test_end_to_end_builds_all_three_configs(
 def test_encoded_texts_carry_prefix_and_context_header(data_root: Path, docs_path: Path) -> None:
     model = FakeModel()
     code = _run(
-        ["--snapshot", SNAP, "--input", str(docs_path), "--config", "A0", "--limit", "1"],
+        [
+            "--snapshot",
+            SNAP,
+            "--input",
+            str(docs_path),
+            "--config",
+            "A0",
+            "--limit",
+            "1",
+            "--preview",
+            "--preview-id",
+            "header-test",
+        ],
         model=model,
     )
     assert code == 0
@@ -411,6 +423,94 @@ def test_fresh_rebuild_replaces_stale_rows_only_in_the_target_collection(
     assert build["chunks"] == build["stored"] == expected_subset
 
 
+@pytest.mark.parametrize("omit_media_ids", [False, True], ids=["empty", "missing"])
+def test_fresh_rebuild_accepts_an_unresolved_item(
+    data_root: Path, tmp_path: Path, omit_media_ids: bool
+) -> None:
+    original = _write_docs(tmp_path / "original.jsonl", [_doc(1, 3) | {"media_ids": [7]}])
+    assert _run(["--snapshot", SNAP, "--input", str(original), "--config", "A0"]) == 0
+
+    unresolved = _doc(1, 3)
+    if omit_media_ids:
+        del unresolved["media_ids"]
+    else:
+        unresolved["media_ids"] = []
+    replacement = _write_docs(tmp_path / "replacement.jsonl", [unresolved])
+    assert _run(["--snapshot", SNAP, "--input", str(replacement), "--config", "A0", "--fresh"]) == 0
+
+    store = _store_at(data_root)
+    store.bind(SNAP, "A0")
+    assert store.count() == 1
+    assert store.query([1.0] * DIM, top_k=1)[0].payload.media_ids == ()
+    assert store.query([1.0] * DIM, top_k=1, where=media_filter([7])) == []
+    sidecars = data_root / "index" / SNAP / "A0"
+    build = json.loads((sidecars / "build.json").read_text(encoding="utf-8"))
+    identity = json.loads((sidecars / "identity.json").read_text(encoding="utf-8"))
+    assert build["mode"] == "replace"
+    assert build["chunks"] == build["stored"] == 1
+    assert build["snapshot_id"] == identity["snapshot_id"] == SNAP
+    assert build["config"] == identity["config"] == "A0"
+    assert build["collection"] == identity["collection"] == collection_name(SNAP, "A0")
+
+
+@pytest.mark.parametrize("omit_media_ids", [False, True], ids=["empty", "missing"])
+def test_upsert_rebuild_clears_unresolved_media_ids_with_a_warm_cache(
+    data_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str], omit_media_ids: bool
+) -> None:
+    model = FakeModel()
+    original = _write_docs(tmp_path / "original.jsonl", [_doc(1, 3) | {"media_ids": [7]}])
+    args = ["--snapshot", SNAP, "--input", str(original), "--config", "A0"]
+    assert _run(args, model=model) == 0
+    capsys.readouterr()
+
+    store = _store_at(data_root)
+    store.bind(SNAP, "A0")
+    assert len(store.query([1.0] * DIM, top_k=1, where=media_filter([7]))) == 1
+
+    unresolved = _doc(1, 3)
+    if omit_media_ids:
+        del unresolved["media_ids"]
+    else:
+        unresolved["media_ids"] = []
+    replacement = _write_docs(tmp_path / "replacement.jsonl", [unresolved])
+    assert (
+        _run(["--snapshot", SNAP, "--input", str(replacement), "--config", "A0"], model=model) == 0
+    )
+
+    summary = _summary(capsys.readouterr().out, "A0")
+    assert summary.group("mode") == "upsert"
+    assert (int(summary.group(3)), int(summary.group(4)), int(summary.group(5))) == (1, 0, 0)
+    assert len(model.calls) == 1
+    assert store.count() == 1
+    assert store.query([1.0] * DIM, top_k=1)[0].payload.media_ids == ()
+    assert store.query([1.0] * DIM, top_k=1, where=media_filter([7])) == []
+
+
+@pytest.mark.parametrize("omit_category", [False, True], ids=["null", "missing"])
+def test_rebuild_preserves_and_clears_ingest_category(
+    data_root: Path, tmp_path: Path, omit_category: bool
+) -> None:
+    original = _doc(1, 3) | {"media_ids": [7], "ingest_category": "corporate"}
+    original_path = _write_docs(tmp_path / "tagged.jsonl", [original])
+    assert _run(["--snapshot", SNAP, "--input", str(original_path), "--config", "A0"]) == 0
+
+    store = _store_at(data_root)
+    store.bind(SNAP, "A0")
+    assert store.query([1.0] * DIM, top_k=1)[0].payload.ingest_category == "corporate"
+
+    updated = _doc(1, 3) | {"media_ids": [7]}
+    if not omit_category:
+        updated["ingest_category"] = None
+    updated_path = _write_docs(tmp_path / "untagged.jsonl", [updated])
+    assert _run(["--snapshot", SNAP, "--input", str(updated_path), "--config", "A0"]) == 0
+
+    stored = store.query([1.0] * DIM, top_k=1)[0].payload
+    assert stored.ingest_category is None
+    assert stored.media_ids == (7,)
+    assert store.query([1.0] * DIM, top_k=1, where={"ingest_category": {"$eq": "corporate"}}) == []
+    assert store.query([1.0] * DIM, top_k=1, where=media_filter([7]))[0].payload == stored
+
+
 def test_fresh_rejects_invalid_input_without_deleting_the_collection(
     data_root: Path,
     docs_path: Path,
@@ -521,13 +621,199 @@ def test_legacy_build_records_its_actual_collection_and_fresh_uses_full_name(
 def test_limit_caps_documents(
     data_root: Path, docs_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    code = _run(["--snapshot", SNAP, "--input", str(docs_path), "--config", "A0", "--limit", "2"])
+    code = _run(
+        [
+            "--snapshot",
+            SNAP,
+            "--input",
+            str(docs_path),
+            "--config",
+            "A0",
+            "--limit",
+            "2",
+            "--preview",
+            "--preview-id",
+            "limit-test",
+        ]
+    )
     assert code == 0
     line = _summary(capsys.readouterr().out, "A0")
     assert line.group(1) == "2"  # docs
     expected = _expected_chunks("A0", _rows()[:2])
     assert line.group(2) == str(expected)
-    assert len(_collection_ids(_store_at(data_root), SNAP, "A0")) == expected
+    preview_root = data_root / "previews" / "limit-test"
+    assert len(_collection_ids(_store_at(preview_root), SNAP, "A0")) == expected
+
+
+def test_limited_fresh_without_preview_preserves_formal_index(
+    data_root: Path, docs_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    argv = ["--snapshot", SNAP, "--input", str(docs_path), "--config", "A0"]
+    assert _run(argv) == 0
+    before_ids = _collection_ids(_store_at(data_root), SNAP, "A0")
+    build_path = data_root / "index" / SNAP / "A0" / "build.json"
+    before_build = build_path.read_bytes()
+    model = FakeModel()
+    capsys.readouterr()
+
+    assert _run([*argv, "--limit", "1", "--fresh"], model=model) == 2
+    assert "--preview" in capsys.readouterr().err
+    assert model.calls == []
+    assert _collection_ids(_store_at(data_root), SNAP, "A0") == before_ids
+    assert build_path.read_bytes() == before_build
+    assert not (data_root / "previews").exists()
+
+
+def test_preview_builds_are_separate_and_not_formal_evaluation_records(
+    data_root: Path, docs_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from acgn_rag.core.eval.runner import load_build_records
+
+    argv = ["--snapshot", SNAP, "--input", str(docs_path), "--config", "A0"]
+    assert _run(argv) == 0
+    before_ids = _collection_ids(_store_at(data_root), SNAP, "A0")
+    build_path = data_root / "index" / SNAP / "A0" / "build.json"
+    before_build = build_path.read_bytes()
+    capsys.readouterr()
+    for preview_id in ("trial-one", "trial-two"):
+        assert (
+            _run([*argv, "--limit", "1", "--fresh", "--preview", "--preview-id", preview_id]) == 0
+        )
+        preview_root = data_root / "previews" / preview_id
+        preview_records = preview_root / "index" / SNAP / "A0"
+        assert (preview_records / "preview-build.json").is_file()
+        assert (preview_records / "preview-identity.json").is_file()
+        assert not (preview_records / "build.json").exists()
+        assert not (preview_records / "identity.json").exists()
+        assert (preview_root / "cache" / "embed").is_dir()
+        assert len(_collection_ids(_store_at(preview_root), SNAP, "A0")) == _expected_chunks(
+            "A0", _rows()[:1]
+        )
+        with pytest.raises(FileNotFoundError):
+            load_build_records(preview_root / "index", snapshot_id=SNAP, config="A0", label="A0")
+
+    assert _collection_ids(_store_at(data_root), SNAP, "A0") == before_ids
+    assert build_path.read_bytes() == before_build
+
+
+@pytest.mark.parametrize("preview_id", ["../escape", "C:escape", ".", "CON", "trial."])
+def test_preview_rejects_unsafe_ids_before_writes(
+    data_root: Path, docs_path: Path, capsys: pytest.CaptureFixture[str], preview_id: str
+) -> None:
+    model = FakeModel()
+    argv = ["--snapshot", SNAP, "--input", str(docs_path), "--config", "A0", "--limit", "1"]
+    assert _run([*argv, "--preview", "--preview-id", preview_id], model=model) == 2
+    assert "preview" in capsys.readouterr().err.lower()
+    assert model.calls == []
+    assert not (data_root / "index").exists()
+
+
+@pytest.mark.parametrize("flags", [["--preview"], ["--preview-id", "trial"]])
+def test_preview_requires_flag_and_id_together(
+    data_root: Path, docs_path: Path, flags: list[str]
+) -> None:
+    model = FakeModel()
+    argv = ["--snapshot", SNAP, "--input", str(docs_path), "--config", "A0", "--limit", "1"]
+    assert _run([*argv, *flags], model=model) == 2
+    assert model.calls == []
+    assert not data_root.exists()
+
+
+def test_preview_rejects_existing_id_and_external_cache_override(
+    data_root: Path, docs_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    argv = ["--snapshot", SNAP, "--input", str(docs_path), "--config", "A0", "--limit", "1"]
+    preview_args = ["--preview", "--preview-id", "already-used"]
+    assert _run([*argv, *preview_args]) == 0
+    prior = data_root / "previews" / "already-used" / "index" / SNAP / "A0" / "preview-build.json"
+    before = prior.read_bytes()
+    model = FakeModel()
+    assert _run([*argv, *preview_args, "--fresh"], model=model) == 2
+    assert model.calls == [] and prior.read_bytes() == before
+    capsys.readouterr()
+    external = data_root / "cache" / "embed"
+    assert (
+        _run(
+            [*argv, "--preview", "--preview-id", "other", "--embed-cache-dir", str(external)],
+            model=model,
+        )
+        == 2
+    )
+    assert model.calls == []
+    assert not external.exists()
+
+
+def test_preview_rejects_symlinked_parent_without_touching_formal_data(
+    data_root: Path, docs_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    argv = ["--snapshot", SNAP, "--input", str(docs_path), "--config", "A0"]
+    assert _run(argv) == 0
+    before = (data_root / "index" / SNAP / "A0" / "build.json").read_bytes()
+    try:
+        (data_root / "previews").symlink_to(data_root / "index", target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symbolic links are unavailable: {exc}")
+    model = FakeModel()
+    assert _run([*argv, "--limit", "1", "--preview", "--preview-id", "trial"], model=model) == 2
+    assert model.calls == []
+    assert (data_root / "index" / SNAP / "A0" / "build.json").read_bytes() == before
+
+
+def test_existing_preview_with_hard_link_is_never_reused(data_root: Path, docs_path: Path) -> None:
+    argv = ["--snapshot", SNAP, "--input", str(docs_path), "--config", "A0"]
+    assert _run(argv) == 0
+    formal = data_root / "index" / SNAP / "A0" / "build.json"
+    before = formal.read_bytes()
+    preview = data_root / "previews" / "already-used"
+    preview.mkdir(parents=True)
+    try:
+        (preview / "linked-record").hardlink_to(formal)
+    except OSError as exc:
+        pytest.skip(f"hard links are unavailable: {exc}")
+    model = FakeModel()
+    assert (
+        _run(
+            [*argv, "--limit", "1", "--fresh", "--preview", "--preview-id", "already-used"],
+            model=model,
+        )
+        == 2
+    )
+    assert model.calls == [] and formal.read_bytes() == before
+
+
+def test_preview_root_rejects_unsafe_id_even_when_called_directly(data_root: Path) -> None:
+    from acgn_rag.core.preview import create_preview_root
+
+    with pytest.raises(ValueError, match="preview ID"):
+        create_preview_root(data_root, "../outside")
+    assert not data_root.exists()
+
+
+def test_failed_preview_reserves_its_id_and_does_not_create_formal_output(
+    data_root: Path, docs_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_identity(_embedder: Any) -> None:
+        raise RuntimeError("synthetic model initialization failure")
+
+    monkeypatch.setattr(build_index.Embedder, "identity", fail_identity)
+    argv = [
+        "--snapshot",
+        SNAP,
+        "--input",
+        str(docs_path),
+        "--config",
+        "A0",
+        "--limit",
+        "1",
+        "--preview",
+        "--preview-id",
+        "failed-trial",
+    ]
+    assert _run(argv) == 2
+    assert (data_root / "previews" / "failed-trial").is_dir()
+    assert not (data_root / "index").exists()
+    assert _run(argv) == 2
+    assert not (data_root / "index").exists()
 
 
 def test_config_flag_accepts_comma_lists_and_dedupes(
@@ -603,3 +889,210 @@ def test_data_root_and_embed_cache_dir_overrides(
     assert len(list(cache_dir.rglob("*.npy"))) == _expected_chunks("A")
     assert not (tmp_path / "data").exists()  # nothing fell back to the ./data default
     assert "wrote" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("limit", ["0", "-1"])
+def test_nonpositive_limit_rejected_before_input_or_settings(
+    docs_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    limit: str,
+) -> None:
+    def unexpected(*_args: Any, **_kwargs: Any) -> None:
+        pytest.fail("invalid limit reached input or settings")
+
+    monkeypatch.setattr(build_index, "_load_docs", unexpected)
+    monkeypatch.setattr(build_index, "load_settings", unexpected)
+    code = _run(["--snapshot", SNAP, "--input", str(docs_path), "--limit", limit])
+    assert code == 2
+    assert "--limit must be a positive integer" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("limit", ["0", "-1"])
+def test_nonpositive_limit_fresh_preserves_existing_index(
+    data_root: Path, docs_path: Path, capsys: pytest.CaptureFixture[str], limit: str
+) -> None:
+    argv = ["--snapshot", SNAP, "--input", str(docs_path), "--config", "A0"]
+    assert _run(argv) == 0
+    before_ids = _collection_ids(_store_at(data_root), SNAP, "A0")
+    records = data_root / "index" / SNAP / "A0"
+    before_build = (records / "build.json").read_bytes()
+    before_identity = (records / "identity.json").read_bytes()
+    capsys.readouterr()
+
+    model = FakeModel()
+    assert _run([*argv, "--fresh", "--limit", limit], model=model) == 2
+    assert "--limit must be a positive integer" in capsys.readouterr().err
+    assert model.calls == []
+    assert _collection_ids(_store_at(data_root), SNAP, "A0") == before_ids
+    assert (records / "build.json").read_bytes() == before_build
+    assert (records / "identity.json").read_bytes() == before_identity
+
+
+def test_build_index_writes_multiple_batches_and_records_success(
+    data_root: Path, docs_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from chromadb.api.client import Client
+    from chromadb.api.models.Collection import Collection
+
+    from acgn_rag.core.eval.runner import load_build_records
+
+    monkeypatch.setattr(Client, "get_max_batch_size", lambda _self: 2)
+    upsert = Collection.upsert
+    batch_lengths: list[int] = []
+
+    def observe_upsert(collection: Any, *args: Any, **kwargs: Any) -> Any:
+        batch_lengths.append(len(kwargs["ids"]))
+        return upsert(collection, *args, **kwargs)
+
+    monkeypatch.setattr(Collection, "upsert", observe_upsert)
+    args = ["--snapshot", SNAP, "--input", str(docs_path), "--config", "A0"]
+    assert _run(args) == 0
+
+    assert batch_lengths == [2, 2, 2]
+    assert not (data_root / "index" / SNAP / "A0" / "build.incomplete").exists()
+    _, _, counts, _ = load_build_records(
+        data_root / "index", snapshot_id=SNAP, config="A0", label="A0"
+    )
+    assert counts["stored"] == 6
+    assert _store_at(data_root).bind_existing(SNAP, "A0").count() == 6
+
+
+def test_interrupted_rebuild_is_unreadable_until_explicit_fresh_recovery(
+    data_root: Path, docs_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from acgn_rag.core.eval.runner import load_build_records
+
+    args = ["--snapshot", SNAP, "--input", str(docs_path), "--config", "A0"]
+    assert _run(args) == 0
+    original_upsert = ChromaStore.upsert_chunks
+
+    def fail_after_one_row(
+        store: ChromaStore, payloads: Sequence[Any], embeddings: Sequence[Any]
+    ) -> None:
+        original_upsert(store, payloads[:1], embeddings[:1])
+        raise RuntimeError("synthetic interruption after a partial write")
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(ChromaStore, "upsert_chunks", fail_after_one_row)
+        assert _run([*args, "--fresh"]) == 2
+
+    marker = data_root / "index" / SNAP / "A0" / "build.incomplete"
+    assert marker.exists()
+    with pytest.raises(ValueError, match="incomplete"):
+        load_build_records(data_root / "index", snapshot_id=SNAP, config="A0", label="A0")
+    with pytest.raises(RuntimeError, match="incomplete"):
+        _store_at(data_root).bind_existing(SNAP, "A0")
+
+    assert _run(args) == 2
+    assert _run([*args, "--fresh"]) == 2
+    assert _run([*args, "--fresh", "--recover-incomplete"]) == 0
+    assert not marker.exists()
+    _, _, counts, _ = load_build_records(
+        data_root / "index", snapshot_id=SNAP, config="A0", label="A0"
+    )
+    assert counts["stored"] == _expected_chunks("A0")
+    assert _store_at(data_root).bind_existing(SNAP, "A0").count() == counts["stored"]
+
+
+def test_failed_sidecar_write_leaves_the_build_unreadable(
+    data_root: Path, docs_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from acgn_rag.core.eval.runner import load_build_records
+
+    args = ["--snapshot", SNAP, "--input", str(docs_path), "--config", "A0"]
+    assert _run(args) == 0
+    write_json = build_index._atomic_write_json
+
+    def fail_build_record(path: Path, payload: dict[str, object]) -> None:
+        if path.name == "build.json":
+            raise OSError("synthetic record write failure")
+        write_json(path, payload)
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(build_index, "_atomic_write_json", fail_build_record)
+        assert _run([*args, "--fresh"]) == 2
+
+    assert (data_root / "index" / SNAP / "A0" / "build.incomplete").exists()
+    with pytest.raises(ValueError, match="incomplete"):
+        load_build_records(data_root / "index", snapshot_id=SNAP, config="A0", label="A0")
+    assert _run([*args, "--fresh", "--recover-incomplete"]) == 0
+
+
+def test_recovery_requires_fresh_before_any_write(data_root: Path, docs_path: Path) -> None:
+    args = ["--snapshot", SNAP, "--input", str(docs_path), "--config", "A0"]
+    assert _run([*args, "--recover-incomplete"]) == 2
+    assert not (data_root / "index").exists()
+
+
+@pytest.mark.parametrize("selection", [[], ["--config", "A0"]], ids=["all-configs", "single"])
+def test_incomplete_build_is_rejected_before_model_or_store_access(
+    data_root: Path,
+    docs_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    selection: list[str],
+) -> None:
+    marker = data_root / "index" / SNAP / "A0" / "build.incomplete"
+    marker.parent.mkdir(parents=True)
+    marker.write_text("interrupted\n", encoding="utf-8")
+
+    calls: list[str] = []
+
+    def unexpected_identity(_embedder: Any) -> None:
+        calls.append("identity")
+        raise AssertionError("the encoder must not be loaded")
+
+    monkeypatch.setattr(build_index.Embedder, "identity", unexpected_identity)
+    assert _run(["--snapshot", SNAP, "--input", str(docs_path), *selection]) == 2
+    assert calls == []
+    assert "incomplete" in capsys.readouterr().err
+    assert not (data_root / "index" / "chroma").exists()
+
+
+def test_invalid_snapshot_is_rejected_before_model_or_store_access(
+    data_root: Path, docs_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+
+    def unexpected_identity(_embedder: Any) -> None:
+        calls.append("identity")
+        raise AssertionError("the encoder must not be loaded")
+
+    monkeypatch.setattr(build_index.Embedder, "identity", unexpected_identity)
+    assert _run(["--snapshot", "../other", "--input", str(docs_path), "--config", "A0"]) == 2
+    assert calls == []
+    assert not (data_root / "index").exists()
+
+
+def test_interrupted_preview_stays_unreadable_and_preserves_formal_index(
+    data_root: Path, docs_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from acgn_rag.core.eval.runner import load_build_records
+
+    args = ["--snapshot", SNAP, "--input", str(docs_path), "--config", "A0"]
+    assert _run(args) == 0
+    before_ids = _collection_ids(_store_at(data_root), SNAP, "A0")
+    formal_record = data_root / "index" / SNAP / "A0" / "build.json"
+    before_record = formal_record.read_bytes()
+    original_upsert = ChromaStore.upsert_chunks
+
+    def fail_after_one_row(
+        store: ChromaStore, payloads: Sequence[Any], embeddings: Sequence[Any]
+    ) -> None:
+        original_upsert(store, payloads[:1], embeddings[:1])
+        raise RuntimeError("synthetic preview interruption")
+
+    preview_args = [*args, "--limit", "1", "--fresh", "--preview", "--preview-id", "interrupted"]
+    with monkeypatch.context() as patcher:
+        patcher.setattr(ChromaStore, "upsert_chunks", fail_after_one_row)
+        assert _run(preview_args) == 2
+    preview_root = data_root / "previews" / "interrupted"
+    assert (preview_root / "index" / SNAP / "A0" / "build.incomplete").exists()
+    with pytest.raises(ValueError, match="incomplete"):
+        load_build_records(preview_root / "index", snapshot_id=SNAP, config="A0", label="A0")
+    with pytest.raises(RuntimeError, match="incomplete"):
+        _store_at(preview_root).bind_existing(SNAP, "A0")
+    assert _run(preview_args) == 2
+    assert _collection_ids(_store_at(data_root), SNAP, "A0") == before_ids
+    assert formal_record.read_bytes() == before_record

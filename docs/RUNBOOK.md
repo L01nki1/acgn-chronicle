@@ -26,12 +26,23 @@ pytest -q                                     # 4 tests
 | Contract consistency | `python scripts/export_schema.py --check` | ready |
 | All tests (zero network) | `pytest -q` | ready |
 | Network-marked tests | `pytest -m network -q` | ready (local only) |
-| Historical backfill | `python scripts/backfill.py --since ... --until ...` | pending A |
-| Daily increment | `python scripts/discover_daily.py` | pending A |
+| Historical backfill | `python scripts/backfill.py --since ... --until ...` | ready |
+| Daily increment | `python scripts/discover_daily.py` | ready |
 | Build index | `python scripts/build_index.py --snapshot <id> --input <docs.jsonl> [--config A] [--fresh]` | ready (`--input` until A's reader lands) |
 | Fact extraction | `python scripts/extract_facts.py --snapshot <id> --input <chunks.jsonl>` | ready |
 | Evaluation | `python scripts/run_eval.py --config A --snapshot <id>` | pending E |
 | Serve | `uvicorn acgn_rag.web.api:app --reload` | pending C |
+
+For both commands, `--limit` must be a positive integer. Limited index builds and limited
+fact-extraction writes require `--preview --preview-id <new-id>`.
+Each ID is single-use; outputs and the index cache live under `<data-root>/previews/<new-id>/`.
+Index previews write `preview-identity.json` and `preview-build.json` instead of formal build
+records. Preview builds do not accept `--embed-cache-dir`; fact-extraction `--dry-run` remains
+available without a preview. Snapshot names in fact extraction must be single safe path components.
+If a preview fails, its directory is retained and the next attempt needs a new ID.
+
+The preview boundary assumes no concurrent process replaces directories or links during a run.
+Unlimited raw input is still accepted but is not verified as a complete frozen snapshot.
 
 ## 2. Snapshot rebuild SOP
 
@@ -41,6 +52,11 @@ pytest -q                                     # 4 tests
    oversubscribes the CPU and is slower overall).
 4. Verify idempotency: rebuild once and compare `snapshot_id`.
 5. Post the `snapshot_id` + window in the group; every later run must use that id.
+
+> **Private snapshot distribution red-line (`#52` / `COMPLIANCE.md` C2 / `ROADMAP.md` §8 #6)**:
+> - **Never** commit `data/` (`data/raw/`, `data/snapshots/`, `data/index/`) to git, and **never** attach full-text snapshot archives (`items.jsonl`, `representatives.jsonl`) to public GitHub Releases, Issues, or PRs.
+> - Distribute frozen snapshot tarballs (`snapshots-YYYYMMDD*.tar.gz`) **only via the team's private channel** (e.g., course group / private Drive link shared out-of-band). Public GitHub comments may record only the archive filename, byte size, `sha256` digest, and verification command.
+> - After extracting `snapshots-YYYYMMDD*.tar.gz` into `data/snapshots/`, verify both the tarball `sha256` and each snapshot's `manifest.json` `sha256` against the committed metadata-only [`eval/snapshot_evidence.json`](../eval/snapshot_evidence.json) before running `build_index.py`, `extract_facts.py`, or `run_eval.py`.
 
 > When idempotency fails, the first suspects are always **manifest ordering / time zone / timestamp format**,
 > not the hash function.
@@ -53,6 +69,17 @@ pytest -q                                     # 4 tests
 > code 2 and writes nothing (no sidecar, no collection change). Recovery limit: `--fresh` replaces the
 > whole selected collection, not individual rows — rebuilding a subset into it means the subset is all it
 > will contain; the full input must be rebuilt again to restore the rest.
+
+> Index writes are split at the Chroma client's maximum batch size. Before a collection is changed,
+> the builder creates `build.incomplete` beside its records. The evaluation runner and `bind_existing`
+> reject that snapshot/config until all batches and both records have been written and the marker is
+> removed. After interruption, confirm no writer is active and rebuild the full input with
+> `--fresh --recover-incomplete`, selecting the intended `--config` (for example, `--config A`);
+> without `--config`, all three configurations are replaced, even if only one has a marker. Recovery
+> does not restore previous contents. Legacy collections whose ownership cannot be verified still fail
+> closed and need separate reconciliation. Preview IDs are single-use; retry a preview with a new ID.
+> This marker does not protect existing readers, implement the W2 catalog or leases, provide an atomic
+> generation switch, or verify that arbitrary input covers the full snapshot. Serialize writers.
 
 ## 3. Common failures
 
@@ -81,6 +108,11 @@ pytest -q                                     # 4 tests
    any-of lists `RetrievalFilters.media_ids` implies. Long any-of lists may still justify a
    SQLite reverse table `doc_id ↔ media_id` translated into `{"doc_id": {"$in": [...]}}`;
    that stays a recorded future option, not the current path.
+   An unresolved item has no `media_ids` key in stored metadata, rather than an empty array;
+   reads reconstruct an empty tuple. Chroma upserts merge metadata, so the store sends a
+   `None` removal marker for empty `media_ids` and absent `ingest_category` to clear any old
+   values on that row. The marker is not retained as a stored value. The current build CLI
+   passes an optional input `ingest_category` through to the stored payload.
 2. **Store time as an integer epoch** (`published_ts`), not an ISO string. Range filters then compare
    numbers, which avoids format and time-zone ambiguity.
 3. **Filtering is pre-KNN in 1.x** — the old "the filter trims the top-k after the search"
@@ -93,7 +125,8 @@ pytest -q                                     # 4 tests
 `create_collection(configuration={"hnsw": {"space": "cosine"}})`. The default space is still
 `l2`, and the default would make `score` a distance while the contract promises a similarity
 (`KnowledgePort.md` §3.6). With `cosine`, Chroma returns `1 - cosine_similarity` as the
-distance, so the score is `1 - distance`.
+distance, so the score is `1 - distance`. Calibrating an abstention threshold from these scores is
+per identity (§3.7).
 
 ### 3.2 Snapshot pointer and retention
 
@@ -256,6 +289,15 @@ this section is only the decision.
 
 ### 3.6 L0 facts-extraction SOP
 
+`python scripts/export_fact_chunks.py --snapshot <id> --config A --data-root <root> --output <relative-path>.jsonl`
+exports every indexed chunk of the explicitly selected configuration under `<root>/chunks/`. Pass that
+file to `extract_facts.py --input`; this is not an announcement selector and does not choose a default
+configuration. Keep exported source text out of Git. The adjacent `.receipt.json` records the selected
+build and JSONL SHA-256: verify the hash yourself before using the output, because the extraction CLI
+does not read the receipt. The receipt and JSONL are replaced separately; an interruption can leave
+them inconsistent. Serialize builds and exports: count/record checks are not a lock. Existing build
+records do not establish that an unmarked raw input is the complete frozen snapshot.
+
 - **Batch 10 announcements per LLM call** with numbered output; measured pattern from the pilot cuts
   cost 3–5× vs one-per-call, and JSON per numbered slot is easier to validate. ~9.5k L0 items ⇒ ~950
   calls, not 9,500.
@@ -284,6 +326,19 @@ this section is only the decision.
   empty extraction: it adds to `empty_extractions` and produces no rows — not a parse failure),
   `degraded_batches` (any failed items)/`degraded` (failed items), `ir_skipped`. The buckets always reconcile:
   `extracted_chunks + degraded + ir_skipped == chunks`.
+
+### 3.7 Abstention threshold: one per identity, recorded with it
+
+The answerer refuses a request when its best retrieval score is strictly below the configured
+threshold, so a threshold is only meaningful for the score distribution it was calibrated on.
+Calibrate it once per identity from labelled per-item top scores (`core/ground/calibration.py`),
+record it with the identity that produced those scores (snapshot, chunk configuration, retrieval
+mode, encoder identity, `top_k`, over-fetch — the `docs/EVAL_PROTOCOL.md` §7 run-record fields),
+and never port it to another identity or retrieval mode: re-calibrate when any of those changes.
+Per-query filters may differ. Scores are comparable across queries only inside that one identity,
+and that comparability exists solely for this calibration; `score` is never averaged as a quality
+metric. Cross-configuration comparisons use `retrieval_hit_rate` / `answer_correctness`, not
+thresholds carried across identities.
 
 ## 4. Emergency degradation
 
