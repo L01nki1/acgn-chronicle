@@ -146,10 +146,12 @@ def test_score_marks_an_insufficient_sheet_for_the_gate(
 def test_score_passes_a_sufficient_gate_sheet(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Gate evidence needs all four sweep values, each with distinct judged pairs."""
     rows = ["threshold,pair_id,decision"]
-    rows.extend(f"0.86,0.86-{index:02d},duplicate" for index in range(1, 21))
-    rows.extend(f"0.86,0.86-{index:02d},not_duplicate" for index in range(21, 26))
-    rows.extend(f"0.86,0.86-{index:02d},skip" for index in range(26, 31))
+    for threshold in calibrate_dedup.REQUIRED_THRESHOLDS:
+        rows.extend(f"{threshold},{threshold}-{index:02d},duplicate" for index in range(1, 21))
+        rows.extend(f"{threshold},{threshold}-{index:02d},not_duplicate" for index in range(21, 26))
+        rows.extend(f"{threshold},{threshold}-{index:02d},skip" for index in range(26, 31))
     sheet = tmp_path / "sheet.csv"
     sheet.write_text("\n".join(rows) + "\n", encoding="utf-8")
 
@@ -157,11 +159,60 @@ def test_score_passes_a_sufficient_gate_sheet(
     report = json.loads(capsys.readouterr().out)
     assert report["mode"] == "gate"
     assert report["gate"] == "PASS"
-    threshold = report["thresholds"]["0.86"]
-    assert threshold["judged"] == 25
-    assert threshold["skipped"] == 5
-    assert threshold["insufficient"] is False
-    assert threshold["precision"] == 0.8
+    assert report["missing_thresholds"] == []
+    for threshold in calibrate_dedup.REQUIRED_THRESHOLDS:
+        entry = report["thresholds"][threshold]
+        assert entry["judged"] == 25
+        assert entry["skipped"] == 5
+        assert entry["insufficient"] is False
+        assert entry["precision"] == 0.8
+
+
+def test_score_rejects_a_single_threshold_gate_sheet(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """F's #75 re-review, P2: 20 judgements for 0.86 alone is not a four-value sweep."""
+    rows = ["threshold,pair_id,decision"]
+    rows.extend(f"0.86,0.86-{index:02d},duplicate" for index in range(1, 21))
+    sheet = tmp_path / "sheet.csv"
+    sheet.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    assert calibrate_dedup._score(sheet) == 2
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    assert report["gate"] == "INSUFFICIENT"
+    assert report["missing_thresholds"] == ["0.82", "0.84", "0.88"]
+    assert report["thresholds"]["0.86"]["judged"] == 20
+    assert "insufficient hand labels" in captured.err
+
+
+def test_score_counts_distinct_pairs_not_rows(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One pair_id repeated 20 times must not read as 20 hand-checked pairs."""
+    rows = ["threshold,pair_id,decision"]
+    for threshold in calibrate_dedup.REQUIRED_THRESHOLDS:
+        rows.extend(f"{threshold},{threshold}-01,duplicate" for _ in range(20))
+    sheet = tmp_path / "sheet.csv"
+    sheet.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    assert calibrate_dedup._score(sheet) == 2
+    report = json.loads(capsys.readouterr().out)
+    assert report["gate"] == "INSUFFICIENT"
+    for threshold in calibrate_dedup.REQUIRED_THRESHOLDS:
+        assert report["thresholds"][threshold]["judged"] == 1
+
+
+def test_score_rejects_conflicting_decisions_for_one_pair(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sheet = tmp_path / "sheet.csv"
+    sheet.write_text(
+        "threshold,pair_id,decision\n0.86,0.86-01,duplicate\n0.86,0.86-01,not_duplicate\n",
+        encoding="utf-8",
+    )
+    assert calibrate_dedup._score(sheet) == 2
+    assert "conflicting decisions" in capsys.readouterr().err
 
 
 def test_score_required_judged_is_configurable(
@@ -172,8 +223,10 @@ def test_score_required_judged_is_configurable(
         "threshold,pair_id,decision\n0.86,0.86-01,duplicate\n0.86,0.86-02,not_duplicate\n",
         encoding="utf-8",
     )
-    # Two judged pairs are thin for the gate but fine when the requirement is lowered.
+    # Below the RUNBOOK minimum the report must be explicitly non-gate, not a gate PASS.
     assert calibrate_dedup._score(sheet, required=2) == 0
     report = json.loads(capsys.readouterr().out)
-    assert report["gate"] == "PASS"
+    assert report["mode"].startswith("exploratory")
+    assert report["gate"] == "NOT_GATE"
+    assert report["mode_reason"].startswith("--required-judged")
     assert report["thresholds"]["0.86"]["insufficient"] is False

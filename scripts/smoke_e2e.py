@@ -58,6 +58,22 @@ import extract_facts
 DIM = 32
 #: Config this smoke builds. A is the default lane and the one the QA set is written against.
 CONFIG = "A"
+#: Every output tree the smoke writes into. If any of them already holds data, the root belongs
+#: to an earlier run or a real build: build_index --fresh and extract_facts would replace it.
+SMOKE_OUTPUT_DIRS = ("index", "facts", "chunks", "previews", "cache")
+
+
+def _populated_output(work_root: Path) -> str | None:
+    """Return the first pre-existing output path, or None for a fresh workspace."""
+    for name in SMOKE_OUTPUT_DIRS:
+        path = work_root / name
+        if path.is_file():
+            return str(path)
+        if path.is_dir() and any(path.iterdir()):
+            return str(path)
+    return None
+
+
 LABEL = "A"
 
 
@@ -505,9 +521,21 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
+    explicit_workspace = args.workspace is not None
     work_root = (
-        Path(args.workspace) if args.workspace else Path(tempfile.mkdtemp(prefix="acgn-smoke-"))
+        Path(args.workspace) if explicit_workspace else Path(tempfile.mkdtemp(prefix="acgn-smoke-"))
     )
+    # An explicitly named root may be an existing build, not an empty scratch directory.
+    # Refuse it rather than letting --fresh replace a collection or a fact file (G1b evidence).
+    if explicit_workspace:
+        populated = _populated_output(work_root)
+        if populated:
+            print(
+                f"--workspace {work_root} already holds smoke/build data ({populated}); use a "
+                "fresh directory, or omit --workspace for the default isolated temp root",
+                file=sys.stderr,
+            )
+            return 2
     work_root.mkdir(parents=True, exist_ok=True)
     # build_index validates the window from <work-root>/snapshots/<id>; copy the small
     # metadata files so the isolated workspace passes the same checks without writing

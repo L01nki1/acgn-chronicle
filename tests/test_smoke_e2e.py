@@ -209,3 +209,35 @@ def test_smoke_never_touches_an_existing_collection_or_fact_file(
     report = json.loads((tmp_path / "unlimited.json").read_text(encoding="utf-8"))
     workspace = Path(report["workspace"])
     assert (workspace / "index" / "chroma").is_dir()
+
+
+def test_smoke_rejects_a_prepopulated_explicit_workspace(
+    data_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """F's #75 re-review, P1: --workspace must not point at an existing build root."""
+    snapshot = _publish(data_root, count=6)
+    workspace = tmp_path / "workspace"
+    build_record = workspace / "index" / snapshot / smoke_e2e.LABEL / "build.json"
+    build_record.parent.mkdir(parents=True)
+    build_record.write_bytes(b'{"seed": true}\n')
+    facts_file = workspace / "facts" / snapshot / "facts.jsonl"
+    facts_file.parent.mkdir(parents=True)
+    facts_file.write_bytes(b'{"seed": true}\n')
+
+    code = smoke_e2e.main(
+        [
+            "--snapshot",
+            snapshot,
+            "--data-root",
+            str(data_root),
+            "--workspace",
+            str(workspace),
+            "--limit",
+            "2",
+        ]
+    )
+
+    assert code == 2
+    assert "already holds smoke/build data" in capsys.readouterr().err
+    assert build_record.read_bytes() == b'{"seed": true}\n'
+    assert facts_file.read_bytes() == b'{"seed": true}\n'

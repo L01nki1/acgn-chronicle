@@ -46,6 +46,9 @@ PAIRS_PER_THRESHOLD = 20
 SHEET_ROWS = 30
 #: Rows of the sheet taken from the top of the cosine range; the rest are spread evenly.
 HEAD_ROWS = 10
+#: RUNBOOK §3.3 sweeps all four values. Gate evidence must cover every one of them: a sheet
+#: that labels only 0.86 is not a sweep, even if that one value has 20 judgements.
+REQUIRED_THRESHOLDS = tuple(f"{value:.2f}" for value in SWEEP_THRESHOLDS)
 
 LABEL_COLUMNS = (
     "threshold",
@@ -173,14 +176,13 @@ def _write_sheet(rows: list[dict[str, Any]], path: Path) -> None:
         writer.writerows(rows)
 
 
-def _score(path: Path, *, required: int = 20, exploratory: bool = False) -> int:
-    """Score a completed sheet: precision per threshold, and the value that maximizes it.
+def _score(path: Path, *, required: int = PAIRS_PER_THRESHOLD, exploratory: bool = False) -> int:
+    """Score a completed sheet: precision per threshold, and whether it is gate evidence.
 
-    Gate evidence requires ``required`` non-skip judgements per threshold (RUNBOOK §3.3:
-    20 hand-checked pairs per value). A sheet below that is marked ``insufficient`` and, in
-    gate mode, exits 2 instead of inventing precision from a sparse sheet; ``skip`` never
-    counts towards the requirement. ``--exploratory`` scores any sheet but tags the report
-    as non-gate evidence and never fails it.
+    Gate evidence requires **all four** RUNBOOK §3.3 sweep values and ``required`` distinct
+    non-skip judgements for each (20 by default). Repeated ``pair_id`` rows count once and
+    conflicting decisions for one pair are an error, not extra evidence. ``--exploratory`` or
+    a requirement below 20 is explicitly non-gate exploration and never fails the gate.
     """
     with path.open(encoding="utf-8-sig", newline="") as handle:
         rows = list(csv.DictReader(handle))
@@ -196,55 +198,77 @@ def _score(path: Path, *, required: int = 20, exploratory: bool = False) -> int:
         )
         return 2
 
-    by_threshold: dict[str, dict[str, int]] = {}
+    by_threshold: dict[str, dict[str, Any]] = {}
     for row in rows:
         decision = row["decision"].strip().lower()
         if decision not in {"duplicate", "not_duplicate", "skip"}:
             print(f"{row['pair_id']}: unknown decision {row['decision']!r}", file=sys.stderr)
             return 2
-        bucket = by_threshold.setdefault(
-            row["threshold"], {"duplicate": 0, "not_duplicate": 0, "skipped": 0}
-        )
+        bucket = by_threshold.setdefault(row["threshold"], {"pairs": {}, "skipped": 0})
         if decision == "skip":
             bucket["skipped"] += 1
-        else:
-            bucket[decision] += 1
+            continue
+        pair_id = row["pair_id"]
+        previous = bucket["pairs"].get(pair_id)
+        if previous is not None and previous != decision:
+            print(
+                f"{pair_id}: conflicting decisions {previous!r} and {decision!r} for one pair",
+                file=sys.stderr,
+            )
+            return 2
+        bucket["pairs"][pair_id] = decision
 
+    gate_mode = not exploratory and required >= PAIRS_PER_THRESHOLD
+    if exploratory:
+        reason: str | None = "--exploratory"
+    elif required < PAIRS_PER_THRESHOLD:
+        reason = f"--required-judged {required} is below the gate minimum {PAIRS_PER_THRESHOLD}"
+    else:
+        reason = None
     report: dict[str, Any] = {
         "sheet": str(path),
-        "mode": "exploratory — not gate evidence" if exploratory else "gate",
+        "mode": "gate" if gate_mode else "exploratory — not gate evidence",
+        "mode_reason": reason,
         "required_judged_per_threshold": required,
+        "required_thresholds": list(REQUIRED_THRESHOLDS),
         "thresholds": {},
     }
+    missing = [value for value in REQUIRED_THRESHOLDS if value not in by_threshold]
     insufficient: list[str] = []
-    for threshold in sorted(by_threshold):
-        counts = by_threshold[threshold]
-        judged = counts["duplicate"] + counts["not_duplicate"]
-        precision = counts["duplicate"] / judged if judged else None
+    for threshold in sorted(set(REQUIRED_THRESHOLDS) | set(by_threshold)):
+        bucket = by_threshold.get(threshold, {"pairs": {}, "skipped": 0})
+        pairs: dict[str, str] = bucket["pairs"]
+        duplicate = sum(1 for value in pairs.values() if value == "duplicate")
+        not_duplicate = sum(1 for value in pairs.values() if value == "not_duplicate")
+        judged = duplicate + not_duplicate
+        precision = duplicate / judged if judged else None
         enough = judged >= required
         if not enough:
             insufficient.append(threshold)
         report["thresholds"][threshold] = {
             "judged": judged,
-            "skipped": counts["skipped"],
-            "duplicate": counts["duplicate"],
-            "not_duplicate": counts["not_duplicate"],
+            "skipped": bucket["skipped"],
+            "duplicate": duplicate,
+            "not_duplicate": not_duplicate,
             "precision": None if precision is None else round(precision, 4),
             "insufficient": not enough,
         }
-    report["gate"] = "INSUFFICIENT" if insufficient else "PASS"
-    if insufficient and not exploratory:
+    report["missing_thresholds"] = missing
+    report["gate"] = (
+        "NOT_GATE" if not gate_mode else ("INSUFFICIENT" if insufficient or missing else "PASS")
+    )
+    if gate_mode and (insufficient or missing):
         detail = ", ".join(
             f"{t}: judged {report['thresholds'][t]['judged']}/{required}" for t in insufficient
         )
         print(
-            f"{path}: insufficient hand labels for gate reporting ({detail}); label at least "
-            f"{required} non-skip pairs per threshold (RUNBOOK §3.3), or pass --exploratory "
-            "to score outside the gate",
+            f"{path}: insufficient hand labels for gate reporting ({detail}); "
+            f"all of {', '.join(REQUIRED_THRESHOLDS)} need {required} distinct non-skip pairs "
+            "(RUNBOOK §3.3), or pass --exploratory to score outside the gate",
             file=sys.stderr,
         )
     print(json.dumps(report, indent=2))
-    if insufficient and not exploratory:
+    if gate_mode and (insufficient or missing):
         return 2
     return 0
 
