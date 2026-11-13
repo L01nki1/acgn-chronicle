@@ -208,7 +208,7 @@ number alone invites the obvious objection. The calibration set's own rates may 
   "chunk_config": "A",
   "chunker": {"version": "composed-input-v2", "header_version": "h1", "config": "A", "max_tokens": 512, "overlap": 64, "max_seq_length": 512},
   "retrieval": {"mode": "vector", "top_k": 5, "over_fetch": 5},
-  "embed": {"model": "intfloat/multilingual-e5-base", "backend": "torch", "device": "cuda", "precision": "fp16", "library_versions": {"torch": "2.15.0", "sentence_transformers": "6.1.0"}, "batch": 32},
+  "embed": {"model": "intfloat/multilingual-e5-base", "backend": "torch", "device": "cpu", "precision": "fp32", "library_versions": {"torch": "2.15.0", "sentence_transformers": "6.1.0"}, "batch": 32},
   "llm": {"provider": "...", "model": "...", "version": "...", "temperature": 0.0, "seed": 0},
   "git_sha": "...",
   "metrics": {"retrieval_hit_rate": {"all": 0.0, "en": 0.0, "zh": 0.0}, "evidence_recall": {"all": 0.0, "en": 0.0, "zh": 0.0}, "answer_correctness": {}, "abstention_accuracy": {}}
@@ -233,8 +233,9 @@ number alone invites the obvious objection. The calibration set's own rates may 
 
 - `temperature=0` **is not determinism**: MoE routing and batching still introduce jitter. Record provider, model,
   version, date and seed, and state in the report that reruns differ slightly, with the measured spread.
-- **Tier 1 assumes one encoder identity, not "GPU" as a device class.** Since DECISIONS 2026-11-05 every
-  build schedules on a GPU lane (#49), and a tier-1 rerun must reuse the *same* identity. fp16 CUDA
+- **Tier 1 assumes one encoder identity, not "GPU" as a device class.** G1b index builds are scheduled
+  on the Colab (T4) GPU lane (#49); the broader CPU-output reportability boundary is still pending
+  agreement (F, #48 review 2026-11-09). A tier-1 rerun must reuse the *same* identity. fp16 CUDA
   kernels are not bitwise deterministic across GPU models, precision settings or kernel-selection
   changes, so a rebuild on another card is a different experiment, not a rerun spread, and it must not
   be reported in the spread column. **Caveat (F/B, #48 review 2026-11-09): the identity slug today

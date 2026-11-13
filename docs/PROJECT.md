@@ -33,7 +33,7 @@ The grading weight sits on the backend pipeline and the faithfulness mechanisms,
 
 | # | Requirement (brief) | Our implementation | Where | Status |
 |---|---|---|---|---|
-| 1 | Collect documents; load / chunk / embed; **compare ≥2 chunking strategies** | 50+ endpoints surveyed, 12 sources in W1 → ≥8,000 items over **≥3 years** (widened until reached); configs A(512/64), A'(256/0), A₀(512/0), B(event aggregation); embedding on the canonical GPU lane per the model policy (RUNBOOK §3.5; CPU is emergency-only, DECISIONS 2026-11-05) | `core/ingest`, `core/chunk`, `core/embed` | W1–W2 |
+| 1 | Collect documents; load / chunk / embed; **compare ≥2 chunking strategies** | 50+ endpoints surveyed, 12 sources in W1 → ≥8,000 items over **≥3 years** (widened until reached); configs A(512/64), A'(256/0), A₀(512/0), B(event aggregation); embedding on the Colab (T4) GPU lane for G1b builds per the model policy (RUNBOOK §3.5; #49; the wider CPU-output reportability boundary is pending review, F #48 review 2026-11-09) | `core/ingest`, `core/chunk`, `core/embed` | W1–W2 |
 | 2 | Store chunks + embeddings in **a vector database** | Chroma (embedded persistent), two-zone storage | `core/store` | W1–W2 |
 | 3 | Query → embedding → **semantic retrieval** | Vector top-k + filters (`source_types` / `since`–`until` / `media_ids`); stretch BM25 + RRF | `core/retrieve` | W3 |
 | 4 | **Grounded generation**, cite source per claim, **refuse when unknown** | Citation with `chunk_id` + URL, `abstained` + reason, compliance clipping | `core/ground` | W2–W3 |
