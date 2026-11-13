@@ -1,6 +1,7 @@
 """Check whether the headline-only QA representatives actually state their gold answer.
 
-Owner: F (WP2) | Spec: docs/EVAL_PROTOCOL.md, issue #6 comment 6743557815, issue #44
+Owner: D (WP5 tooling) | Spec: docs/EVAL_PROTOCOL.md, issue #6 comment 6743557815, issue #44
+       (derived from F's URL-membership precheck; the PR and the tool are D-authored)
 
 F's URL-membership precheck found 13 answerable QA items whose only URL-matched representative
 has `body == title` (a headline-only record, `body_level="headline"`). A headline is still text:
@@ -30,6 +31,9 @@ from acgn_rag.core.ingest.snapshot import iter_snapshot_items
 
 #: F's precheck (issue #6 comment 6743557815): QA id -> the representative doc_id whose body
 #: equals its title. Kept here as data so the check is reproducible without re-deriving it.
+#: This map is QA-set-bound: if an item is renumbered (e.g. A-006/B-005 -> D-911/D-912 under
+#: option 2), update it here. `check()` rejects ids absent from the QA set instead of treating
+#: them as empty rows.
 HEADLINE_ONLY: dict[str, str] = {
     "A-001": "doc_8b75231893838a22db1d43744ec73d2b59ee7e7829d6f9e1ad60bdec62423360",
     "A-003": "doc_18f945682cc01f0ac1bb409961a4df75da4c4cb6569f7e8a126b5ac911e77f13",
@@ -50,9 +54,10 @@ SECOND_REPRESENTATIVE = {
 
 #: The *answer* stated in another form. "October 3 Debut" answers "October 2025" only when the
 #: question asks for a premiere window; it does not answer "which platform", so B-005's
-#: "Netflix" is deliberately absent here. Each entry is the reading a human would accept.
+#: "Netflix" is deliberately absent here. Bare "October" is deliberately absent too: it would
+#: accept a headline about a different year. Each entry is the reading a human would accept.
 ANSWER_FORMS: dict[str, tuple[str, ...]] = {
-    "October 2025": ("October Debut", "October 3 Debut", "October"),
+    "October 2025": ("October Debut", "October 3 Debut"),
     "2025-11-14": ("2025年11月14日", "11月14日"),
     "70th": ("70周年", "70th"),
     "97th": ("第97回", "97th"),
@@ -70,14 +75,27 @@ def _contains(haystack: str, needle: str) -> bool:
 
 
 def load_qa(path: Path) -> dict[str, dict[str, Any]]:
-    rows = [
-        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
-    ]
+    # Iterate the file object rather than str.splitlines(): splitlines() also breaks on
+    # U+2028 / U+2029 / U+0085, which are legal inside a JSON string in a JP/ZH QA row and
+    # would split one record in two. Iteration splits on "\n" only.
+    rows = []
+    with path.open(encoding="utf-8") as fh:
+        for line in fh:
+            if line.strip():
+                rows.append(json.loads(line))
     return {str(row["qa_id"]): row for row in rows}
 
 
 def check(snapshot: str, data_root: Path, qa_path: Path) -> dict[str, Any]:
     qa = load_qa(qa_path)
+    missing = sorted(set(HEADLINE_ONLY) - set(qa))
+    if missing:
+        raise ValueError(
+            "HEADLINE_ONLY ids absent from the QA set: "
+            + ", ".join(missing)
+            + " — update the map when QA ids change (e.g. A-006/B-005 -> D-911/D-912 under "
+            "option 2); a silent empty row would make the check look clean"
+        )
     wanted = set(HEADLINE_ONLY.values()) | set(SECOND_REPRESENTATIVE.values())
     items = {
         item.doc_id: item
