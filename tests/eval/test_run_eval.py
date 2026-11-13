@@ -11,8 +11,10 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT / "tests" / "eval"))
 
 import run_eval  # noqa: E402
+import test_runner as runner_test  # noqa: E402
 
 from acgn_rag.config import LLMConfig  # noqa: E402
 from acgn_rag.core.eval.runner import NullAnswerer  # noqa: E402
@@ -165,6 +167,31 @@ def test_live_validation_accepts_mixed_completion_and_refusal(tmp_path: Path) ->
         _live_llm(),
     )
 
+    assert run_eval._validate_live_run(result) == []
+
+
+def test_simulated_live_run_archives_a_completion_and_passes_validation(
+    tmp_path: Path,
+) -> None:
+    """End-to-end runner archive: metadata-free completion is still a real completion."""
+    result = runner_test.run(
+        runner_test._spec(
+            tmp_path,
+            run_id="simulated-live",
+            llm=_live_llm(),
+            determinism={"gpu_model": "NVIDIA T4"},
+        ),
+        store=runner_test.FakeStore([runner_test._hit()]),
+        embedder=runner_test.FakeEmbedder(),
+        answerer=runner_test.MetadataFreeCompletionAnswerer(),
+        qa_items=[runner_test._qa_item()],
+        evidence_resolver=lambda urls: {url: ["c1"] for url in urls},
+    )
+
+    row = json.loads((result.out_dir / "answers.jsonl").read_text(encoding="utf-8").strip())
+    assert row["provider_completion"] is True
+    assert row["diagnostics"]["finish_reason"] is None
+    assert row["diagnostics"]["usage"] is None
     assert run_eval._validate_live_run(result) == []
 
 
