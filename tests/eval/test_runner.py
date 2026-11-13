@@ -319,6 +319,7 @@ class FakeAnswerDiagnostics:
     usage: dict[str, int] | None = None
     dropped_claims: int = 0
     abstain_code: str | None = None
+    provider_completion: bool = True
 
 
 @dataclass(frozen=True)
@@ -352,6 +353,15 @@ class DiagnosticsAnswerer:
         )
 
 
+class MetadataFreeCompletionAnswerer(DiagnosticsAnswerer):
+    def answer_with_diagnostics(self, query: Any, chunks: Any) -> FakeAnswerRun:
+        run = super().answer_with_diagnostics(query, chunks)
+        return FakeAnswerRun(
+            answer=run.answer,
+            diagnostics=FakeAnswerDiagnostics(max_tokens=1, provider_completion=True),
+        )
+
+
 def test_diagnostics_answerer_is_archived(tmp_path: Path) -> None:
     result = run(
         _spec(tmp_path),
@@ -370,7 +380,23 @@ def test_diagnostics_answerer_is_archived(tmp_path: Path) -> None:
         "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
         "dropped_claims": 2,
         "abstain_code": None,
+        "provider_completion": True,
     }
+
+
+def test_completion_without_optional_metadata_is_archived(tmp_path: Path) -> None:
+    result = run(
+        _spec(tmp_path),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        answerer=MetadataFreeCompletionAnswerer(),
+        qa_items=[_qa_item()],
+    )
+
+    answer = json.loads((result.out_dir / "answers.jsonl").read_text(encoding="utf-8").strip())
+    assert answer["provider_completion"] is True
+    assert answer["diagnostics"]["finish_reason"] is None
+    assert answer["diagnostics"]["usage"] is None
 
 
 def test_run_uses_item_window_as_filters(tmp_path: Path) -> None:
