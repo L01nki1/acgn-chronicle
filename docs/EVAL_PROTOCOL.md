@@ -192,7 +192,7 @@ number alone invites the obvious objection. The calibration set's own rates may 
 
 | File | Content |
 |---|---|
-| `meta.json` | snapshot, window, config, retrieval settings, **embed identity (model / backend / device / precision / library versions / batch)**, **chunker identity (`max_tokens` / `overlap` / `budget` / `max_seq_length` / `header_version`)**, llm provider/model/version/temperature/seed, **abstention threshold, its calibration-run provenance and full `calibration_identity`** (§6, `docs/RUNBOOK.md` §3.7), git sha, metrics |
+| `meta.json` | snapshot, window, config, retrieval settings, **embed identity (model / backend / device / precision / library versions / batch)**, **chunker identity (`version` / `header_version` / `config` / `max_tokens` / `overlap` / `max_seq_length`)**, **`build_identity.identity_slug`**, llm provider/model/version/temperature/seed, **abstention threshold, its calibration-run provenance and full `calibration_identity`** (§6, `docs/RUNBOOK.md` §3.7), git sha, metrics |
 | `answers.jsonl` | the exact generated outputs that were graded — frozen, so grading can be replayed without the model |
 | `labels.jsonl` | the human labels, per item, with annotator |
 | `metrics.json` | the numbers the report quotes — retrieval totals carry **per-language blocks (`all` / `en` / `zh`) beside them** (§3.1) |
@@ -206,9 +206,10 @@ number alone invites the obvious objection. The calibration set's own rates may 
   "window_start": "2023-10-28",
   "window_end": "2026-10-28",
   "chunk_config": "A",
-  "chunker": {"max_tokens": 512, "overlap": 64, "budget": 508, "max_seq_length": 512, "header_version": "h1"},
+  "chunker": {"version": "composed-input-v2", "header_version": "h1", "config": "A", "max_tokens": 512, "overlap": 64, "max_seq_length": 512},
   "retrieval": {"mode": "vector", "top_k": 5, "over_fetch": 5},
   "embed": {"model": "intfloat/multilingual-e5-base", "backend": "torch", "device": "cpu", "precision": "fp32", "library_versions": {"torch": "2.15.0", "sentence_transformers": "6.1.0"}, "batch": 32},
+  "build_identity": {"model": "intfloat/multilingual-e5-base", "backend": "torch", "device": "cpu", "precision": "fp32", "batch_size": 32, "lib_torch": "2.15.0", "lib_sentence_transformers": "6.1.0", "identity_slug": "<encoder_identity_slug of this build>"},
   "llm": {"provider": "...", "model": "...", "version": "...", "temperature": 0.0, "seed": 0},
   "abstention": {
     "threshold": "<float selected by choose_threshold()>",
@@ -216,10 +217,10 @@ number alone invites the obvious objection. The calibration set's own rates may 
     "calibration_identity": {
       "snapshot_id": "20261028abcdef",
       "chunk_config": "A",
-      "chunker": {"max_tokens": 512, "overlap": 64, "budget": 508, "max_seq_length": 512, "header_version": "h1"},
+      "chunker": {"version": "composed-input-v2", "header_version": "h1", "config": "A", "max_tokens": 512, "overlap": 64, "max_seq_length": 512},
       "retrieval": {"mode": "vector", "top_k": 5, "over_fetch": 5},
       "embed": {"model": "intfloat/multilingual-e5-base", "backend": "torch", "device": "cpu", "precision": "fp32", "library_versions": {"torch": "2.15.0", "sentence_transformers": "6.1.0"}, "batch": 32},
-      "encoder_identity_slug": "multilingual-e5-base-torch-cuda-fp32-d2fa8669"
+      "encoder_identity_slug": "<encoder_identity_slug of this build>"
     }
   },
   "git_sha": "...",
@@ -228,9 +229,10 @@ number alone invites the obvious objection. The calibration set's own rates may 
 ```
 
 - **A run without `snapshot_id` or `window` is invalid** (invariant 2, spec 02).
-- **A run with an abstention threshold whose `calibration_identity` does not equal its own identity is invalid and non-reportable** (`docs/RUNBOOK.md` §3.7, `ports.SCORE_SEMANTICS`, DECISIONS 2026-11-11). The identity is the complete set of `snapshot_id`, `chunk_config` + `chunker` fields, `retrieval.mode` + `top_k` + `over_fetch`, and the full `embed` field set (model / backend / device / precision / library versions / batch), bound by the build's `encoder_identity_slug` — a model name alone does not establish comparability. Scores are comparable across queries only inside that one identity, so a threshold calibrated elsewhere must never be ported; re-calibrate when any field changes.
+- **A run with an abstention threshold whose `calibration_identity` does not equal its own identity is invalid and non-reportable** (`docs/RUNBOOK.md` §3.7, `ports.SCORE_SEMANTICS`, DECISIONS 2026-11-11). The identity is the complete set of `snapshot_id`, `chunk_config` + the six `chunker` fields, `retrieval.mode` + `top_k` + `over_fetch`, the full `embed` field set (model / backend / device / precision / library versions / batch), and `build_identity.identity_slug`. Scores are comparable across queries only inside that one identity, so a threshold calibrated elsewhere must never be ported; re-calibrate when any field changes.
+- **`calibration_identity.encoder_identity_slug` must equal the run's `build_identity.identity_slug` exactly**, and that slug must describe the same encoder build as `embed`: a CPU/fp32 `embed` cannot be paired with a CUDA/fp32 slug. A model name alone does not establish comparability. The runner writes `build_identity` into `meta.json` (`src/acgn_rag/core/eval/runner.py`); `identity_slug` comes from `EncoderIdentity.slug()`, which hashes the model, backend, device, precision and library versions.
 - **`threshold` is the JSON number this run actually used as `ACGN_ANSWER_MIN_RETRIEVAL_SCORE`**, selected by `core/ground/calibration.py::choose_threshold()` from labelled per-item top retrieval scores over `eval/abstain_calibration.jsonl` (§6). `source` names the archived abstention calibration run holding `CalibrationResult.to_metadata()` and its identity; the labelled set is that run's input, not its provenance. **`eval/snapshot_evidence.json#threshold_sweep_20261105` is the dedup auxiliary-channel sweep** (`docs/RUNBOOK.md` §3.3): its 0.86 is a clustering threshold, never an abstention threshold. In-sample calibration rates stay in the calibration artifact and are never quoted as QA-set metrics.
-- **Angle-bracket values in the example are placeholders, not measured results.** A real `meta.json` stores a number in `threshold` and a concrete run id in `source`; no threshold is recordable until the calibration run at this identity has been archived.
+- **Angle-bracket values in the example are placeholders, not measured results.** A real `meta.json` stores a number in `threshold`, a concrete run id in `source` and a concrete slug in `identity_slug`; no threshold is recordable until the calibration run at this identity has been archived.
 - **Every number in the report carries a `run_id`.** A number produced in an interactive session, or in a
   notebook cell that was not archived as a run, is not reportable. If it is worth printing, it is worth
   archiving.

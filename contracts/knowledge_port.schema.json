@@ -92,7 +92,7 @@
           "type": "string"
         },
         "score": {
-          "description": "cosine similarity in [-1, 1], higher is better (1 - Chroma cosine distance). Ordinal within one response only: never compare across queries, chunk configurations or snapshots, and never average it as a quality metric",
+          "description": "cosine similarity in [-1, 1], higher is better (1 - Chroma cosine distance). Comparable across queries only when snapshot, chunk configuration, retrieval mode, encoder identity, top-k and over-fetch are identical (per-query filters may differ), and only for abstention-threshold calibration: never compare across identities, snapshots, chunk configurations or retrieval modes, and never average it as a quality metric",
           "title": "Score",
           "type": "number"
         }
@@ -876,6 +876,6 @@
       "type": "object"
     }
   },
-  "schema_version": "0.2.4",
+  "schema_version": "0.2.5",
   "source": "src/acgn_rag/core/ports.py"
 }

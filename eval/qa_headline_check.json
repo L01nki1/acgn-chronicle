@@ -1,0 +1,247 @@
+{
+  "snapshot_id": "20261105-d797b5f0ae8e",
+  "qa_path": "eval/qa_set.jsonl",
+  "checked": 11,
+  "answerable_from_title": 9,
+  "needs_adjudication": 2,
+  "rows": [
+    {
+      "qa_id": "A-001",
+      "doc_id": "doc_8b75231893838a22db1d43744ec73d2b59ee7e7829d6f9e1ad60bdec62423360",
+      "source_key": "toei-news",
+      "body_equals_title": true,
+      "title_chars": 78,
+      "title": "プレスリリース デジモン完全新作TVアニメーション製作決定！ 『DIGIMON BEATBREAK（デジモンビートブレイク）』2025年10月より放送開始！",
+      "key_entities": [
+        "2025年10月"
+      ],
+      "entities_in_title": [
+        "2025年10月"
+      ],
+      "entities_in_title_equivalent_form": [],
+      "entities_in_body": [
+        "2025年10月"
+      ],
+      "spans_in_body": [],
+      "second_representative": null,
+      "answerable_from_title": true
+    },
+    {
+      "qa_id": "A-003",
+      "doc_id": "doc_18f945682cc01f0ac1bb409961a4df75da4c4cb6569f7e8a126b5ac911e77f13",
+      "source_key": "ann-news",
+      "body_equals_title": true,
+      "title_chars": 70,
+      "title": "Let This Grieving Soul Retire! Season 2 Teaser Announces October Debut",
+      "key_entities": [
+        "October 2025"
+      ],
+      "entities_in_title": [],
+      "entities_in_title_equivalent_form": [
+        "October 2025"
+      ],
+      "entities_in_body": [],
+      "spans_in_body": [],
+      "second_representative": null,
+      "answerable_from_title": true
+    },
+    {
+      "qa_id": "A-006",
+      "doc_id": "doc_5264985cdd77c98f50a581ac6bc44a4b60fbd2db7ef9d042115bb4480f227406",
+      "source_key": "toei-news",
+      "body_equals_title": true,
+      "title_chars": 25,
+      "title": "作品情報 「魔法つかいプリキュア！」続編放送決定！",
+      "key_entities": [
+        "2025年1月11日"
+      ],
+      "entities_in_title": [],
+      "entities_in_title_equivalent_form": [],
+      "entities_in_body": [],
+      "spans_in_body": [],
+      "second_representative": null,
+      "answerable_from_title": false
+    },
+    {
+      "qa_id": "A-007",
+      "doc_id": "doc_e5f06d312334d9c0a4d9075cb9b62979bfa601ee890c8b71cad79f2079209420",
+      "source_key": "ann-news",
+      "body_equals_title": true,
+      "title_chars": 77,
+      "title": "Übel Blatt Anime's Trailer Reveals New Cast, Main Staff, Winter 2025 Premiere",
+      "key_entities": [
+        "Winter 2025"
+      ],
+      "entities_in_title": [
+        "Winter 2025"
+      ],
+      "entities_in_title_equivalent_form": [],
+      "entities_in_body": [
+        "Winter 2025"
+      ],
+      "spans_in_body": [],
+      "second_representative": null,
+      "answerable_from_title": true
+    },
+    {
+      "qa_id": "A-010",
+      "doc_id": "doc_3b9cb7c315ce52a6fd50090916bec4d0c85c111e9f8290785838bb054916f0c6",
+      "source_key": "toei-news",
+      "body_equals_title": true,
+      "title_chars": 81,
+      "title": "ニュース 世界初の「DRAGON BALL STORE」が 東京駅一番街1階に登場！ 2025年11月14日(金)オープン決定！ ストアロゴ、キービジュアル解禁！",
+      "key_entities": [
+        "2025-11-14"
+      ],
+      "entities_in_title": [],
+      "entities_in_title_equivalent_form": [
+        "2025-11-14"
+      ],
+      "entities_in_body": [],
+      "spans_in_body": [],
+      "second_representative": null,
+      "answerable_from_title": true
+    },
+    {
+      "qa_id": "B-002",
+      "doc_id": "doc_74a70264a2538504dbb2f243a797d73547e057fb1ad0a905333fec23ddcf3af7",
+      "source_key": "toei-news",
+      "body_equals_title": true,
+      "title_chars": 46,
+      "title": "プレスリリース 『プリキュア』シリーズ第21弾のタイトルが決定！ 『わんだふるぷりきゅあ！』",
+      "key_entities": [
+        "わんだふるぷりきゅあ"
+      ],
+      "entities_in_title": [
+        "わんだふるぷりきゅあ"
+      ],
+      "entities_in_title_equivalent_form": [],
+      "entities_in_body": [
+        "わんだふるぷりきゅあ"
+      ],
+      "spans_in_body": [],
+      "second_representative": null,
+      "answerable_from_title": true
+    },
+    {
+      "qa_id": "B-005",
+      "doc_id": "doc_cf12523fcf5bd7cd84d5a434cb0048db0ecf1d17d9d9ade195a0f7d65d6908ee",
+      "source_key": "ann-news",
+      "body_equals_title": true,
+      "title_chars": 73,
+      "title": "New Ranma 1/2 Anime's Season 3 Reveals More Cast Members, October 3 Debut",
+      "key_entities": [
+        "Netflix"
+      ],
+      "entities_in_title": [],
+      "entities_in_title_equivalent_form": [],
+      "entities_in_body": [],
+      "spans_in_body": [],
+      "second_representative": null,
+      "answerable_from_title": false
+    },
+    {
+      "qa_id": "B-006",
+      "doc_id": "doc_46cc35d3e1e95890ba80bc463ca1820dba602c69dbef198c1910e79165e25540",
+      "source_key": "toei-news",
+      "body_equals_title": true,
+      "title_chars": 31,
+      "title": "プレスリリース 東映アニメーションは創立70周年を迎えました。",
+      "key_entities": [
+        "70th",
+        "70周年"
+      ],
+      "entities_in_title": [
+        "70周年"
+      ],
+      "entities_in_title_equivalent_form": [
+        "70th"
+      ],
+      "entities_in_body": [
+        "70周年"
+      ],
+      "spans_in_body": [],
+      "second_representative": null,
+      "answerable_from_title": true
+    },
+    {
+      "qa_id": "B-007",
+      "doc_id": "doc_d505366fd280a663d4963abde95f4c1bebc0c237afb3458503ac72ce851ba930",
+      "source_key": "toei-news",
+      "body_equals_title": true,
+      "title_chars": 69,
+      "title": "プレスリリース 短編映画「あめだま」（英題：Magic Candies）が 第97回アカデミー賞® 短編アニメーション部門ノミネート決定！",
+      "key_entities": [
+        "97th",
+        "第97届"
+      ],
+      "entities_in_title": [],
+      "entities_in_title_equivalent_form": [
+        "97th",
+        "第97届"
+      ],
+      "entities_in_body": [],
+      "spans_in_body": [],
+      "second_representative": null,
+      "answerable_from_title": true
+    },
+    {
+      "qa_id": "B-008",
+      "doc_id": "doc_5ec15a1c34aa77d0a542d48baa04aeaa5b6b7b0839266a968176103015a1d61f",
+      "source_key": "toei-news",
+      "body_equals_title": true,
+      "title_chars": 84,
+      "title": "ニュース 『ONE PIECE』 公式グッズストア 「ONE PIECE MUGIWARA STORE HARAJUKU」 2024年8月23日 東京・原宿にオープン！",
+      "key_entities": [
+        "August 2024",
+        "2024年8月"
+      ],
+      "entities_in_title": [
+        "2024年8月"
+      ],
+      "entities_in_title_equivalent_form": [
+        "August 2024"
+      ],
+      "entities_in_body": [
+        "2024年8月"
+      ],
+      "spans_in_body": [],
+      "second_representative": null,
+      "answerable_from_title": true
+    },
+    {
+      "qa_id": "C-003",
+      "doc_id": "doc_3b9cb7c315ce52a6fd50090916bec4d0c85c111e9f8290785838bb054916f0c6",
+      "source_key": "toei-news",
+      "body_equals_title": true,
+      "title_chars": 81,
+      "title": "ニュース 世界初の「DRAGON BALL STORE」が 東京駅一番街1階に登場！ 2025年11月14日(金)オープン決定！ ストアロゴ、キービジュアル解禁！",
+      "key_entities": [
+        "DRAGON BALL",
+        "ONE PIECE",
+        "2025",
+        "2024"
+      ],
+      "entities_in_title": [
+        "DRAGON BALL",
+        "2025"
+      ],
+      "entities_in_title_equivalent_form": [],
+      "entities_in_body": [
+        "DRAGON BALL",
+        "2025"
+      ],
+      "spans_in_body": [],
+      "second_representative": {
+        "doc_id": "doc_5ec15a1c34aa77d0a542d48baa04aeaa5b6b7b0839266a968176103015a1d61f",
+        "title": "ニュース 『ONE PIECE』 公式グッズストア 「ONE PIECE MUGIWARA STORE HARAJUKU」 2024年8月23日 東京・原宿にオープン！",
+        "body_equals_title": true,
+        "entities_in_title": [
+          "ONE PIECE",
+          "2024"
+        ]
+      },
+      "answerable_from_title": true
+    }
+  ]
+}
