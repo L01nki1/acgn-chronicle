@@ -21,10 +21,12 @@ from __future__ import annotations
 
 import csv
 import sys
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-# Look-back depths, in days. "all" means "no lower bound": whatever the source can page back to.
+# Look-back depths, in days. "all" uses ARCHIVE_FLOOR (2005-01-01, predating Toei 2008-10 and
+# Capcom 2014-03) so every backfill() call still carries an explicit (since, until) bound (C1).
+ARCHIVE_FLOOR = date(2005, 1, 1)
 DEPTHS: dict[str, int | None] = {"90d": 90, "1y": 365, "2y": 730, "3y": 1095, "all": None}
 
 FIELDS = [
@@ -45,17 +47,38 @@ OUT_PATH = Path("eval/source_depth_probe.csv")
 TARGET_ITEMS = 8_000
 
 
-def _registry():
+def _registry(*, ann_max_days_per_call: int | None = None):
     """Load the adapter registry.
 
     A owns `acgn_rag.core.ingest.adapters.REGISTRY`; this script only consumes it. Keeping the lookup
     in one place means the probe never needs to know how a source is fetched.
     """
     try:
-        from acgn_rag.core.ingest.adapters import REGISTRY
+        from acgn_rag.core.ingest.adapters import build_default_registry
     except (ImportError, AttributeError):
         return {}
-    return REGISTRY
+    return build_default_registry(
+        ann_max_days_per_call=ann_max_days_per_call,
+        ann_cache_dir=Path("data/raw/ann_day_cache"),
+        wp_cache_dir=Path("data/raw/wp_cache"),
+    )
+
+
+def _subtract_depth(upper: date, depth: str, days: int | None) -> date:
+    """Compute the look-back start date for `depth` relative to `upper`.
+
+    Uses calendar-year subtraction for `1y`/`2y`/`3y` so `3y` on `2026-11-05` produces
+    `2023-11-05` (matching the frozen 3-year window bounds in `docs/DECISIONS.md`).
+    """
+    if days is None:
+        return ARCHIVE_FLOOR
+    if depth in ("1y", "2y", "3y"):
+        years = int(depth[:-1])
+        try:
+            return upper.replace(year=upper.year - years)
+        except ValueError:
+            return upper.replace(year=upper.year - years, day=28)
+    return upper - timedelta(days=days)
 
 
 def _count(items) -> tuple[int, int, int]:
@@ -67,14 +90,21 @@ def _count(items) -> tuple[int, int, int]:
     return counts["official"], counts["media"], counts["metadata"]
 
 
-def _probe_one(adapter, name: str, depth: str, days: int | None) -> dict[str, object]:
-    until = date.today()
-    since = until - timedelta(days=days) if days is not None else None
+def _probe_one(
+    adapter,
+    name: str,
+    depth: str,
+    days: int | None,
+    *,
+    until: date | None = None,
+) -> dict[str, object]:
+    upper = until if until is not None else datetime.now(tz=UTC).date()
+    since = _subtract_depth(upper, depth, days)
     row: dict[str, object] = {
         "source": name,
         "adapter": type(adapter).__name__,
         "depth": depth,
-        "since": since.isoformat() if since else "",
+        "since": since.isoformat(),
         "items": 0,
         "earliest": "",
         "latest": "",
@@ -83,12 +113,46 @@ def _probe_one(adapter, name: str, depth: str, days: int | None) -> dict[str, ob
         "metadata": 0,
         "note": "",
     }
+    extra_note = ""
     try:
         # backfill() is the historical entry point; a source that cannot page must raise, not return
         # everything (docs/SOURCES.md 7).
-        items = adapter.backfill(date_range=(since, until) if since else None)
+        if (
+            name in ("ann-news", "nijimen-news")
+            and depth == "all"
+            and getattr(adapter, "max_days_per_call", None) is None
+        ):
+            since_3y = _subtract_depth(upper, "3y", 1095)
+            items_3y = list(adapter.backfill(date_range=(since_3y, upper)) or [])
+            if len(items_3y) >= TARGET_ITEMS:
+                items = items_3y
+                req_days = (upper - since_3y).days + 1
+                if hasattr(adapter, "last_sampled_days"):
+                    adapter.last_sampled_days = req_days
+                    adapter.last_requested_days = req_days
+                extra_note = (
+                    f"3y already >= 8000 target ({req_days}/{req_days} days); "
+                    f"pre-2023 archive not needed"
+                )
+            else:
+                items = adapter.backfill(date_range=(since, upper))
+        else:
+            items = adapter.backfill(date_range=(since, upper))
     except Exception as exc:
-        row["note"] = f"{type(exc).__name__}: {exc}"[:160]
+        note = f"{type(exc).__name__}: {exc}"
+        if type(exc).__name__ == "BackfillNotSupportedError":
+            try:
+                tail = list(adapter.discover(since=since, use_conditional=False) or [])
+                tail_dates = sorted(
+                    str(getattr(i, "published_at", ""))[:10]
+                    for i in tail
+                    if getattr(i, "published_at", None)
+                )
+                span = f"{tail_dates[0]}..{tail_dates[-1]}" if tail_dates else "-"
+                note = f"BackfillNotSupportedError: rolling feed; discover() tail={len(tail)} items ({span})"
+            except Exception:
+                pass
+        row["note"] = note[:160]
         return row
 
     items = list(items or [])
@@ -100,16 +164,49 @@ def _probe_one(adapter, name: str, depth: str, days: int | None) -> dict[str, ob
         row["earliest"], row["latest"] = dates[0][:10], dates[-1][:10]
     official, media, meta = _count(items)
     row["official"], row["media"], row["metadata"] = official, media, meta
+
+    notes: list[str] = []
+    if extra_note:
+        notes.append(extra_note)
+    sampled = getattr(adapter, "last_sampled_days", 0)
+    requested = getattr(adapter, "last_requested_days", 0)
+    if isinstance(sampled, int) and isinstance(requested, int) and 0 < sampled < requested:
+        notes.append(f"sampled_days={sampled}/{requested} (partial sample)")
+    days_with_items = getattr(adapter, "last_days_with_items", 0)
+    empty_days = getattr(adapter, "last_empty_days", 0)
+    if name == "ann-news" and isinstance(days_with_items, int) and days_with_items > 0:
+        notes.append(f"days_with_items={days_with_items}, empty_days={empty_days}")
+    if type(adapter).__name__ == "StructuredApiAdapter":
+        max_p = getattr(adapter, "max_pages", 1)
+        per_p = getattr(adapter, "per_page", 50)
+        notes.append(f"catalog_top_n (ranked query cap max_pages={max_p}x{per_p})")
+    if type(adapter).__name__ == "WpPagedAdapter":
+        pages_fetched = getattr(adapter, "last_pages_fetched", 0)
+        reached = bool(getattr(adapter, "last_reached_window_start", False))
+        cov = "full_window_archive" if reached else "rolling_tail_only"
+        if pages_fetched:
+            notes.append(f"{cov} (pages_fetched={pages_fetched})")
+    raw_entries = getattr(adapter, "last_raw_entry_count", 0)
+    skipped_entries = getattr(adapter, "last_skipped_entries", 0)
+    dup_urls = getattr(adapter, "last_duplicate_url_entries", 0)
+    if isinstance(raw_entries, int) and raw_entries > len(items):
+        notes.append(
+            f"feed_total={raw_entries}, dup_urls_collapsed={dup_urls}, skipped={skipped_entries}"
+        )
+    if notes:
+        row["note"] = "; ".join(notes)[:160]
     return row
 
 
 def _suggest_window(rows: list[dict[str, object]]) -> str:
-    """Smallest depth whose total already meets the target, in depth order."""
+    """Smallest depth (>= 3y per DECISIONS D2 / SOURCES §6) whose total meets the target."""
+    if any("sampled_days=" in str(r.get("note", "")) for r in rows):
+        return "partial sample run (sampled_days < requested_days); run unsampled probe before freezing window"
     totals: dict[str, int] = {}
     for depth in DEPTHS:
         totals[depth] = sum(int(r["items"]) for r in rows if r["depth"] == depth)
-    for depth in DEPTHS:
-        if totals[depth] >= TARGET_ITEMS:
+    for depth in ("3y", "all"):
+        if depth in totals and totals[depth] >= TARGET_ITEMS:
             return f"{depth} is enough ({totals[depth]} items); freeze it in docs/DECISIONS.md"
     best = max(totals, key=lambda d: totals[d])
     return (
@@ -126,7 +223,13 @@ def main(argv: list[str]) -> int:
             print(f"unknown depth {only!r}; choose from {', '.join(DEPTHS)}", file=sys.stderr)
             return 2
 
-    registry = _registry()
+    ann_sample_days: int | None = None
+    for flag in ("--sample-days", "--ann-sample-days"):
+        if flag in argv:
+            ann_sample_days = int(argv[argv.index(flag) + 1])
+            break
+
+    registry = _registry(ann_max_days_per_call=ann_sample_days)
     if not registry:
         print(
             "No adapters registered yet.\n"
@@ -148,7 +251,7 @@ def main(argv: list[str]) -> int:
 
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     with OUT_PATH.open("w", encoding="utf-8", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=FIELDS)
+        writer = csv.DictWriter(fh, fieldnames=FIELDS, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 

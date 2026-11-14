@@ -1,0 +1,1386 @@
+{
+  "ann_offline_article_cache": {
+    "applied_in_20261028": 7816,
+    "applied_in_20261105": 7799,
+    "archive_bytes": 271731960,
+    "archive_filename": "ann-article-cache-20261102.zip",
+    "archive_sha256": "97aa8f9ee60dd9f68fb036ee5110a955a5a01cd0b3dfd73e90d52472dcb45cda",
+    "body_sha256_recomputed_on_ingest": true,
+    "cached_html_articles": 7873,
+    "captured_at": "2026-11-02",
+    "paragraph_extraction": "block_level_double_newline_br_soft_newline_inline_preserved"
+  },
+  "canonical_host_verification": {
+    "nijimen-news": {
+      "declared_canonical_host": "nijimen.kusuguru.co.jp",
+      "html_rel_canonical_verified": true,
+      "http_redirect_verified": true,
+      "legacy_link_host": "nijimen.net",
+      "robots_txt_verified_both_hosts": true,
+      "sample_verified_url": "https://nijimen.kusuguru.co.jp/topics/649796"
+    }
+  },
+  "catalog": {
+    "current": null,
+    "latest_corpus": "20261105-d797b5f0ae8e",
+    "partial_publications": [],
+    "publications": [
+      {
+        "published_at": "2026-11-07T11:17:47.194844Z",
+        "snapshot_id": "20261105-d797b5f0ae8e"
+      },
+      {
+        "published_at": "2026-11-07T11:16:58.716508Z",
+        "snapshot_id": "20261028-5d2a0f3bf7ab"
+      }
+    ],
+    "retained": [
+      "20261105-d797b5f0ae8e",
+      "20261028-5d2a0f3bf7ab"
+    ],
+    "retired": []
+  },
+  "compliance_note": "Committed metadata-only evidence artifact under COMPLIANCE C2 / Invariant #6 (contains no raw or normalized article bodies; data/ remains gitignored).",
+  "daily_discovery_verification": {
+    "base_snapshot_id": "20261105-d797b5f0ae8e",
+    "discovered_raw_count": 418,
+    "inserted_count": 54,
+    "metadata_drift_count": 107,
+    "metadata_drift_doc_ids": [
+      "doc_011a0e2d77d3f98f0bc601e6b930b65868a203f0f775975f260f7e526c0ee9f2",
+      "doc_05c813f766091db59fd465c4dde49e20a1212980537327620f771d773b63ad9e",
+      "doc_06353a2f90b60e97d5616d2578d85ca3734fae6fba233c8b527717a1f9dc17c4",
+      "doc_06b2fcbbde4f40063f5ad6c77c2ef0983cc48491b21e1b705f041a351f7d6d0e",
+      "doc_08c00a79ff666667a04ae51a9eeadf9007d0428c8391b4efaee2483487e206a5",
+      "doc_09f723f63a47b30932e03c3672c7b1c70fe04cc640e5a9675924bdb55d2651eb",
+      "doc_0b084cb51fb06aa56de23092023b9e91e7464fd2c58be00cac6589d029b5fefd",
+      "doc_0b60c5b68f28d2a3eacb97475f71bc3e7f958cd5941a823c29e892f8a8dcdf4e",
+      "doc_0bb9b78e66511a202f8273e1d88e54423dd2d6a3d73e4d920ed2f9bd3a00dc9f",
+      "doc_0cb95437f146d53da439a77a2983be127795707015956671a1e5719f07eea13f",
+      "doc_0f03518b65ba95d307c111f8d04a5e5b62550ff8f782178b1692fa37293c462f",
+      "doc_11cac2ed492582e4b80dff1be7a920c904218ef3560e410fa98257284b6758e4",
+      "doc_123b23815c51db72d937d7d956a731f24db23beb615c1afb97e4739eb16c7462",
+      "doc_14008282615db9e964ddc0fb9e15b0f5e273f5636f304ef8977efe1c0de13d9c",
+      "doc_143d32be08bb64ce88cc131f07a7ae5fe6d41d199a28c8b265e49d6df6e6930c",
+      "doc_163be559ce3f28fcd92d8af4ed2b44a1ee24b4f450794ee4baa502504a044ed2",
+      "doc_1719eba540c89d069855c4e05f89a58eff78f41e355f6dfa00e2cad13713f5cd",
+      "doc_18112ae7b5714a6687de2391285d6bcf9182c99c62016290d4b8d077aa1e24ac",
+      "doc_1815a3b0d9bb978711daaa9e88c84717cb179da6da4c238786ca39740b9c5c11",
+      "doc_199c0d50ced4fe70199de8f8763ed358c030e1767bfd19b91affa72b039c8883"
+    ],
+    "metadata_drift_doc_ids_truncated_to": 20,
+    "new_snapshot_id": "20261105-bf80feb612fb",
+    "out_of_window_count": 12,
+    "quarantined_count": 0,
+    "source_health": {
+      "anilist-graphql": {
+        "count": 10,
+        "status": "ok"
+      },
+      "ann-news": {
+        "count": 158,
+        "status": "ok"
+      },
+      "bangumi-api": {
+        "count": 7,
+        "status": "ok"
+      },
+      "bilibili-timeline": {
+        "count": 0,
+        "note": "RobotsDisallowedError: robots.txt disallowed 'https://api.bilibili.com/pgc/web/timeline?types=1&before=7&after=7' on host 'api.bilibili.com' for User-Agent 'AcgnRagBot/0.1 (CS5481 course project; +https://github.com/L01nki1/acgn-chronicle)'",
+        "status": "skipped_robots_disallow"
+      },
+      "bones-news": {
+        "count": 0,
+        "status": "no_new_items"
+      },
+      "capcom-news": {
+        "count": 0,
+        "status": "not_modified"
+      },
+      "chuapp-news": {
+        "count": 28,
+        "status": "ok"
+      },
+      "gcores-news": {
+        "count": 0,
+        "status": "not_modified"
+      },
+      "mappa-news": {
+        "count": 1,
+        "status": "ok"
+      },
+      "nijimen-news": {
+        "count": 100,
+        "status": "ok"
+      },
+      "paworks-news": {
+        "count": 0,
+        "status": "no_new_items"
+      },
+      "prtimes-acgn": {
+        "count": 4,
+        "status": "ok"
+      },
+      "realsound-acgn": {
+        "count": 13,
+        "status": "ok"
+      },
+      "syosetu-novelapi": {
+        "count": 83,
+        "status": "ok"
+      },
+      "toei-news": {
+        "count": 2,
+        "status": "ok"
+      },
+      "yystv-news": {
+        "count": 12,
+        "status": "ok"
+      }
+    },
+    "unchanged_count": 352,
+    "updated_count": 0,
+    "window_end": "2026-11-05",
+    "window_start": "2026-10-23"
+  },
+  "dedup_policy": {
+    "algorithm": "entity-event-72h+agglomerative-complete:char3-tf-cosine-v2",
+    "calibration_status": "provisional_pending_g1b_sweep",
+    "corporate_guard": "never_merge_primary_or_auxiliary",
+    "media_ids_rule": "exact_set_equality",
+    "similarity_threshold": 0.86,
+    "version": "2"
+  },
+  "generated_by": "scripts/backfill.py + scripts/discover_daily.py + scripts/probe_sources.py",
+  "idempotency_and_order_invariance_proof": {
+    "cross_window_rebuild_invariance": {
+      "byte_diff_count": 0,
+      "description": "Built unified entities.json across both windows first, then minted 2023-10-28..2026-10-28 and 2023-11-05..2026-11-05, then rebuilt 2023-10-28..2026-10-28 in forward and reversed raw input order; all 7 required snapshot files (manifest.json, snapshot.json, entities.json, sources.json, items.jsonl, representatives.jsonl, clusters.jsonl) are byte-identical across rebuilds, and entities.json is byte-identical across both snapshots.",
+      "entities_bytes": 164670,
+      "entities_sha256": "c76c135da5c8b696feac4c5e6252f3ea626e1622e571e52b80ff68b5751f6593",
+      "manifest_sha256": "5d2a0f3bf7ab348274d2ecd85a879a3f42f0429dc3b852d01b6942d5c42cc1c9",
+      "snapshot_id": "20261028-5d2a0f3bf7ab"
+    },
+    "forward_vs_reversed_input_order": {
+      "byte_diff_count": 0,
+      "snapshot_20261028_match": true,
+      "snapshot_20261105_match": true
+    }
+  },
+  "schema_version": "1.0",
+  "snapshots": {
+    "20261028-5d2a0f3bf7ab": {
+      "body_level_by_source": {
+        "anilist-graphql": {
+          "blurb": 150,
+          "full": 0,
+          "headline": 0
+        },
+        "ann-news": {
+          "blurb": 3,
+          "full": 7809,
+          "headline": 12447
+        },
+        "bangumi-api": {
+          "blurb": 108,
+          "full": 0,
+          "headline": 0
+        },
+        "bones-news": {
+          "blurb": 43,
+          "full": 16,
+          "headline": 3
+        },
+        "capcom-news": {
+          "blurb": 130,
+          "full": 0,
+          "headline": 83
+        },
+        "chuapp-news": {
+          "blurb": 3,
+          "full": 11,
+          "headline": 0
+        },
+        "mappa-news": {
+          "blurb": 18,
+          "full": 9,
+          "headline": 47
+        },
+        "nijimen-news": {
+          "blurb": 724,
+          "full": 12308,
+          "headline": 5
+        },
+        "paworks-news": {
+          "blurb": 0,
+          "full": 64,
+          "headline": 8
+        },
+        "realsound-acgn": {
+          "blurb": 3,
+          "full": 1548,
+          "headline": 0
+        },
+        "syosetu-novelapi": {
+          "blurb": 279,
+          "full": 0,
+          "headline": 0
+        },
+        "toei-news": {
+          "blurb": 0,
+          "full": 0,
+          "headline": 46
+        }
+      },
+      "body_level_counts": {
+        "blurb": 1461,
+        "full": 21765,
+        "headline": 12639
+      },
+      "category_counts": {
+        "anime": 22428,
+        "game": 4507,
+        "light_novel": 2149,
+        "manga": 6781
+      },
+      "category_counts_heuristic": {
+        "anime": 22428,
+        "game": 4507,
+        "light_novel": 2149,
+        "manga": 6781
+      },
+      "corporate_count": 17,
+      "coverage_complete": false,
+      "coverage_gaps": [
+        "anilist-graphql:catalog_top_n",
+        "bangumi-api:catalog_top_n",
+        "bilibili-timeline:skipped_robots_disallow",
+        "chuapp-news:rolling_tail_only",
+        "gcores-news:rolling_tail_only",
+        "prtimes-acgn:rolling_tail_only",
+        "syosetu-novelapi:catalog_top_n",
+        "yystv-news:rolling_tail_only"
+      ],
+      "crawl_summary": [
+        {
+          "body_level": "blurb",
+          "body_level_counts": {
+            "blurb": 150,
+            "full": 0,
+            "headline": 0
+          },
+          "count": 150,
+          "coverage_mode": "catalog_top_n",
+          "mode": "backfill",
+          "reached_window_start": false,
+          "source_key": "anilist-graphql",
+          "status": "ok"
+        },
+        {
+          "body_level": "mixed_full_and_headline",
+          "body_level_counts": {
+            "blurb": 3,
+            "full": 7813,
+            "headline": 12447
+          },
+          "cached_article_bodies_applied": 7816,
+          "count": 20263,
+          "coverage_mode": "full_window_archive",
+          "days_with_items": 1097,
+          "earliest_observed_date": "2023-10-28",
+          "mode": "backfill",
+          "reached_window_start": true,
+          "requested_days": 1097,
+          "sampled_days": 1097,
+          "source_key": "ann-news",
+          "status": "ok",
+          "total_pages_fetched": 1097
+        },
+        {
+          "body_level": "blurb",
+          "body_level_counts": {
+            "blurb": 108,
+            "full": 0,
+            "headline": 0
+          },
+          "count": 108,
+          "coverage_mode": "catalog_top_n",
+          "mode": "backfill",
+          "reached_window_start": false,
+          "skipped_entries": 7,
+          "source_key": "bangumi-api",
+          "status": "ok"
+        },
+        {
+          "body_level": "blurb",
+          "body_level_counts": {
+            "blurb": 0,
+            "full": 0,
+            "headline": 0
+          },
+          "count": 0,
+          "coverage_mode": "skipped_robots_disallow",
+          "mode": "discover_tail",
+          "note": "[bilibili-timeline] Bilibili timeline is a rolling ±7d endpoint and cannot backfill historical window 2023-10-28..2026-10-28",
+          "reached_window_start": false,
+          "reason": "RobotsDisallowedError: robots.txt disallowed 'https://api.bilibili.com/pgc/web/timeline?types=1&before=7&after=7' on host 'api.bilibili.com' for User-Agent 'AcgnRagBot/0.1 (CS5481 course project; +https://github.com/L01nki1/acgn-chronicle)'",
+          "source_key": "bilibili-timeline",
+          "status": "skipped_robots_disallow"
+        },
+        {
+          "body_level": "blurb",
+          "body_level_counts": {
+            "blurb": 43,
+            "full": 16,
+            "headline": 3
+          },
+          "count": 62,
+          "coverage_mode": "full_window_archive",
+          "earliest_observed_date": "2006-06-12",
+          "mode": "backfill",
+          "pages_fetched": 4,
+          "reached_window_start": true,
+          "source_key": "bones-news",
+          "status": "ok"
+        },
+        {
+          "body_level": "blurb",
+          "body_level_counts": {
+            "blurb": 130,
+            "full": 0,
+            "headline": 83
+          },
+          "count": 213,
+          "coverage_mode": "full_window_archive",
+          "duplicate_url_entries": 5880,
+          "earliest_observed_date": "2014-03-14",
+          "mode": "backfill",
+          "raw_entries": 7299,
+          "reached_window_start": true,
+          "skipped_entries": 2,
+          "source_key": "capcom-news",
+          "status": "ok"
+        },
+        {
+          "body_level": "full",
+          "body_level_counts": {
+            "blurb": 3,
+            "full": 11,
+            "headline": 0
+          },
+          "count": 14,
+          "coverage_mode": "rolling_tail_only",
+          "earliest_observed_date": "2026-10-22",
+          "legacy_v1_scrolled_off_count": 3,
+          "mode": "discover_tail",
+          "note": "[chuapp-news] Source 'https://www.chuapp.com/feed' is a rolling feed and cannot page history",
+          "raw_entries": 30,
+          "reached_window_start": false,
+          "source_key": "chuapp-news",
+          "status": "ok"
+        },
+        {
+          "body_level": "none",
+          "body_level_counts": {
+            "blurb": 0,
+            "full": 0,
+            "headline": 0
+          },
+          "count": 0,
+          "coverage_mode": "rolling_tail_only",
+          "earliest_observed_date": "2026-11-04",
+          "mode": "discover_tail",
+          "note": "[gcores-news] Source 'https://www.gcores.com/rss' is a rolling feed and cannot page history",
+          "raw_entries": 20,
+          "reached_window_start": false,
+          "source_key": "gcores-news",
+          "status": "unsupported_or_empty_window"
+        },
+        {
+          "body_level": "headline",
+          "body_level_counts": {
+            "blurb": 18,
+            "full": 9,
+            "headline": 47
+          },
+          "count": 74,
+          "coverage_mode": "full_window_archive",
+          "earliest_observed_date": "2021-12-23",
+          "mode": "backfill",
+          "pages_fetched": 2,
+          "reached_window_start": true,
+          "source_key": "mappa-news",
+          "status": "ok"
+        },
+        {
+          "body_level": "full",
+          "body_level_counts": {
+            "blurb": 724,
+            "full": 12308,
+            "headline": 5
+          },
+          "count": 13037,
+          "coverage_mode": "full_window_archive",
+          "earliest_observed_date": "2023-10-27",
+          "mode": "backfill",
+          "pages_fetched": 134,
+          "reached_window_start": true,
+          "source_key": "nijimen-news",
+          "status": "ok"
+        },
+        {
+          "body_level": "full",
+          "body_level_counts": {
+            "blurb": 0,
+            "full": 64,
+            "headline": 8
+          },
+          "count": 72,
+          "coverage_mode": "full_window_archive",
+          "earliest_observed_date": "2005-03-01",
+          "mode": "backfill",
+          "pages_fetched": 3,
+          "reached_window_start": true,
+          "source_key": "paworks-news",
+          "status": "ok"
+        },
+        {
+          "body_level": "none",
+          "body_level_counts": {
+            "blurb": 0,
+            "full": 0,
+            "headline": 0
+          },
+          "count": 0,
+          "coverage_mode": "rolling_tail_only",
+          "earliest_observed_date": "2026-10-22",
+          "keyword_filtered_entries": 195,
+          "mode": "discover_tail",
+          "note": "[prtimes-acgn] Source 'https://prtimes.jp/index.rdf' is a rolling feed and cannot page history",
+          "raw_entries": 200,
+          "reached_window_start": false,
+          "source_key": "prtimes-acgn",
+          "status": "unsupported_or_empty_window"
+        },
+        {
+          "body_level": "full",
+          "body_level_counts": {
+            "blurb": 3,
+            "full": 1548,
+            "headline": 0
+          },
+          "count": 1551,
+          "coverage_mode": "full_window_archive",
+          "earliest_observed_date": "2013-12-25",
+          "mode": "backfill",
+          "pages_fetched": 43,
+          "reached_window_start": true,
+          "source_key": "realsound-acgn",
+          "status": "ok"
+        },
+        {
+          "body_level": "blurb",
+          "body_level_counts": {
+            "blurb": 279,
+            "full": 0,
+            "headline": 0
+          },
+          "count": 279,
+          "coverage_mode": "catalog_top_n",
+          "mode": "backfill",
+          "reached_window_start": false,
+          "source_key": "syosetu-novelapi",
+          "status": "ok"
+        },
+        {
+          "body_level": "headline",
+          "body_level_counts": {
+            "blurb": 0,
+            "full": 0,
+            "headline": 46
+          },
+          "count": 46,
+          "coverage_mode": "full_window_archive",
+          "earliest_observed_date": "2015-01-28",
+          "mode": "backfill",
+          "reached_window_start": true,
+          "source_key": "toei-news",
+          "status": "ok"
+        },
+        {
+          "body_level": "none",
+          "body_level_counts": {
+            "blurb": 0,
+            "full": 0,
+            "headline": 0
+          },
+          "count": 0,
+          "coverage_mode": "rolling_tail_only",
+          "earliest_observed_date": "2026-10-30",
+          "mode": "discover_tail",
+          "note": "[yystv-news] Source 'https://www.yystv.cn/rss/feed' is a rolling feed and cannot page history",
+          "raw_entries": 12,
+          "reached_window_start": false,
+          "source_key": "yystv-news",
+          "status": "unsupported_or_empty_window"
+        }
+      ],
+      "dedup_calibration_status": "provisional_pending_g1b_sweep",
+      "dedup_policy": {
+        "algorithm": "entity-event-72h+agglomerative-complete:char3-tf-cosine-v2",
+        "thresholds": {
+          "same_lang_cosine": 0.86
+        },
+        "version": "2",
+        "window_hours": 72
+      },
+      "deduped_count": 35819,
+      "exact_duplicates_collapsed": 0,
+      "file_digests": {
+        "clusters.jsonl": {
+          "bytes": 11035518,
+          "sha256": "5fecb25b04f17075e1f836a2168878450d2db46a7a841118902a1340bacee489"
+        },
+        "entities.json": {
+          "bytes": 164670,
+          "sha256": "c76c135da5c8b696feac4c5e6252f3ea626e1622e571e52b80ff68b5751f6593"
+        },
+        "items.jsonl": {
+          "bytes": 105396975,
+          "sha256": "a7ea658e31bf0a8b00477c650ef6b4e5356810594d3c1ce9f2acef69f7f020da"
+        },
+        "manifest.json": {
+          "bytes": 21525646,
+          "sha256": "5d2a0f3bf7ab348274d2ecd85a879a3f42f0429dc3b852d01b6942d5c42cc1c9"
+        },
+        "quarantine.jsonl": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "representatives.jsonl": {
+          "bytes": 105283613,
+          "sha256": "ac9f054aaf74ce39e5bbee89e18877c6cd2c46363e827dc88fcfff78393bc01f"
+        },
+        "snapshot.json": {
+          "bytes": 5882040,
+          "sha256": "06d81c423f9073dc9714d16a7db824fe9364e259ea7f0ca260c1a0928a6677b1"
+        },
+        "sources.json": {
+          "bytes": 2649,
+          "sha256": "675132a567b68ce0434237f89e54162a60c847445fedcef7c3689a6f026b0840"
+        }
+      },
+      "full_body_item_count": 21765,
+      "idempotency_verified": true,
+      "item_count": 35865,
+      "linking_stats": {
+        "ambiguous_hits": 0,
+        "linked_items": 5408,
+        "total_items": 35865,
+        "unresolved_items": 30457
+      },
+      "out_of_window_count": 4,
+      "partial": false,
+      "quarantined_count": 0,
+      "raw_sidecar_binding": {
+        "raw_bytes": 103707379,
+        "raw_sha256": "2522ed1b2a515473e1e9fc2a10a00a2daf5108ca2343b860efea964d79f1100d",
+        "total_raw_items": 35869
+      },
+      "snapshot_id": "20261028-5d2a0f3bf7ab",
+      "source_count": 12,
+      "source_type_counts": {
+        "media": 34861,
+        "metadata": 537,
+        "official": 467
+      },
+      "window_end": "2026-10-28",
+      "window_start": "2023-10-28"
+    },
+    "20261105-d797b5f0ae8e": {
+      "body_level_by_source": {
+        "anilist-graphql": {
+          "blurb": 150,
+          "full": 0,
+          "headline": 0
+        },
+        "ann-news": {
+          "blurb": 9,
+          "full": 7795,
+          "headline": 12490
+        },
+        "bangumi-api": {
+          "blurb": 112,
+          "full": 0,
+          "headline": 0
+        },
+        "bones-news": {
+          "blurb": 43,
+          "full": 16,
+          "headline": 3
+        },
+        "capcom-news": {
+          "blurb": 132,
+          "full": 0,
+          "headline": 83
+        },
+        "chuapp-news": {
+          "blurb": 3,
+          "full": 26,
+          "headline": 1
+        },
+        "gcores-news": {
+          "blurb": 3,
+          "full": 17,
+          "headline": 0
+        },
+        "mappa-news": {
+          "blurb": 18,
+          "full": 10,
+          "headline": 46
+        },
+        "nijimen-news": {
+          "blurb": 721,
+          "full": 12517,
+          "headline": 5
+        },
+        "paworks-news": {
+          "blurb": 0,
+          "full": 64,
+          "headline": 8
+        },
+        "realsound-acgn": {
+          "blurb": 3,
+          "full": 1546,
+          "headline": 0
+        },
+        "syosetu-novelapi": {
+          "blurb": 287,
+          "full": 0,
+          "headline": 0
+        },
+        "toei-news": {
+          "blurb": 0,
+          "full": 0,
+          "headline": 47
+        },
+        "yystv-news": {
+          "blurb": 7,
+          "full": 5,
+          "headline": 0
+        }
+      },
+      "body_level_counts": {
+        "blurb": 1488,
+        "full": 21996,
+        "headline": 12683
+      },
+      "category_counts": {
+        "anime": 22606,
+        "game": 4584,
+        "light_novel": 2152,
+        "manga": 6825
+      },
+      "category_counts_heuristic": {
+        "anime": 22606,
+        "game": 4584,
+        "light_novel": 2152,
+        "manga": 6825
+      },
+      "corporate_count": 17,
+      "coverage_complete": false,
+      "coverage_gaps": [
+        "anilist-graphql:catalog_top_n",
+        "bangumi-api:catalog_top_n",
+        "bilibili-timeline:skipped_robots_disallow",
+        "chuapp-news:rolling_tail_only",
+        "gcores-news:rolling_tail_only",
+        "prtimes-acgn:rolling_tail_only",
+        "syosetu-novelapi:catalog_top_n",
+        "yystv-news:rolling_tail_only"
+      ],
+      "crawl_summary": [
+        {
+          "body_level": "blurb",
+          "body_level_counts": {
+            "blurb": 150,
+            "full": 0,
+            "headline": 0
+          },
+          "count": 150,
+          "coverage_mode": "catalog_top_n",
+          "mode": "backfill",
+          "reached_window_start": false,
+          "source_key": "anilist-graphql",
+          "status": "ok"
+        },
+        {
+          "body_level": "mixed_full_and_headline",
+          "body_level_counts": {
+            "blurb": 9,
+            "full": 7795,
+            "headline": 12491
+          },
+          "cached_article_bodies_applied": 7799,
+          "count": 20295,
+          "coverage_mode": "full_window_archive",
+          "days_with_items": 1097,
+          "earliest_observed_date": "2023-11-05",
+          "mode": "backfill",
+          "reached_window_start": true,
+          "requested_days": 1097,
+          "sampled_days": 1097,
+          "source_key": "ann-news",
+          "status": "ok",
+          "total_pages_fetched": 1097
+        },
+        {
+          "body_level": "blurb",
+          "body_level_counts": {
+            "blurb": 112,
+            "full": 0,
+            "headline": 0
+          },
+          "count": 112,
+          "coverage_mode": "catalog_top_n",
+          "mode": "backfill",
+          "reached_window_start": false,
+          "skipped_entries": 7,
+          "source_key": "bangumi-api",
+          "status": "ok"
+        },
+        {
+          "body_level": "blurb",
+          "body_level_counts": {
+            "blurb": 0,
+            "full": 0,
+            "headline": 0
+          },
+          "count": 0,
+          "coverage_mode": "skipped_robots_disallow",
+          "mode": "discover_tail",
+          "note": "[bilibili-timeline] Bilibili timeline is a rolling ±7d endpoint and cannot backfill historical window 2023-11-05..2026-11-05",
+          "reached_window_start": false,
+          "reason": "RobotsDisallowedError: robots.txt disallowed 'https://api.bilibili.com/pgc/web/timeline?types=1&before=7&after=7' on host 'api.bilibili.com' for User-Agent 'AcgnRagBot/0.1 (CS5481 course project; +https://github.com/L01nki1/acgn-chronicle)'",
+          "source_key": "bilibili-timeline",
+          "status": "skipped_robots_disallow"
+        },
+        {
+          "body_level": "blurb",
+          "body_level_counts": {
+            "blurb": 43,
+            "full": 16,
+            "headline": 3
+          },
+          "count": 62,
+          "coverage_mode": "full_window_archive",
+          "earliest_observed_date": "2006-06-12",
+          "mode": "backfill",
+          "pages_fetched": 4,
+          "reached_window_start": true,
+          "source_key": "bones-news",
+          "status": "ok"
+        },
+        {
+          "body_level": "blurb",
+          "body_level_counts": {
+            "blurb": 132,
+            "full": 0,
+            "headline": 83
+          },
+          "count": 215,
+          "coverage_mode": "full_window_archive",
+          "duplicate_url_entries": 5880,
+          "earliest_observed_date": "2014-03-14",
+          "mode": "backfill",
+          "raw_entries": 7299,
+          "reached_window_start": true,
+          "skipped_entries": 2,
+          "source_key": "capcom-news",
+          "status": "ok"
+        },
+        {
+          "body_level": "full",
+          "body_level_counts": {
+            "blurb": 3,
+            "full": 26,
+            "headline": 1
+          },
+          "count": 30,
+          "coverage_mode": "rolling_tail_only",
+          "earliest_observed_date": "2026-10-22",
+          "legacy_v1_scrolled_off_count": 3,
+          "mode": "discover_tail",
+          "note": "[chuapp-news] Source 'https://www.chuapp.com/feed' is a rolling feed and cannot page history",
+          "raw_entries": 30,
+          "reached_window_start": false,
+          "source_key": "chuapp-news",
+          "status": "ok"
+        },
+        {
+          "body_level": "full",
+          "body_level_counts": {
+            "blurb": 3,
+            "full": 17,
+            "headline": 0
+          },
+          "count": 20,
+          "coverage_mode": "rolling_tail_only",
+          "earliest_observed_date": "2026-11-04",
+          "mode": "discover_tail",
+          "note": "[gcores-news] Source 'https://www.gcores.com/rss' is a rolling feed and cannot page history",
+          "raw_entries": 20,
+          "reached_window_start": false,
+          "source_key": "gcores-news",
+          "status": "ok"
+        },
+        {
+          "body_level": "headline",
+          "body_level_counts": {
+            "blurb": 18,
+            "full": 10,
+            "headline": 46
+          },
+          "count": 74,
+          "coverage_mode": "full_window_archive",
+          "earliest_observed_date": "2021-12-23",
+          "mode": "backfill",
+          "pages_fetched": 2,
+          "reached_window_start": true,
+          "source_key": "mappa-news",
+          "status": "ok"
+        },
+        {
+          "body_level": "full",
+          "body_level_counts": {
+            "blurb": 721,
+            "full": 12517,
+            "headline": 5
+          },
+          "count": 13243,
+          "coverage_mode": "full_window_archive",
+          "earliest_observed_date": "2023-10-27",
+          "mode": "backfill",
+          "pages_fetched": 134,
+          "reached_window_start": true,
+          "source_key": "nijimen-news",
+          "status": "ok"
+        },
+        {
+          "body_level": "full",
+          "body_level_counts": {
+            "blurb": 0,
+            "full": 64,
+            "headline": 8
+          },
+          "count": 72,
+          "coverage_mode": "full_window_archive",
+          "earliest_observed_date": "2005-03-01",
+          "mode": "backfill",
+          "pages_fetched": 3,
+          "reached_window_start": true,
+          "source_key": "paworks-news",
+          "status": "ok"
+        },
+        {
+          "body_level": "none",
+          "body_level_counts": {
+            "blurb": 0,
+            "full": 0,
+            "headline": 0
+          },
+          "count": 0,
+          "coverage_mode": "rolling_tail_only",
+          "earliest_observed_date": "2026-10-22",
+          "keyword_filtered_entries": 196,
+          "mode": "discover_tail",
+          "note": "[prtimes-acgn] Source 'https://prtimes.jp/index.rdf' is a rolling feed and cannot page history",
+          "raw_entries": 200,
+          "reached_window_start": false,
+          "source_key": "prtimes-acgn",
+          "status": "unsupported_or_empty_window"
+        },
+        {
+          "body_level": "full",
+          "body_level_counts": {
+            "blurb": 3,
+            "full": 1546,
+            "headline": 0
+          },
+          "count": 1549,
+          "coverage_mode": "full_window_archive",
+          "earliest_observed_date": "2013-12-25",
+          "mode": "backfill",
+          "pages_fetched": 43,
+          "reached_window_start": true,
+          "source_key": "realsound-acgn",
+          "status": "ok"
+        },
+        {
+          "body_level": "blurb",
+          "body_level_counts": {
+            "blurb": 287,
+            "full": 0,
+            "headline": 0
+          },
+          "count": 287,
+          "coverage_mode": "catalog_top_n",
+          "mode": "backfill",
+          "reached_window_start": false,
+          "source_key": "syosetu-novelapi",
+          "status": "ok"
+        },
+        {
+          "body_level": "headline",
+          "body_level_counts": {
+            "blurb": 1,
+            "full": 0,
+            "headline": 47
+          },
+          "count": 48,
+          "coverage_mode": "full_window_archive",
+          "earliest_observed_date": "2015-01-28",
+          "mode": "backfill",
+          "reached_window_start": true,
+          "source_key": "toei-news",
+          "status": "ok"
+        },
+        {
+          "body_level": "full",
+          "body_level_counts": {
+            "blurb": 7,
+            "full": 5,
+            "headline": 0
+          },
+          "count": 12,
+          "coverage_mode": "rolling_tail_only",
+          "earliest_observed_date": "2026-10-30",
+          "legacy_v1_scrolled_off_count": 7,
+          "mode": "discover_tail",
+          "note": "[yystv-news] Source 'https://www.yystv.cn/rss/feed' is a rolling feed and cannot page history",
+          "raw_entries": 12,
+          "reached_window_start": false,
+          "source_key": "yystv-news",
+          "status": "ok"
+        }
+      ],
+      "dedup_calibration_status": "provisional_pending_g1b_sweep",
+      "dedup_policy": {
+        "algorithm": "entity-event-72h+agglomerative-complete:char3-tf-cosine-v2",
+        "thresholds": {
+          "same_lang_cosine": 0.86
+        },
+        "version": "2",
+        "window_hours": 72
+      },
+      "deduped_count": 36121,
+      "exact_duplicates_collapsed": 0,
+      "file_digests": {
+        "clusters.jsonl": {
+          "bytes": 11128534,
+          "sha256": "9c61999aae6cf0d8c7ddb6362ce0138a952b54c44d18db1e54d6b86e1e4bee32"
+        },
+        "entities.json": {
+          "bytes": 164670,
+          "sha256": "c76c135da5c8b696feac4c5e6252f3ea626e1622e571e52b80ff68b5751f6593"
+        },
+        "items.jsonl": {
+          "bytes": 107470445,
+          "sha256": "2dcedf584c26286f78b156833cd75a2f77aeb93acf0ff977fc721fc94dbfe66b"
+        },
+        "manifest.json": {
+          "bytes": 21707681,
+          "sha256": "d797b5f0ae8ef4197a093f66fdbbcabc111360f8c852520d34160d04e6198d2d"
+        },
+        "quarantine.jsonl": {
+          "bytes": 184,
+          "sha256": "a4fdbd33a3a0666fba8c56a45d6f6a6f2ae710f40511689a559ac394932130cc"
+        },
+        "representatives.jsonl": {
+          "bytes": 107357083,
+          "sha256": "58e656bbb303685c091f35fdc5c1e09f87b29d775d4f14da743a7ea35966a2a1"
+        },
+        "snapshot.json": {
+          "bytes": 5919511,
+          "sha256": "7fd3ac7e2847546cb5dd48e5dc700df3487a43e03c17fcfb05909fb50371dd71"
+        },
+        "sources.json": {
+          "bytes": 3046,
+          "sha256": "1c5f632cc17014860e3f76260fac25240b249e6b63df502604d024b7b0023e93"
+        }
+      },
+      "full_body_item_count": 21996,
+      "idempotency_verified": true,
+      "item_count": 36167,
+      "linking_stats": {
+        "ambiguous_hits": 0,
+        "linked_items": 5430,
+        "total_items": 36167,
+        "unresolved_items": 30737
+      },
+      "out_of_window_count": 1,
+      "partial": false,
+      "quarantined_count": 1,
+      "raw_sidecar_binding": {
+        "raw_bytes": 105815746,
+        "raw_sha256": "605b7e4d8500953b5ea40ae124160f28fa43b1dbaa7c07d87d37688f02151631",
+        "total_raw_items": 36169
+      },
+      "snapshot_id": "20261105-d797b5f0ae8e",
+      "source_count": 14,
+      "source_type_counts": {
+        "media": 35148,
+        "metadata": 549,
+        "official": 470
+      },
+      "window_end": "2026-11-05",
+      "window_start": "2023-11-05"
+    }
+  },
+  "threshold_sweep_20261105": {
+    "calibration_status": "provisional_pending_g1b_sweep",
+    "sample_merged_clusters_at_0_86": [
+      {
+        "char3_cosine": 0.9644,
+        "cluster_id": "cluster_04b75fdfe173b63d",
+        "event_type": null,
+        "lang": "ja",
+        "media_ids": [],
+        "member_count": 2,
+        "other_member_title": "【声優好きに聞きたい！】ユニークなキャラクターを演じている声優といえば？【アンケート】",
+        "representative_doc_id": "doc_00925a8c15ee166dbce344fafe77711e040b988987abdf86820c8d5b8ecc1e8f",
+        "representative_title": "【声優好きに聞きたい！】方言キャラを演じている声優といえば？【アンケート】"
+      },
+      {
+        "char3_cosine": 0.0,
+        "cluster_id": "cluster_0f430642be472ca7",
+        "event_type": "broadcast",
+        "lang": "ja",
+        "media_ids": [
+          203
+        ],
+        "member_count": 2,
+        "other_member_title": "Precure Franchise Streams 'Baton-Passing' Video Ahead of Star Detective Precure! Premiere",
+        "representative_doc_id": "doc_02d8a23b3d2e31565bbdc90bfdf23865459f2b8d30c73b4d85ec23a9b000e738",
+        "representative_title": "【2026年最新版】『名探偵プリキュア！』キャラクター一覧！登場人物の基本プロフィール・声優情報を紹介"
+      },
+      {
+        "char3_cosine": 1.0,
+        "cluster_id": "cluster_006a928e1620aeb0",
+        "event_type": null,
+        "lang": "ja",
+        "media_ids": [],
+        "member_count": 2,
+        "other_member_title": "2026年 年賀状",
+        "representative_doc_id": "doc_0510a7559d0f12bff241ef6cc0376ca97ee11d5171bc0074b856fed7b5d2c698",
+        "representative_title": "2026年 年賀状"
+      },
+      {
+        "char3_cosine": 0.8838,
+        "cluster_id": "cluster_9814c7e6383d1935",
+        "event_type": null,
+        "lang": "en",
+        "media_ids": [],
+        "member_count": 2,
+        "other_member_title": "Crunchyroll to Stream Shabake Anime",
+        "representative_doc_id": "doc_0a531e5972b8bd53a3baa012beb06884aacd79164cc09fdb36a2ddad81ef4fd9",
+        "representative_title": "Crunchyroll to Stream Shabake Anime in India"
+      },
+      {
+        "char3_cosine": 0.0394,
+        "cluster_id": "cluster_5a901a05fcdc5d1f",
+        "event_type": "release",
+        "lang": "en",
+        "media_ids": [
+          302
+        ],
+        "member_count": 2,
+        "other_member_title": "ヨルシカ、TVアニメ『薬屋のひとりごと』第3期第1クールOPテーマ「雲を抜け風下へ私だけ」リリース",
+        "representative_doc_id": "doc_18434ffe2231c60f13997ee95849650f1001820805976c8a93ca39f0bd1fd065",
+        "representative_title": "Crunchyroll Acquires Indian Rights to The Apothecary Diaries Anime Film"
+      },
+      {
+        "char3_cosine": 0.2704,
+        "cluster_id": "cluster_6b4d6648c466b1c3",
+        "event_type": "event",
+        "lang": "ja",
+        "media_ids": [
+          203
+        ],
+        "member_count": 2,
+        "other_member_title": "三瓶由布子さんが演じる好きなキャラ投票！やっぱりのぞみ？ボルト？【アンケート】",
+        "representative_doc_id": "doc_1ab2bc2d8c599c94328b5bf99db6b41721f7a77c54521b970dfe0f93a8b1f555",
+        "representative_title": "田村ゆかりさんが演じる好きなキャラ投票！やっぱり梨花？なのは？【アンケート】"
+      },
+      {
+        "char3_cosine": 0.361,
+        "cluster_id": "cluster_9833504ff2441120",
+        "event_type": "collaboration",
+        "lang": "ja",
+        "media_ids": [
+          201
+        ],
+        "member_count": 2,
+        "other_member_title": "『らんま1/2』と「earth music&ecology」のコラボ詳細が解禁！チャイナ風ワンピース・あかねをイメージしたアイテムが登場",
+        "representative_doc_id": "doc_1c380bc3a732ec69f13819d3609be24111ebf40fc495b40888cd8e414bab1ca9",
+        "representative_title": "『らんま1/2』と「earth music&ecology」のコラボが決定！ワンピース姿のらんま・あかねに「頭抱えちゃうよ」"
+      },
+      {
+        "char3_cosine": 0.0,
+        "cluster_id": "cluster_6f97da01abcfb9fd",
+        "event_type": "update",
+        "lang": "en",
+        "media_ids": [
+          201
+        ],
+        "member_count": 2,
+        "other_member_title": "『バレンタインに一緒にカラオケに行きたいキャラ』ランキングを発表！『プロセカ』東雲彰人を抑えた第1位は？",
+        "representative_doc_id": "doc_1d561ad6b51e63c0f983094c2b0fb74088265016a31d7284266053a5d5b9e052",
+        "representative_title": "One Piece Pirate Warriors 4 Game's Trailer Reveals PS5, Xbox Series X|S Releases, New DLC Character Survey"
+      },
+      {
+        "char3_cosine": 0.0058,
+        "cluster_id": "cluster_11605280f427a3f1",
+        "event_type": "release",
+        "lang": "ja",
+        "media_ids": [
+          102
+        ],
+        "member_count": 2,
+        "other_member_title": "Monster Hunter Outlanders Game Launches on October 29",
+        "representative_doc_id": "doc_21f691931799e06d1f2205277ed007c0342a05eabfbffb1fae5656b3d823bcf9",
+        "representative_title": "モバイルゲーム『モンスターハンターアウトランダーズ』が、2026年10月29日に配信決定！"
+      },
+      {
+        "char3_cosine": 1.0,
+        "cluster_id": "cluster_2874127efab06c34",
+        "event_type": null,
+        "lang": "en",
+        "media_ids": [
+          208
+        ],
+        "member_count": 2,
+        "other_member_title": "Attack on Titan Musical Starts World Tour in Singapore Next April",
+        "representative_doc_id": "doc_27cbf9dfbe296af0d6cc6ec4f4bebf9930dfc7aec4d445e2aab4135f6372afef",
+        "representative_title": "Attack on Titan Musical Starts World Tour in Singapore Next April"
+      },
+      {
+        "char3_cosine": 0.8803,
+        "cluster_id": "cluster_cc4d2351a4a7a5c9",
+        "event_type": null,
+        "lang": "ja",
+        "media_ids": [],
+        "member_count": 2,
+        "other_member_title": "女性が選ぶ『機動戦士ガンダムSEED』シリーズ好きなキャラランキング！キラを抑えた1位は？",
+        "representative_doc_id": "doc_27fafb171f550d3bfd1919255c487758f13e85bfcb515df2e1bf852eec2f59f5",
+        "representative_title": "男性が選ぶ『機動戦士ガンダムSEED』シリーズ好きなキャラランキング！ラクスを抑えた1位は？"
+      },
+      {
+        "char3_cosine": 0.0,
+        "cluster_id": "cluster_df84c2c674a76dba",
+        "event_type": "release",
+        "lang": "en",
+        "media_ids": [
+          101
+        ],
+        "member_count": 2,
+        "other_member_title": "全世界待望のシリーズ最新作『モンスターハンターワイルズ』の発売を2025年2月28日に決定！",
+        "representative_doc_id": "doc_2b3482f82d2880cb0622246b995db60059b87c6d64b68c5a1f9e9bbd90065eae",
+        "representative_title": "Monster Hunter Wilds Game Launches Globally on February 28"
+      },
+      {
+        "char3_cosine": 0.2829,
+        "cluster_id": "cluster_75ac9cb5702f11ba",
+        "event_type": "broadcast",
+        "lang": "ja",
+        "media_ids": [
+          170258616480
+        ],
+        "member_count": 2,
+        "other_member_title": "SixTones Performs Opening Theme for Wind Breaker Anime's 2nd Season",
+        "representative_doc_id": "doc_2b955a0a5201dade51bff07b4e9a8d7e742b1928e65b845880044d6e559f9ff1",
+        "representative_title": "SixTONES、アニメ『WIND BREAKER Season2』OPテーマ担当 原作ファンの田中樹によるコメントも"
+      },
+      {
+        "char3_cosine": 0.904,
+        "cluster_id": "cluster_c60a02c44e950a39",
+        "event_type": null,
+        "lang": "en",
+        "media_ids": [],
+        "member_count": 2,
+        "other_member_title": "SHIBOYUGI: Playing Death Games to Put Food on the Table 44: Cloudy Beach Anime Film Streams in India on July 13",
+        "representative_doc_id": "doc_2e612b784dc5bd1877b7d7a67b822c9c400a442c3fe2187c52b38864d2d9d821",
+        "representative_title": "SHIBOYUGI: Playing Death Games to Put Food on the Table 44: Cloudy Beach Anime Film Streams in Southeast Asia on July 13"
+      },
+      {
+        "char3_cosine": 0.0051,
+        "cluster_id": "cluster_100b4305f2c30d31",
+        "event_type": "broadcast",
+        "lang": "en",
+        "media_ids": [
+          209
+        ],
+        "member_count": 2,
+        "other_member_title": "yutori、メジャーデビューシングル表題曲「スピード」が『ヒロアカ』スピンオフアニメEDテーマに",
+        "representative_doc_id": "doc_3590f38e8dce0469bccd9cdb80faf2e44c5a448987324256bdd65acdbffddec1",
+        "representative_title": "My Hero Academia Anime's Final Season Unveils Trailer, Visual, Crunchyroll Stream, October Premiere"
+      },
+      {
+        "char3_cosine": 0.0,
+        "cluster_id": "cluster_44dcc65bea3f048c",
+        "event_type": "collaboration",
+        "lang": "ja",
+        "media_ids": [
+          203
+        ],
+        "member_count": 2,
+        "other_member_title": "Magical DoReMi, Star Detective Precure! Anime Get Crossover Episode on October 25",
+        "representative_doc_id": "doc_37920d6d605cbb92c75d21e56b8946a83706c4052af30a99a1e098f585d0494c",
+        "representative_title": "『映画名探偵プリキュア！』×サミットのコラボセールが10月24日・25日に開催！映画のサンバイザーとぬりえチラシを店頭配布"
+      },
+      {
+        "char3_cosine": 0.4782,
+        "cluster_id": "cluster_f9ec8ef9b6510bbb",
+        "event_type": "event",
+        "lang": "ja",
+        "media_ids": [
+          207
+        ],
+        "member_count": 2,
+        "other_member_title": "『チェンソーマン レゼ篇』ポップアップショップが池袋・名古屋・仙台で開催！デンジ＆レゼの描き下ろしグッズ＆特典が登場",
+        "representative_doc_id": "doc_3c1841f68348cdf36a0794ce5c23ca0d128d6dcf7c92d1c7173a61ef76b80992",
+        "representative_title": "『チェンソーマン レゼ篇』ポップアップショップ開催！アキと天使の悪魔の描き下ろしイラストグッズ＆特典が登場"
+      },
+      {
+        "char3_cosine": 0.0127,
+        "cluster_id": "cluster_d375504504332092",
+        "event_type": "release",
+        "lang": "ja",
+        "media_ids": [
+          201
+        ],
+        "member_count": 2,
+        "other_member_title": "One Piece Bounty Rush Smartphone Game Gets Steam Release in Fall",
+        "representative_doc_id": "doc_3cd30585c4f89282213fa2f91b220d4132ed7186032e2c9d10b127634facc9b9",
+        "representative_title": "水瀬いのり、オリジナルハーフアルバム収録曲「フラーグム」MV公開 全編通して“花”が登場"
+      },
+      {
+        "char3_cosine": 0.0136,
+        "cluster_id": "cluster_2707ecb6f44f26ba",
+        "event_type": "release",
+        "lang": "en",
+        "media_ids": [
+          302
+        ],
+        "member_count": 2,
+        "other_member_title": "Eve、TVアニメ『薬屋のひとりごと』第3期エンディングテーマ「AIYOU」を表題としたEPリリース",
+        "representative_doc_id": "doc_40e8eaa76e0423c41e6776b6b3c13517efb28667fe31403ea33993533b77e0ea",
+        "representative_title": "The Apothecary Diaries: The False Imperial Brother Mystery Game's Trailer Reveals March 18 Release"
+      },
+      {
+        "char3_cosine": 0.9155,
+        "cluster_id": "cluster_c088cd455cb79652",
+        "event_type": null,
+        "lang": "en",
+        "media_ids": [],
+        "member_count": 2,
+        "other_member_title": "COLORFUL STAGE! The Movie: A Miku Who Can't Sing Anime Film to Screen in the Philippines",
+        "representative_doc_id": "doc_44d369acb428d55663f4dc5ab27a731d088e13429698632aa6789c320ddce70d",
+        "representative_title": "COLORFUL STAGE! The Movie: A Miku Who Can't Sing Anime Film to Screen in Malaysia"
+      },
+      {
+        "char3_cosine": 0.4633,
+        "cluster_id": "cluster_62a1527d891e6ea6",
+        "event_type": "broadcast",
+        "lang": "en",
+        "media_ids": [
+          285445603539
+        ],
+        "member_count": 2,
+        "other_member_title": "Muse Asia Holds Theatrical Premiere Screenings for DAN DA DAN Anime in S.E.Asia",
+        "representative_doc_id": "doc_5126a09de055b681018276eab00f1d164b1789c9441c1acafa092bcebd3ddbb8",
+        "representative_title": "Hip-Hop Duo Creepy Nuts Performs DAN DA DAN Anime's Opening Theme"
+      },
+      {
+        "char3_cosine": 0.9035,
+        "cluster_id": "cluster_11858a6b9e9e3b53",
+        "event_type": null,
+        "lang": "en",
+        "media_ids": [],
+        "member_count": 2,
+        "other_member_title": "Crunchyroll Streams Trapezium Anime Film",
+        "representative_doc_id": "doc_51f35f1717b09b01901fa98d7fae334d3a5a0c2b8877f80cd76e02934e366e4a",
+        "representative_title": "Crunchyroll Streams Trapezium Anime Film in India"
+      },
+      {
+        "char3_cosine": 0.8628,
+        "cluster_id": "cluster_5fe185bfafd95112",
+        "event_type": "broadcast",
+        "lang": "en",
+        "media_ids": [],
+        "member_count": 2,
+        "other_member_title": "Crunchyroll Adds Dropkick on My Devil! TV Anime Spinoff",
+        "representative_doc_id": "doc_5227f529d7d5bb4209233536678a13537930562aed76d774aad0edd9ea12267a",
+        "representative_title": "Crunchyroll Adds Dropkick on My Devil!!: Apocalypse Day OVA in India"
+      },
+      {
+        "char3_cosine": 0.8639,
+        "cluster_id": "cluster_4ccb59341083f46b",
+        "event_type": null,
+        "lang": "ja",
+        "media_ids": [],
+        "member_count": 2,
+        "other_member_title": "『薬屋のひとりごと』一番好きなキャラクターを教えて！【アンケート】",
+        "representative_doc_id": "doc_5a9f814a7287f979c872be8de7c20e969b9c4776640ff1a67213895ab1fb2582",
+        "representative_title": "『鬼滅の刃』一番好きな柱を教えて！【アンケート】"
+      },
+      {
+        "char3_cosine": 1.0,
+        "cluster_id": "cluster_2b89e0f30bd80afa",
+        "event_type": null,
+        "lang": "en",
+        "media_ids": [
+          210,
+          302
+        ],
+        "member_count": 2,
+        "other_member_title": "Japanese Animation TV Ranking, February 26-March 3",
+        "representative_doc_id": "doc_605ed7e25bd921df5d714929742350344d4092a9a241115af5a06390bffd796a",
+        "representative_title": "Japanese Animation TV Ranking, February 26-March 3"
+      }
+    ],
+    "selected_threshold": 0.86,
+    "snapshot_id": "20261105-d797b5f0ae8e",
+    "sweep_table": [
+      {
+        "cluster_count": 36103,
+        "clustered_duplicates_collapsed": 64,
+        "non_singleton_clusters": 62,
+        "threshold": 0.82,
+        "total_items": 36167
+      },
+      {
+        "cluster_count": 36111,
+        "clustered_duplicates_collapsed": 56,
+        "non_singleton_clusters": 54,
+        "threshold": 0.84,
+        "total_items": 36167
+      },
+      {
+        "cluster_count": 36121,
+        "clustered_duplicates_collapsed": 46,
+        "non_singleton_clusters": 46,
+        "threshold": 0.86,
+        "total_items": 36167
+      },
+      {
+        "cluster_count": 36126,
+        "clustered_duplicates_collapsed": 41,
+        "non_singleton_clusters": 41,
+        "threshold": 0.88,
+        "total_items": 36167
+      }
+    ]
+  }
+}

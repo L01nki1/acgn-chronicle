@@ -50,6 +50,9 @@ models/
 logs/
 *.log
 /tmp/
+# Regenerable from the tracked label_sheet.csv in one command (render_label_sheet.py);
+# only the CSV, sweep.json and findings.json are labeling evidence.
+/eval/dedup_g1b/label_sheet.html
 
 # ---- Frontend ----
 node_modules/

@@ -1,6 +1,6 @@
 # G1a contract review preparation
 
-Owner: B. Candidate: schema **0.2.4**, rebased onto `main@03a115f` (Python 3.13 / locked uv),
+Owner: B. Candidate: schema **0.2.5**, rebased onto `main@53d611b` (Python 3.13 / locked uv),
 including the merged WP6 consumer and process-checklist corrections.
 PR [#26](https://github.com/L01nki1/acgn-chronicle/pull/26) merged as `22d404e`; A's design handoff
 [#38](https://github.com/L01nki1/acgn-chronicle/pull/38) merged as `9b17396`. This candidate aligns
@@ -22,9 +22,9 @@ The agenda itself is not evidence that a consumer asked or accepted a question.
 
 | Consumer | Topics to check against the candidate | Actual questions and resolution |
 |---|---|---|
-| C — web / WP6 ([#5](https://github.com/L01nki1/acgn-chronicle/issues/5)) | (1) Can the refusal fixture render separately from `503`? (2) Are empty multi-selects sent as no filter, and is `410` shown without silently changing snapshots? (3) Can `ChunkExcerpt` render a clipped quote and attribution while the request's snapshot is carried in the view and cache key? | C1–C6 accepted; 0.2.2/0.2.3 approved at their recorded heads (§5.3–§5.4); 0.2.4 review pending |
-| F — KB / Isla consumer ([#8](https://github.com/L01nki1/acgn-chronicle/issues/8)) | (1) Can media-id membership and the index resolve against the same retained snapshot? (2) Does every retrieved chunk retain the citation provenance B needs? (3) Is the provisional `DailyDigest` isolated behind one consumer adapter, with no dependency on the removed `episode_table`? | F verified `30f746d` and acknowledged 0.2.3 (§5.4); Q2/Q3 remain scoped in §5.2/§6; 0.2.4 review pending |
-| E — retrieval / runner ([#7](https://github.com/L01nki1/acgn-chronicle/issues/7)) | (1) Are ANY-within-list / AND-between-families and empty-list defaults implementable? (2) Can UTC day/datetime bounds and a non-empty media selection with no matches remain restrictive? (3) Can the runner pin its snapshot and distinguish unknown `404` from retired `410`, including while a rebuild or retention cleanup occurs? | E verified the answers at `c1949f1`; its G1b/W2 work remains staged (§5.2); 0.2.4 review pending |
+| C — web / WP6 ([#5](https://github.com/L01nki1/acgn-chronicle/issues/5)) | (1) Can the refusal fixture render separately from `503`? (2) Are empty multi-selects sent as no filter, and is `410` shown without silently changing snapshots? (3) Can `ChunkExcerpt` render a clipped quote and attribution while the request's snapshot is carried in the view and cache key? | C1–C6 accepted; 0.2.2/0.2.3 approved at their recorded heads (§5.3–§5.4); 0.2.4/0.2.5 review pending |
+| F — KB / Isla consumer ([#8](https://github.com/L01nki1/acgn-chronicle/issues/8)) | (1) Can media-id membership and the index resolve against the same retained snapshot? (2) Does every retrieved chunk retain the citation provenance B needs? (3) Is the provisional `DailyDigest` isolated behind one consumer adapter, with no dependency on the removed `episode_table`? | F verified `30f746d` and acknowledged 0.2.3 (§5.4); Q2/Q3 remain scoped in §5.2/§6; 0.2.4/0.2.5 review pending |
+| E — retrieval / runner ([#7](https://github.com/L01nki1/acgn-chronicle/issues/7)) | (1) Are ANY-within-list / AND-between-families and empty-list defaults implementable? (2) Can UTC day/datetime bounds and a non-empty media selection with no matches remain restrictive? (3) Can the runner pin its snapshot and distinguish unknown `404` from retired `410`, including while a rebuild or retention cleanup occurs? | E verified the answers at `c1949f1`; its G1b/W2 work remains staged (§5.2); E confirmed the 0.2.5 score wording in its PR #67 review (§5.6); 0.2.4 review pending |
 
 C is WP4's cross-reviewer according to ROADMAP §4. AI checks and passing CI do not substitute for that
 review or the consumer questions. Record links to real replies and an explicit resolution per question
@@ -276,6 +276,39 @@ entity-registry namespace are consistent with the contract. Its independent synt
 mutation. Those checks establish format agreement only: no real corpus, source-depth probe or two actual
 rebuilds have been produced or verified by this work. A/D's possible partial-gate plan remains undecided;
 the existing gate date, thresholds and evidence requirements remain in force.
+
+### 5.6 Candidate 0.2.5 — score comparability scoped to one identity
+
+The merged calibration utility (`core/ground/calibration.py`, merged as `614e746`) selects one
+abstention threshold from labelled per-item top retrieval scores. Applying that threshold compares one
+request's best score against a value derived from other requests' scores, which the previous wording
+forbade outright ("ordinal within one response only: never compare across queries"). E/WP3 confirmed the
+replacement wording in its review of PR #67 and asked B to draft the contract sentence while D records
+the run-record keys.
+
+This candidate states that scores are comparable across queries only when the snapshot, chunk
+configuration, retrieval mode, encoder identity, top-k and over-fetch are identical (per-query filters
+may differ), and that the comparability exists solely for abstention-threshold calibration: scores are
+never comparable across identities, snapshots, chunk configurations or retrieval modes, and are never
+averaged as a quality metric. The sanctioned use is `core/ground/calibration.py` with the strict
+`score < threshold` rule; the threshold is recorded with the identity that produced it and re-calibrated
+when any of those fields changes (`docs/RUNBOOK.md` §3.7).
+
+Field structure is unchanged: no field is added, renamed, retyped, made required or optional, or given a
+default. The exported schema diff is one `description` line plus the version string, and a structural
+comparison with every `description` removed differs only in `schema_version`.
+
+`SCHEMA_VERSION` moves 0.2.4 to 0.2.5 following the 0.2.4 precedent (`fb02d3a`), where a
+description-only semantic clarification was versioned because C/E/F approvals are version-bound (§8.1).
+E confirmed the wording in the PR #67 review. **C (web) and F (Isla contact) notification and re-review
+are pending**; this entry does not claim their approval, and D ratifies the `EVAL_PROTOCOL` §7
+run-record keys separately.
+
+Local gate result on the candidate tree: `python scripts/check.py` four gates green (ruff check, ruff
+format, contract schema in sync, offline pytest) on Windows / CPython 3.13.5 with the locked
+`dev,store,llm,web` extras (the web extra is installed so `tests/web` runs); direct pytest run
+**701 passed / 2 skipped** (the two opt-in real-e5 skips;
+`check.py` runs pytest at `-qq`, so its own summary line is suppressed).
 
 ## 6. Snapshot identity handoff to A/F
 

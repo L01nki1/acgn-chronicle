@@ -25,17 +25,20 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SourceType = Literal["official", "media", "metadata"]
 
-SCHEMA_VERSION = "0.2.4"
+SCHEMA_VERSION = "0.2.5"
 
 # Shared by the wire constraint and the serializer; serialize.MAX_QUOTE_CHARS re-exports it.
 MAX_QUOTE_CHARS = 200
 
 # One definition, reused by both the internal and the wire chunk type: a score whose meaning is
-# left implicit is worse than no score, because a client will average it with another config's.
+# left implicit is worse than no score, because a client will average it with another config's. The
+# cross-query clause exists for threshold calibration, not for reporting.
 SCORE_SEMANTICS = (
     "cosine similarity in [-1, 1], higher is better (1 - Chroma cosine distance). "
-    "Ordinal within one response only: never compare across queries, chunk configurations or "
-    "snapshots, and never average it as a quality metric"
+    "Comparable across queries only when snapshot, chunk configuration, retrieval mode, encoder "
+    "identity, top-k and over-fetch are identical (per-query filters may differ), and only for "
+    "abstention-threshold calibration: never compare across identities, snapshots, chunk "
+    "configurations or retrieval modes, and never average it as a quality metric"
 )
 
 

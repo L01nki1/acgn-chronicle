@@ -2,7 +2,7 @@
 
 Usage:
     python scripts/build_index.py --snapshot <id> --input docs.jsonl
-    python scripts/build_index.py --snapshot <id> --input docs.jsonl --config A --limit 100
+    python scripts/build_index.py --snapshot <id> --input docs.jsonl --config A --limit 100 --preview --preview-id trial1
 
 Per chunk config (A / A' / A0 - arguments of one implementation, issue #8) the pipeline is
 ``chunk_text`` -> ``Embedder.encode_passages`` behind the identity-keyed ``EmbedCache`` ->
@@ -74,7 +74,13 @@ from acgn_rag.core.embed import (
     model_spec,
 )
 from acgn_rag.core.ports import SourceType
-from acgn_rag.core.store import ChromaStore
+from acgn_rag.core.preview import (
+    create_preview_root,
+    validate_preview_options,
+    validate_snapshot_component,
+)
+from acgn_rag.core.store import ChromaStore, collection_name
+from acgn_rag.core.store.build_state import assert_no_incomplete_build, begin_build
 from acgn_rag.core.store.payload import ChunkPayload, iso_to_epoch, payload_from_fields
 
 #: Default config order: every variant in CHUNK_VARIANTS (dict order = the declared order in
@@ -166,6 +172,8 @@ class _BuildContext:
     cache: EmbedCache
     store: ChromaStore
     fresh: bool  # replace each selected collection instead of upserting into it
+    preview: bool
+    recover_incomplete: bool
 
 
 def _load_docs(path: Path, limit: int | None) -> list[IndexDoc]:
@@ -297,6 +305,11 @@ def _build_config(ctx: _BuildContext, config: str, docs: Sequence[IndexDoc]) -> 
             "(empty or blank bodies?): nothing was encoded, written or deleted"
         )
 
+    if not ctx.recover_incomplete:
+        try:
+            assert_no_incomplete_build(ctx.settings.paths.index, ctx.snapshot_id, label)
+        except ValueError as exc:
+            raise BuildError(str(exc)) from exc
     try:
         ctx.store.validate_binding(ctx.snapshot_id, label)
     except (RuntimeError, ValueError) as exc:
@@ -318,17 +331,20 @@ def _build_config(ctx: _BuildContext, config: str, docs: Sequence[IndexDoc]) -> 
     after = ctx.cache.stats()
 
     try:
+        marker = begin_build(
+            ctx.settings.paths.index, ctx.snapshot_id, label, recover=ctx.recover_incomplete
+        )
+    except (OSError, ValueError) as exc:
+        raise BuildError(f"cannot start index build: {exc}") from exc
+    try:
         if ctx.fresh:
             # Recheck ownership before deletion: preflight cannot prevent an intervening change.
             ctx.store.drop_collection(ctx.snapshot_id, label)
         collection = ctx.store.bind(ctx.snapshot_id, label)
-    except (RuntimeError, ValueError) as exc:
-        raise BuildError(f"snapshot ownership check failed: {exc}") from exc
-    # chromadb 1.5.9 accepts only Python scalars (its type check rejects np.float32), so the
-    # numpy rows coming from the encoder or the cache are flattened with .tolist() here;
-    # upsert_chunks' own `list(embedding)` keeps numpy scalars and would be rejected.
-    ctx.store.upsert_chunks(payloads, [vector.tolist() for vector in vectors])
-    stored = ctx.store.count()
+        ctx.store.upsert_chunks(payloads, [vector.tolist() for vector in vectors])
+        stored = ctx.store.count()
+    except Exception as exc:
+        raise BuildError(f"index write failed; build remains incomplete: {exc}") from exc
 
     record: dict[str, object] = {
         "snapshot_id": ctx.snapshot_id,
@@ -357,18 +373,24 @@ def _build_config(ctx: _BuildContext, config: str, docs: Sequence[IndexDoc]) -> 
         "seconds": round(time.perf_counter() - started, 3),
     }
     out_dir = ctx.settings.paths.index / ctx.snapshot_id / label
-    _atomic_write_json(
-        out_dir / "identity.json",
-        {
-            "snapshot_id": ctx.snapshot_id,
-            "config": config,
-            "label": label,
-            "collection": record["collection"],
-            "identity": ctx.identity.to_metadata(),
-            "chunker": record["chunker"],
-        },
-    )
-    _atomic_write_json(out_dir / "build.json", record)
+    identity_name = "preview-identity.json" if ctx.preview else "identity.json"
+    build_name = "preview-build.json" if ctx.preview else "build.json"
+    try:
+        _atomic_write_json(
+            out_dir / identity_name,
+            {
+                "snapshot_id": ctx.snapshot_id,
+                "config": config,
+                "label": label,
+                "collection": record["collection"],
+                "identity": ctx.identity.to_metadata(),
+                "chunker": record["chunker"],
+            },
+        )
+        _atomic_write_json(out_dir / build_name, record)
+        marker.unlink()
+    except Exception as exc:
+        raise BuildError(f"index record write failed; build remains incomplete: {exc}") from exc
     return record
 
 
@@ -412,7 +434,14 @@ def main(
         default=None,
         help="identity-keyed vector cache dir; default <data-root>/cache/embed",
     )
-    parser.add_argument("--limit", type=int, default=None, help="build from at most N documents")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="build from at most N documents (N must be positive)",
+    )
+    parser.add_argument("--preview", action="store_true", help="write to an isolated preview")
+    parser.add_argument("--preview-id", help="new preview ID under <data-root>/previews")
     parser.add_argument(
         "--max-seq-length",
         type=int,
@@ -428,7 +457,29 @@ def main(
             "collection is deleted only after the input parses and produces chunks"
         ),
     )
+    parser.add_argument(
+        "--recover-incomplete",
+        action="store_true",
+        help="recover an interrupted build with --fresh after confirming no writer is active",
+    )
     args = parser.parse_args(argv)
+    if args.limit is not None and args.limit <= 0:
+        print("--limit must be a positive integer", file=sys.stderr)
+        return 2
+    if args.recover_incomplete and not args.fresh:
+        print("--recover-incomplete requires --fresh", file=sys.stderr)
+        return 2
+    try:
+        validate_preview_options(
+            preview=args.preview, preview_id=args.preview_id, limited=args.limit is not None
+        )
+        if args.preview:
+            validate_snapshot_component(args.snapshot)
+            if args.embed_cache_dir is not None:
+                raise ValueError("--preview uses its own cache; omit --embed-cache-dir")
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
 
     input_path = Path(args.input)
     if not input_path.exists():
@@ -451,6 +502,22 @@ def main(
     settings = load_settings()
     if args.data_root:
         settings = replace(settings, paths=Paths(root=Path(args.data_root)))
+    if args.preview:
+        try:
+            preview_root = create_preview_root(settings.paths.root, args.preview_id)
+        except (OSError, ValueError) as exc:
+            print(f"cannot create preview: {exc}", file=sys.stderr)
+            return 2
+        settings = replace(settings, paths=Paths(root=preview_root))
+    try:
+        for config in configs:
+            label = _collection_label(config)
+            collection_name(args.snapshot, label)
+            if not args.recover_incomplete:
+                assert_no_incomplete_build(settings.paths.index, args.snapshot, label)
+    except ValueError as exc:
+        print(f"BUILD REJECTED: {exc}", file=sys.stderr)
+        return 2
 
     embedder = Embedder(settings.embed, model=model)
     try:
@@ -506,6 +573,8 @@ def main(
         ),
         store=ChromaStore(settings.paths.index / "chroma", settings.store),
         fresh=args.fresh,
+        preview=args.preview,
+        recover_incomplete=args.recover_incomplete,
     )
 
     # RUNBOOK §2 step 3: the configs run SEQUENTIALLY - running them in parallel
@@ -521,8 +590,10 @@ def main(
                 f"collection={record['collection']} mode={record['mode']}"
             )
             out_dir = settings.paths.index / args.snapshot / record["label"]
-            print(f"wrote {out_dir / 'identity.json'}")
-            print(f"wrote {out_dir / 'build.json'}")
+            identity_name = "preview-identity.json" if args.preview else "identity.json"
+            build_name = "preview-build.json" if args.preview else "build.json"
+            print(f"wrote {out_dir / identity_name}")
+            print(f"wrote {out_dir / build_name}")
     except BuildError as exc:
         print(f"BUILD REJECTED: {exc}", file=sys.stderr)
         return 2

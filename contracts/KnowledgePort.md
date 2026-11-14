@@ -1,8 +1,10 @@
 # KnowledgePort — contract reference
 
-> **Status: 0.2.4 source-count clarification candidate (2026-11-01).** The 0.2.3 contract merged in
-> [PR #26](https://github.com/L01nki1/acgn-chronicle/pull/26); this candidate aligns its count unit with
-> A's merged producer handoff. Examples are contract fixtures; real `curl` captures belong
+> **Status: 0.2.5 score-comparability candidate (2026-11-11).** 0.2.3 merged in
+> [PR #26](https://github.com/L01nki1/acgn-chronicle/pull/26) and 0.2.4 aligned the `source_count` unit
+> with A's merged producer handoff; 0.2.5 scopes score comparability to one identity for
+> abstention-threshold calibration only (§3.6, §5.6 of [G1aReview.md](G1aReview.md)). Examples are
+> contract fixtures; real `curl` captures belong
 > to W2 runtime verification, per the [PM's gate resolution](https://github.com/L01nki1/acgn-chronicle/issues/4#issuecomment-6502751345).
 > **Owner: B.** Frozen at **G1a (2026-11-02)**; after that, changes follow §7.
 
@@ -235,7 +237,7 @@ Publisher-level canonical grouping must not be inferred from the examples in thi
 | Field | Type | Req | Semantics |
 |---|---|---|---|
 | `chunk_id` | str | yes | stable within a snapshot |
-| `score` | float | yes | cosine similarity in `[-1, 1]`, higher is better — see below |
+| `score` | float | yes | cosine similarity in `[-1, 1]`, higher is better; comparable across queries only within one identity — see below |
 | `quote` | str | yes | **≤200 Unicode code points.** The complete text content of the response |
 | `citation` | `Citation` | yes | |
 
@@ -247,14 +249,26 @@ Assigning a quote over 200 Unicode code points raises validation failure and lea
 intact; shorter caller budgets are still allowed by the serializer. A raw dict or a validation-bypass
 constructor is not a supported outbound path: the server must use the serializer and validated wire model.
 
-**`score` semantics** (was open; decided 2026-10-28):
+**`score` semantics** (was open; decided 2026-10-28; cross-query scope confirmed by E on 2026-11-10 in its PR #67 review):
 
 - It is **cosine similarity**, `1 - distance`, computed on L2-normalised vectors. The collection must be
   created with `hnsw:space="cosine"`; with the default `l2` the number returned would be a distance.
 - **Higher is better.** Never expose a raw distance.
-- It is **ordinal within one response only**. Not comparable across queries, and **never** across chunk
-  configurations: A(512/64), A'(256/0) and A₀(512/0) put different amounts of text in a chunk, so the
-  distributions differ even for the same document. A fused (RRF) score is not a similarity at all.
+- **One identical identity is the whole comparability scope.** Retrieval scores are comparable across
+  queries only when the snapshot, chunk configuration, retrieval mode, encoder identity, top-k and
+  over-fetch are identical; per-query filters may differ. That comparability is for abstention-threshold
+  calibration only — scores are never comparable across identities and are never averaged as a quality
+  metric.
+- The identity list is not arbitrary: A(512/64), A'(256/0) and A₀(512/0) put different amounts of text in
+  a chunk, so the distributions differ even for the same document; a different encoder identity, retrieval
+  mode, `top_k` or over-fetch changes the candidate pool and therefore the top score; a fused (RRF) score
+  is not a similarity at all. Per-query filters are request scope rather than identity, which is why they
+  may differ.
+- The one sanctioned cross-query use is **abstention-threshold calibration**: `core/ground/calibration.py`
+  selects a single operating point from labelled per-item top scores, and the answerer refuses a request
+  when its best score is strictly below that threshold. The threshold belongs to the identity that
+  produced the scores, so it is recorded with that identity and never ported to another one; re-calibrate
+  when any identity field changes (RUNBOOK §3.7).
 - Consequence: **never average `score` as a quality metric**, and never put it in a comparison table.
   Cross-config comparisons use `retrieval_hit_rate` / `answer_correctness` (`docs/EVAL_PROTOCOL.md`).
 
@@ -460,7 +474,7 @@ in G1aReview §5; C approved 0.2.2 at `c8c3e88` and the 0.2.3 delta at `aac6598`
 The source-count unit in candidate 0.2.4 is a new semantic clarification requiring consumer review;
 the earlier approvals do not cover it. The separate corpus gate remains open.
 
-- [x] Decide `score`'s meaning — cosine similarity, higher is better, never comparable across configs (§3.6)
+- [x] Decide `score`'s meaning — cosine similarity, higher is better, comparable across queries only within one identity and only for threshold calibration (§3.6)
 - [x] `episode_table` — dropped from 0.2.0 rather than guessed (§3.8)
 - [x] Keep internal types out of the schema via `ports.WIRE_MODELS` (§0)
 - [x] Replace the "409 when the corpus moves" rule with immutability + retention (§2, §5)
@@ -471,6 +485,7 @@ the earlier approvals do not cover it. The separate corpus gate remains open.
 - [x] C re-reviews the 0.2.3 delta at `aac6598` ([APPROVE](https://github.com/L01nki1/acgn-chronicle/pull/26#pullrequestreview-5724246386)); approvals remain version-bound
 - [x] Notify C and F of 0.2.3 ([publication reply](https://github.com/L01nki1/acgn-chronicle/pull/26#issuecomment-6546162341)); notice sent is not F acknowledgement
 - [ ] C/E/F review the 0.2.4 source-count clarification against A's merged producer definition
+- [ ] C/F review the 0.2.5 score-comparability clarification and confirm the one-identity scope for threshold calibration (§3.6, G1aReview §5.6); E confirmed the wording in its PR #67 review, C/F notification is pending
 
 ### 8.2 W2: verify the running contract
 
