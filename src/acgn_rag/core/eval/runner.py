@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
+import time
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import UTC, datetime
@@ -438,26 +440,58 @@ def _canonical_manifest_digest(manifest: Mapping[str, Any]) -> str | None:
     return hashlib.sha256(data).hexdigest()
 
 
+EVIDENCE_PAGE_SIZE = 500
+
+
 def build_evidence_resolver(
     collection: Any,
+    *,
+    page_size: int = EVIDENCE_PAGE_SIZE,
 ) -> Callable[[Sequence[str]], Mapping[str, Sequence[str]]]:
     """Resolve gold URLs to chunk ids from the bound collection's metadata.
 
     The resolver is scoped to the collection the runner will query: a URL present in a
     different snapshot/config must stay unresolved rather than borrowing evidence.
+
+    Metadata is read in bounded pages: an unbounded `get()` on the full collection can exceed
+    SQLite's variable limit. Duplicate/overlapping ids and a final count mismatch raise instead
+    of returning a partial map. This is a consistency check, not a lock; the index must not be
+    changing while the scan runs.
     """
-    rows = collection.get(include=["metadatas"])
-    ids = list(rows.get("ids") or [])
-    metadatas = list(rows.get("metadatas") or [])
-    if len(ids) != len(metadatas):
-        raise RuntimeError("collection metadata rows are incomplete")
+    if page_size < 1:
+        raise ValueError("page_size must be >= 1")
+
     by_url: dict[str, list[str]] = {}
-    for chunk_id, metadata in zip(ids, metadatas, strict=True):
-        if not isinstance(metadata, dict):
-            continue
-        url = metadata.get("url")
-        if isinstance(url, str) and url:
-            by_url.setdefault(metrics.normalize_url(url), []).append(str(chunk_id))
+    seen: set[str] = set()
+    offset = 0
+    while True:
+        rows = collection.get(limit=page_size, offset=offset, include=["metadatas"])
+        ids = [str(chunk_id) for chunk_id in (rows.get("ids") or [])]
+        metadatas = list(rows.get("metadatas") or [])
+        if len(ids) != len(metadatas):
+            raise RuntimeError("collection metadata rows are incomplete")
+        if not ids:
+            break
+        if len(set(ids)) != len(ids) or seen.intersection(ids):
+            raise RuntimeError("collection metadata scan returned duplicate chunk ids")
+        seen.update(ids)
+        for chunk_id, metadata in zip(ids, metadatas, strict=True):
+            if not isinstance(metadata, dict):
+                continue
+            url = metadata.get("url")
+            if isinstance(url, str) and url:
+                by_url.setdefault(metrics.normalize_url(url), []).append(chunk_id)
+        if len(ids) < page_size:
+            break
+        offset += len(ids)
+
+    count = getattr(collection, "count", None)
+    if callable(count):
+        total = count()
+        if total != len(seen):
+            raise RuntimeError(
+                f"collection metadata scan incomplete: read {len(seen)} of {total} chunk ids"
+            )
 
     def resolve(urls: Sequence[str]) -> Mapping[str, Sequence[str]]:
         return {str(url): list(by_url.get(metrics.normalize_url(str(url)), [])) for url in urls}
@@ -613,12 +647,31 @@ def _item_urls(item: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(str(url) for url in urls)
 
 
+def _percentile(values: Sequence[float], fraction: float) -> float | None:
+    """Nearest-rank percentile; deterministic for the small QA sets used here."""
+    if not values:
+        return None
+    ordered = sorted(values)
+    index = max(0, math.ceil(fraction * len(ordered)) - 1)
+    return round(ordered[index], 3)
+
+
+def _latency_summary(values: Sequence[float]) -> dict[str, float | int | None]:
+    return {
+        "n": len(values),
+        "p50": _percentile(values, 0.50),
+        "p95": _percentile(values, 0.95),
+    }
+
+
 def _answer_record(
     item: Mapping[str, Any],
     chunks: Sequence[RetrievedChunk],
     answer: GroundedAnswer | None,
     diagnostics: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    diagnostics_row = diagnostics or {}
+    provider_completion = diagnostics_row.get("provider_completion") is True
     return {
         "qa_id": str(item["qa_id"]),
         "question": str(item["question"]),
@@ -629,6 +682,7 @@ def _answer_record(
         "cited_chunk_ids": list(answer.cited_chunk_ids) if answer else [],
         "abstained": answer.abstained if answer else None,
         "status": "answered" if answer else "not_run",
+        "provider_completion": provider_completion,
         "diagnostics": diagnostics,
     }
 
@@ -694,6 +748,7 @@ def run(
 
     cases: list[metrics.CaseResult] = []
     answers: list[dict[str, Any]] = []
+    retrieval_latencies: list[float] = []
     for item in items:
         gold_urls = _item_urls(item)
         window = item["window"]
@@ -703,7 +758,9 @@ def run(
             snapshot_id=spec.snapshot_id,
             filters=RetrievalFilters(since=str(window[0]), until=str(window[1])),
         )
+        started = time.perf_counter()
         chunks = search(query, store=store, embedder=embedder)
+        retrieval_latencies.append((time.perf_counter() - started) * 1000.0)
         answer: GroundedAnswer | None = None
         diagnostics: dict[str, Any] | None = None
         if answerer is not None:
@@ -781,6 +838,7 @@ def run(
             "mode": "vector",
             "top_k": spec.top_k,
             "over_fetch": spec.over_fetch,
+            "latency_ms": _latency_summary(retrieval_latencies),
         },
         "embed": _embed_metadata(spec.build_identity),
         "build_identity": dict(spec.build_identity),
@@ -831,11 +889,13 @@ def run(
     return RunResult(run_id=run_id, out_dir=out_dir, meta=meta, metrics=metrics_payload)
 
 
-def _read_jsonl_rows(path: Path) -> list[dict[str, Any]]:
-    """Read a JSONL run archive file; every row must be a JSON object."""
+def read_jsonl_rows(path: Path) -> list[dict[str, Any]]:
+    """Read a JSONL run archive file; every row must be a JSON object.
+
+    Split on LF only: JSON strings written with ``ensure_ascii=False`` may contain
+    U+2028/U+2029/U+0085, and ``str.splitlines()`` would split a record mid-JSON.
+    """
     try:
-        # Split on LF only: U+2028/U+2029/U+0085 can appear inside JP/ZH question text
-        # and must not split a JSONL record mid-JSON.
         lines = path.read_text(encoding="utf-8").split("\n")
     except OSError as exc:
         raise ValueError(f"cannot read run archive file {path}: {exc}") from exc
@@ -860,7 +920,7 @@ def _load_run_archive(
     try:
         meta = _read_json(root / "meta.json")
         metrics = _read_json(root / "metrics.json")
-        answers = _read_jsonl_rows(root / "answers.jsonl")
+        answers = read_jsonl_rows(root / "answers.jsonl")
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         raise ValueError(f"invalid run archive {root}: {exc}") from exc
     return meta, metrics, answers
@@ -1171,6 +1231,7 @@ __all__ = [
     "compare_tier1_runs",
     "load_build_records",
     "load_snapshot_member_urls",
+    "read_jsonl_rows",
     "resolve_window",
     "run",
     "verify_build_identity",

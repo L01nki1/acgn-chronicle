@@ -16,6 +16,7 @@ from acgn_rag.core.eval.runner import (
     VECTOR_IDENTITY_KEYS,
     NullAnswerer,
     RunSpec,
+    _latency_summary,
     _run_id,
     bind_existing_collection,
     build_evidence_resolver,
@@ -305,6 +306,7 @@ def test_null_answerer_marks_not_run(tmp_path: Path) -> None:
     assert answer["status"] == "not_run"
     assert answer["answer"] is None
     assert answer["abstained"] is None
+    assert answer["provider_completion"] is False
     assert result.metrics["correctness"]["rates"]["all"] == {"value": None, "n": 0}
     assert result.metrics["abstention"]["false_refusal_rate"] == {"value": None, "n": 0}
     assert result.metrics["provisional"] is True
@@ -317,6 +319,7 @@ class FakeAnswerDiagnostics:
     usage: dict[str, int] | None = None
     dropped_claims: int = 0
     abstain_code: str | None = None
+    provider_completion: bool = True
 
 
 @dataclass(frozen=True)
@@ -350,6 +353,15 @@ class DiagnosticsAnswerer:
         )
 
 
+class MetadataFreeCompletionAnswerer(DiagnosticsAnswerer):
+    def answer_with_diagnostics(self, query: Any, chunks: Any) -> FakeAnswerRun:
+        run = super().answer_with_diagnostics(query, chunks)
+        return FakeAnswerRun(
+            answer=run.answer,
+            diagnostics=FakeAnswerDiagnostics(max_tokens=1, provider_completion=True),
+        )
+
+
 def test_diagnostics_answerer_is_archived(tmp_path: Path) -> None:
     result = run(
         _spec(tmp_path),
@@ -361,13 +373,30 @@ def test_diagnostics_answerer_is_archived(tmp_path: Path) -> None:
 
     answer = json.loads((result.out_dir / "answers.jsonl").read_text(encoding="utf-8").strip())
     assert answer["status"] == "answered"
+    assert answer["provider_completion"] is True
     assert answer["diagnostics"] == {
         "max_tokens": 2048,
         "finish_reason": "stop",
         "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
         "dropped_claims": 2,
         "abstain_code": None,
+        "provider_completion": True,
     }
+
+
+def test_completion_without_optional_metadata_is_archived(tmp_path: Path) -> None:
+    result = run(
+        _spec(tmp_path),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        answerer=MetadataFreeCompletionAnswerer(),
+        qa_items=[_qa_item()],
+    )
+
+    answer = json.loads((result.out_dir / "answers.jsonl").read_text(encoding="utf-8").strip())
+    assert answer["provider_completion"] is True
+    assert answer["diagnostics"]["finish_reason"] is None
+    assert answer["diagnostics"]["usage"] is None
 
 
 def test_run_uses_item_window_as_filters(tmp_path: Path) -> None:
@@ -1238,15 +1267,25 @@ def test_file_path_qa_is_auto_validated_and_reportable(tmp_path: Path) -> None:
 
 
 class _FakeCollection:
-    def __init__(self, rows: list[dict[str, Any]]) -> None:
+    def __init__(self, rows: list[dict[str, Any]], *, omit: set[str] | None = None) -> None:
         self.rows = rows
+        self.omit = omit or set()
+        self.calls: list[tuple[int | None, int]] = []
 
-    def get(self, *, include: list[str]) -> dict[str, Any]:
+    def get(
+        self, *, include: list[str], limit: int | None = None, offset: int = 0
+    ) -> dict[str, Any]:
         assert include == ["metadatas"]
+        self.calls.append((limit, offset))
+        rows = [row for row in self.rows if row["id"] not in self.omit]
+        page = rows[offset:] if limit is None else rows[offset : offset + limit]
         return {
-            "ids": [row["id"] for row in self.rows],
-            "metadatas": [{"url": row["url"]} for row in self.rows],
+            "ids": [row["id"] for row in page],
+            "metadatas": [{"url": row["url"]} for row in page],
         }
+
+    def count(self) -> int:
+        return len(self.rows)
 
 
 def test_build_evidence_resolver_maps_normalized_urls_to_chunk_ids() -> None:
@@ -1262,6 +1301,57 @@ def test_build_evidence_resolver_maps_normalized_urls_to_chunk_ids() -> None:
     assert resolve(["https://EXAMPLE.com/news/a"]) == {"https://EXAMPLE.com/news/a": ["c1", "c2"]}
     assert resolve(["https://example.com/news/b"]) == {"https://example.com/news/b": ["c3"]}
     assert resolve(["https://example.com/news/missing"]) == {"https://example.com/news/missing": []}
+    assert collection.calls == [(500, 0)]
+
+
+def test_build_evidence_resolver_pages_metadata() -> None:
+    rows = [
+        {"id": f"c{index}", "url": f"https://example.com/news/{index}"} for index in range(1201)
+    ]
+    collection = _FakeCollection(rows)
+
+    resolve = build_evidence_resolver(collection, page_size=500)
+
+    assert collection.calls == [(500, 0), (500, 500), (500, 1000)]
+    assert resolve(["https://example.com/news/0", "https://example.com/news/1200"]) == {
+        "https://example.com/news/0": ["c0"],
+        "https://example.com/news/1200": ["c1200"],
+    }
+
+
+def test_build_evidence_resolver_reads_an_empty_collection() -> None:
+    collection = _FakeCollection([])
+
+    resolve = build_evidence_resolver(collection)
+
+    assert resolve(["https://example.com/missing"]) == {"https://example.com/missing": []}
+    assert collection.calls == [(500, 0)]
+
+
+def test_build_evidence_resolver_rejects_an_incomplete_scan() -> None:
+    rows = [
+        {"id": "c1", "url": "https://example.com/a"},
+        {"id": "c2", "url": "https://example.com/b"},
+        {"id": "c3", "url": "https://example.com/c"},
+    ]
+    collection = _FakeCollection(rows, omit={"c2"})
+
+    with pytest.raises(RuntimeError, match="scan incomplete"):
+        build_evidence_resolver(collection)
+
+
+class _StuckCollection:
+    def get(self, *, include: list[str], limit: int, offset: int) -> dict[str, Any]:
+        assert include == ["metadatas"]
+        return {"ids": ["c1"], "metadatas": [{"url": "https://example.com/a"}]}
+
+    def count(self) -> int:
+        return 2
+
+
+def test_build_evidence_resolver_rejects_duplicate_pages() -> None:
+    with pytest.raises(RuntimeError, match="duplicate chunk ids"):
+        build_evidence_resolver(_StuckCollection(), page_size=1)
 
 
 def _tier1_archive(tmp_path: Path, name: str, **overrides: object) -> Path:
@@ -1797,3 +1887,90 @@ def test_compare_tier1_runs_rejects_a_null_rate_with_nonzero_n(tmp_path: Path) -
 
     assert result["comparable"] is False
     assert result["reason"] == "metrics unavailable: retrieval.hit.all"
+
+
+def test_run_records_retrieval_latency(tmp_path: Path) -> None:
+    result = run(
+        _spec(tmp_path, run_id="latency"),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        qa_items=[_qa_item("A-001"), _qa_item("A-002")],
+    )
+
+    latency = result.meta["retrieval"]["latency_ms"]
+
+    assert latency["n"] == 2
+    assert latency["p50"] >= 0
+    assert latency["p95"] >= latency["p50"]
+
+
+def test_latency_summary_handles_no_values() -> None:
+    assert _latency_summary([]) == {"n": 0, "p50": None, "p95": None}
+
+
+class _UnboundedRejectingCollection(_FakeCollection):
+    def get(
+        self, *, include: list[str], limit: int | None = None, offset: int = 0
+    ) -> dict[str, Any]:
+        if limit is None:
+            raise AssertionError("collection.get() must be paged")
+        return super().get(include=include, limit=limit, offset=offset)
+
+
+def test_build_evidence_resolver_never_calls_get_without_limit() -> None:
+    collection = _UnboundedRejectingCollection([{"id": "c1", "url": "https://example.com/news/a"}])
+
+    resolve = build_evidence_resolver(collection)
+
+    assert resolve(["https://example.com/news/a"]) == {"https://example.com/news/a": ["c1"]}
+
+
+def test_a_prime_run_changes_only_config_identity(tmp_path: Path) -> None:
+    def _run(config: str, run_id: str, chunker: dict[str, object]) -> dict[str, Any]:
+        return run(
+            _spec(tmp_path, config=config, run_id=run_id, chunker=chunker),
+            store=FakeStore([_hit()]),
+            embedder=FakeEmbedder(),
+            qa_items=[_qa_item()],
+            evidence_resolver=lambda urls: {url: ["c1"] for url in urls},
+        ).meta
+
+    a = _run(
+        "A",
+        "matrix-a",
+        {
+            "version": "composed-input-v2",
+            "header_version": "h1",
+            "config": "A",
+            "max_tokens": 512,
+            "overlap": 64,
+            "max_seq_length": 512,
+        },
+    )
+    a_prime = _run(
+        "A'",
+        "matrix-aprime",
+        {
+            "version": "composed-input-v2",
+            "header_version": "h1",
+            "config": "A'",
+            "max_tokens": 256,
+            "overlap": 0,
+            "max_seq_length": 512,
+        },
+    )
+
+    for name in ("snapshot_id", "window_start", "window_end"):
+        assert a[name] == a_prime[name], name
+    for name in ("mode", "top_k", "over_fetch"):
+        assert a["retrieval"][name] == a_prime["retrieval"][name], name
+    assert a["qa"]["inputs_fingerprint"] == a_prime["qa"]["inputs_fingerprint"]
+    assert a["build_identity"] == a_prime["build_identity"]
+    assert a["embed"] == a_prime["embed"]
+    for name in ("version", "header_version", "max_seq_length"):
+        assert a["chunker"][name] == a_prime["chunker"][name], name
+
+    assert a["chunk_config"] != a_prime["chunk_config"]
+    assert a["chunker"]["config"] != a_prime["chunker"]["config"]
+    assert a["chunker"]["max_tokens"] != a_prime["chunker"]["max_tokens"]
+    assert a["chunker"]["overlap"] != a_prime["chunker"]["overlap"]

@@ -43,7 +43,7 @@ class FakeAnswerClient:
 
     def complete(self, system: str, user: str, *, max_tokens: int) -> Completion:
         self.calls.append((system, user, max_tokens))
-        return Completion(text=self.response, finish_reason="stop")
+        return Completion(text=self.response)
 
 
 def _citation(index: int, *, chunk_id: str | None = None) -> Citation:
@@ -318,7 +318,17 @@ def test_default_answer_budget_is_above_the_reasoning_floor_and_can_be_overridde
     assert override.calls[0][2] == 3072
 
 
-def test_run_diagnostics_record_completion_metadata_and_dropped_claims() -> None:
+@pytest.mark.parametrize(
+    ("finish_reason", "usage"),
+    [
+        ("stop", {"prompt_tokens": 30, "completion_tokens": 12, "total_tokens": 42}),
+        (None, None),
+    ],
+)
+def test_run_diagnostics_record_completion_metadata_and_dropped_claims(
+    finish_reason: str | None,
+    usage: dict[str, int] | None,
+) -> None:
     class MetadataClient(FakeAnswerClient):
         def complete(self, system: str, user: str, *, max_tokens: int) -> Completion:
             self.calls.append((system, user, max_tokens))
@@ -329,20 +339,17 @@ def test_run_diagnostics_record_completion_metadata_and_dropped_claims() -> None
                         {"text": "Malformed claim.", "evidence_indices": ["1"]},
                     ]
                 ),
-                finish_reason="stop",
-                usage={"prompt_tokens": 30, "completion_tokens": 12, "total_tokens": 42},
+                finish_reason=finish_reason,
+                usage=usage,
             )
 
     run = generate_grounded_answer_run(_query(), [_chunk(1)], MetadataClient(""))
 
     assert run.answer.answer == "Supported fact. [1]"
     assert run.diagnostics.max_tokens == 2048
-    assert run.diagnostics.finish_reason == "stop"
-    assert run.diagnostics.usage == {
-        "prompt_tokens": 30,
-        "completion_tokens": 12,
-        "total_tokens": 42,
-    }
+    assert run.diagnostics.provider_completion is True
+    assert run.diagnostics.finish_reason == finish_reason
+    assert run.diagnostics.usage == usage
     assert run.diagnostics.dropped_claims == 1
     assert run.diagnostics.abstain_code is None
 
@@ -406,11 +413,13 @@ def test_empty_evidence_refusal_uses_the_question_language(question: str, expect
 def test_abstention_diagnostics_distinguish_the_abstention_causes() -> None:
     no_evidence = generate_grounded_answer_run(_query(), [], FakeAnswerClient(_response([])))
     assert no_evidence.diagnostics.abstain_code == ABSTAIN_NO_EVIDENCE
+    assert no_evidence.diagnostics.provider_completion is False
 
     model_empty = generate_grounded_answer_run(
         _query(), [_chunk(1)], FakeAnswerClient(_response([]))
     )
     assert model_empty.diagnostics.abstain_code == ABSTAIN_MODEL_EMPTY
+    assert model_empty.diagnostics.provider_completion is True
 
     rejected = generate_grounded_answer_run(
         _query(),
@@ -419,6 +428,7 @@ def test_abstention_diagnostics_distinguish_the_abstention_causes() -> None:
     )
     assert rejected.diagnostics.abstain_code == ABSTAIN_ALL_CLAIMS_REJECTED
     assert rejected.diagnostics.dropped_claims == 1
+    assert rejected.diagnostics.provider_completion is True
 
 
 def test_from_config_passes_the_configured_answer_budget(
