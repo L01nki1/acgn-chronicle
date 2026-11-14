@@ -102,6 +102,23 @@ def test_live_validation_accepts_an_answered_run(tmp_path: Path) -> None:
     assert run_eval._validate_live_run(result) == []
 
 
+def test_live_validation_accepts_unicode_line_separators(tmp_path: Path) -> None:
+    """A question may contain U+2028/U+2029/U+0085; these must not split the JSONL row."""
+    row = {
+        "qa_id": "A-001",
+        "status": "answered",
+        "answer": "ok",
+        "question": "pre\u2028mid\u2029end\u0085tail",
+        "provider_completion": True,
+    }
+    (tmp_path / "answers.jsonl").write_text(
+        json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    result = SimpleNamespace(out_dir=tmp_path, meta={"llm": _live_llm()})
+
+    assert run_eval._validate_live_run(result) == []
+
+
 def test_live_validation_rejects_unanswered_and_missing_provenance(tmp_path: Path) -> None:
     result = _live_result(
         tmp_path,

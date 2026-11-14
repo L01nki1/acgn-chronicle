@@ -889,11 +889,13 @@ def run(
     return RunResult(run_id=run_id, out_dir=out_dir, meta=meta, metrics=metrics_payload)
 
 
-def _read_jsonl_rows(path: Path) -> list[dict[str, Any]]:
-    """Read a JSONL run archive file; every row must be a JSON object."""
+def read_jsonl_rows(path: Path) -> list[dict[str, Any]]:
+    """Read a JSONL run archive file; every row must be a JSON object.
+
+    Split on LF only: JSON strings written with ``ensure_ascii=False`` may contain
+    U+2028/U+2029/U+0085, and ``str.splitlines()`` would split a record mid-JSON.
+    """
     try:
-        # Split on LF only: U+2028/U+2029/U+0085 can appear inside JP/ZH question text
-        # and must not split a JSONL record mid-JSON.
         lines = path.read_text(encoding="utf-8").split("\n")
     except OSError as exc:
         raise ValueError(f"cannot read run archive file {path}: {exc}") from exc
@@ -918,7 +920,7 @@ def _load_run_archive(
     try:
         meta = _read_json(root / "meta.json")
         metrics = _read_json(root / "metrics.json")
-        answers = _read_jsonl_rows(root / "answers.jsonl")
+        answers = read_jsonl_rows(root / "answers.jsonl")
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         raise ValueError(f"invalid run archive {root}: {exc}") from exc
     return meta, metrics, answers
@@ -1229,6 +1231,7 @@ __all__ = [
     "compare_tier1_runs",
     "load_build_records",
     "load_snapshot_member_urls",
+    "read_jsonl_rows",
     "resolve_window",
     "run",
     "verify_build_identity",

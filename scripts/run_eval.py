@@ -37,6 +37,7 @@ from acgn_rag.core.eval.runner import (
     build_evidence_resolver,
     load_build_records,
     load_snapshot_member_urls,
+    read_jsonl_rows,
     resolve_window,
     run,
     verify_build_identity,
@@ -218,9 +219,12 @@ def _validate_live_run(result: RunResult) -> list[str]:
         problems.append("meta.determinism.gpu_model is unset for a CUDA encoder")
 
     path = result.out_dir / "answers.jsonl"
-    rows = [
-        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
-    ]
+    try:
+        rows = read_jsonl_rows(path)
+    except ValueError as exc:
+        # The archive was just written; a parse failure is an archive defect, not a crash.
+        problems.append(f"answers.jsonl is unreadable: {exc}")
+        return problems
     if not rows:
         problems.append("answers.jsonl is empty")
         return problems
