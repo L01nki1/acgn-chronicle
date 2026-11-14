@@ -299,7 +299,7 @@ class MockKnowledgePort:
             citations.append(excerpt.citation)
 
         answer = (
-            "（G1a 模拟回答）本次检索返回 "
+            "（模拟回答）本次检索返回 "
             f"{len(excerpts)} 条片段，最相关来源为 {excerpts[0].citation.publisher}"
             f"（{excerpts[0].citation.source_type}）。以下引用均来自本次检索结果；"
             "客户端只展示，不补全或改写原文。"

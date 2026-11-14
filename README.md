@@ -55,25 +55,48 @@ wheels verified on the embed lane). Install [uv](https://docs.astral.sh/uv/), th
 ```bash
 uv sync --extra dev                      # provisions 3.13 + .venv from uv.lock; no model download, no torch
 uv run python scripts/install_hooks.py   # optional: run the gates locally on commit/push
-cp .env.example .env                     # fill in keys only when you need the LLM
+cp .env.example .env                     # fill in keys only when you need the LLM (loaded by load_settings)
 ```
 
 > `[embed]` (sentence-transformers + torch) and `[store]` (chromadb) are heavy extras; install on demand:
 > `uv sync --extra dev --extra embed --extra store` (on Linux `pyproject.toml` already resolves the CPU
 > torch wheel). Plain `pip install -e ".[dev]"` still works for the lightweight local setup.
+> The corpus itself is distributed out of band — `docs/RUNBOOK.md` §2 is the only place with those steps.
 
-### G1a query page (mock)
+### Reproduce the demo in one command
 
-The WP6 page ships before retrieval and generation exist. It talks only to the contract routes and
-serves a fixed, clearly fictional mock (`example.com` URLs):
+```bash
+uv run python scripts/demo.py            # /snapshots -> /retrieve -> /ask, offline, then exits
+uv run python scripts/demo.py --json     # the same transcript as JSON
+```
+
+It drives the real ASGI app through an HTTP test client with the fixed mock backend, so the printed
+payloads are the wire shapes a browser receives. Expect one citation per result card with publisher,
+`source_type`, date, URL and `chunk_id`; a citation without a URL is dropped whole; an empty result and
+an explicit refusal print as different states.
+
+### Open the page
 
 ```bash
 uv run python -m acgn_rag.web          # http://127.0.0.1:8000
 ```
 
-The first screen runs a default query. Typing a question renders result cards; a citation without a
-URL is dropped whole, quotes are clipped again client-side to 200 code points, and an empty result is
-rendered differently from an explicit refusal. Details: [`src/acgn_rag/web/README.md`](src/acgn_rag/web/README.md).
+The first screen runs a default query. Quotes are clipped again client-side to 200 code points, and a
+citation URL opens the original source in a new window (`noopener noreferrer`). Details:
+[`src/acgn_rag/web/README.md`](src/acgn_rag/web/README.md).
+
+### Call the wire contract directly
+
+```bash
+uv run python -m acgn_rag.web &        # the mock host from above
+curl -sS http://127.0.0.1:8000/snapshots
+curl -sS -X POST http://127.0.0.1:8000/ask -H 'Content-Type: application/json' \
+  -d '{"text":"第二季什么时候开播？","top_k":3,"snapshot_id":"20261030-abcdef012345"}'
+```
+
+Against a real snapshot and index the same routes are served by the harness in
+`scripts/smoke_e2e.py`; building that index and running the evaluation is `scripts/build_index.py` and
+`scripts/run_eval.py`, both documented in `docs/RUNBOOK.md` §1–§3.
 
 CI installs `dev`, `store` and `llm` with `uv sync --frozen --extra dev --extra store --extra llm`,
 so the Chroma tests run on all three platforms. It does not install the `embed` extra or torch;
