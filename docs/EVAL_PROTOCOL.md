@@ -192,7 +192,7 @@ number alone invites the obvious objection. The calibration set's own rates may 
 
 | File | Content |
 |---|---|
-| `meta.json` | snapshot, window, config, retrieval settings, **embed identity (model / backend / device / precision / library versions / batch)**, **chunker identity (`version` / `header_version` / `config` / `max_tokens` / `overlap` / `max_seq_length`)**, llm provider/model/version/temperature/seed, git sha, metrics |
+| `meta.json` | snapshot, window, config, retrieval settings, **embed identity (model / backend / device / precision / library versions / batch)**, **chunker identity (`version` / `header_version` / `config` / `max_tokens` / `overlap` / `max_seq_length`)**, **`build_identity.identity_slug`**, llm provider/model/version/temperature/seed, **abstention threshold, its calibration-run provenance and full `calibration_identity`** (§6, `docs/RUNBOOK.md` §3.7), git sha, metrics |
 | `answers.jsonl` | the exact generated outputs that were graded — frozen, so grading can be replayed without the model |
 | `labels.jsonl` | the human labels, per item, with annotator |
 | `metrics.json` | the numbers the report quotes — retrieval totals carry **per-language blocks (`all` / `en` / `zh`) beside them** (§3.1) |
@@ -209,13 +209,31 @@ number alone invites the obvious objection. The calibration set's own rates may 
   "chunker": {"version": "composed-input-v2", "header_version": "h1", "config": "A", "max_tokens": 512, "overlap": 64, "max_seq_length": 512},
   "retrieval": {"mode": "vector", "top_k": 5, "over_fetch": 5},
   "embed": {"model": "intfloat/multilingual-e5-base", "backend": "torch", "device": "cpu", "precision": "fp32", "library_versions": {"torch": "2.15.0", "sentence_transformers": "6.1.0"}, "batch": 32},
+  "build_identity": {"model": "intfloat/multilingual-e5-base", "backend": "torch", "device": "cpu", "precision": "fp32", "batch_size": 32, "lib_torch": "2.15.0", "lib_sentence_transformers": "6.1.0", "identity_slug": "<encoder_identity_slug of this build>"},
   "llm": {"provider": "...", "model": "...", "version": "...", "temperature": 0.0, "seed": 0},
+  "abstention": {
+    "threshold": "<float selected by choose_threshold()>",
+    "source": "eval/runs/<calibration_run_id>/calibration.json",
+    "calibration_identity": {
+      "snapshot_id": "20261028abcdef",
+      "chunk_config": "A",
+      "chunker": {"version": "composed-input-v2", "header_version": "h1", "config": "A", "max_tokens": 512, "overlap": 64, "max_seq_length": 512},
+      "retrieval": {"mode": "vector", "top_k": 5, "over_fetch": 5},
+      "embed": {"model": "intfloat/multilingual-e5-base", "backend": "torch", "device": "cpu", "precision": "fp32", "library_versions": {"torch": "2.15.0", "sentence_transformers": "6.1.0"}, "batch": 32},
+      "encoder_identity_slug": "<encoder_identity_slug of this build>"
+    }
+  },
   "git_sha": "...",
   "metrics": {"retrieval_hit_rate": {"all": 0.0, "en": 0.0, "zh": 0.0}, "evidence_recall": {"all": 0.0, "en": 0.0, "zh": 0.0}, "answer_correctness": {}, "abstention_accuracy": {}}
 }
 ```
 
 - **A run without `snapshot_id` or `window` is invalid** (invariant 2, spec 02).
+- **A run with an abstention threshold whose `calibration_identity` does not equal its own identity is invalid and non-reportable** (`docs/RUNBOOK.md` §3.7, `ports.SCORE_SEMANTICS`, DECISIONS 2026-11-11). The identity is the complete set of `snapshot_id`, `chunk_config` + the six `chunker` fields, `retrieval.mode` + `top_k` + `over_fetch`, the full `embed` field set (model / backend / device / precision / library versions / batch), and `build_identity.identity_slug`. Scores are comparable across queries only inside that one identity, so a threshold calibrated elsewhere must never be ported; re-calibrate when any field changes.
+- **When no pre-generation threshold is applied, `meta.abstention` is `{"threshold": null, "source": null, "calibration_identity": null}`.** `null` means "no score gate applied", never `0.0`. A non-null `source` or `calibration_identity` with a null `threshold` is invalid. The block is **always present**, including on retrieval-only archives, where it records explicitly that no gate was applied rather than leaving absence to be inferred.
+- **`calibration_identity.encoder_identity_slug` must equal the run's `build_identity.identity_slug` exactly**, and that slug must describe the same encoder build as `embed`: a CPU/fp32 `embed` cannot be paired with a CUDA/fp32 slug. A model name alone does not establish comparability. The runner writes `build_identity` into `meta.json` (`src/acgn_rag/core/eval/runner.py`); `identity_slug` comes from `EncoderIdentity.slug()`, which hashes the model, backend, device, precision and library versions. The abstention identity deliberately includes `batch` even though `verify_build_identity` treats `batch_size` as run metadata for vector comparison — a threshold can move with batching even when the vectors themselves do not, so the two scopes are intentionally different. The `embed` field set must agree with `build_identity`'s `lib_*` normalization: the runner derives both from one identity object, so a hand-edited archive that diverges is invalid.
+- **`threshold` is the JSON number this run actually used as `ACGN_ANSWER_MIN_RETRIEVAL_SCORE`**, selected by `core/ground/calibration.py::choose_threshold()` from labelled per-item top retrieval scores over `eval/abstain_calibration.jsonl` (§6). `source` names the archived abstention calibration run holding `CalibrationResult.to_metadata()` and its identity; the labelled set is that run's input, not its provenance. **`eval/snapshot_evidence.json#threshold_sweep_20261105` is the dedup auxiliary-channel sweep** (`docs/RUNBOOK.md` §3.3): its 0.86 is a clustering threshold, never an abstention threshold. In-sample calibration rates stay in the calibration artifact and are never quoted as QA-set metrics.
+- **Angle-bracket values in the example are placeholders, not measured results.** A real `meta.json` stores a number in `threshold`, a concrete run id in `source` and a concrete slug in `identity_slug`; no threshold is recordable until the calibration run at this identity has been archived. A retrieval-only archive (the default live mode until calibration exists, and every A/A′ archive today) records `"abstention": {"threshold": null, "source": null, "calibration_identity": null}` in the same block.
 - **Every number in the report carries a `run_id`.** A number produced in an interactive session, or in a
   notebook cell that was not archived as a run, is not reportable. If it is worth printing, it is worth
   archiving.
