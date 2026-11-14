@@ -1,78 +1,33 @@
 {
   "snapshot_id": "20261105-d797b5f0ae8e",
   "threshold": 0.86,
-  "generated_by": "scripts/dedup_diff.py --snapshot 20261105-d797b5f0ae8e",
-  "status": "open — needs A's confirmation before the threshold freezes",
-  "what_matches": {
+  "snapshot": {
     "items": 36167,
     "clusters": 36121,
     "non_singleton": 46,
-    "member_pairs": 46,
-    "cluster_id_set_identical": true,
-    "note": "cluster_items on the frozen items.jsonl reproduces the published clusters.jsonl exactly at 0.86, including every cluster_id"
+    "collapsed": 46
   },
-  "what_does_not_match": {
-    "recorded_sweep_row_at_0_86": {
-      "cluster_count": 36127,
-      "non_singleton_clusters": 41,
-      "total_items": 36168,
-      "source": "eval/snapshot_evidence.json threshold_sweep_20261105.sweep_table"
-    },
-    "recorded_sample_clusters": 25,
-    "recorded_sample_clusters_absent_from_snapshot": [
-      "cluster_1b2163bc593b6eef",
-      "cluster_0f170789bb356b78"
-    ],
-    "recorded_pairs_whose_cosine_no_longer_reproduces": [
-      {
-        "cluster_id": "cluster_1b2163bc593b6eef",
-        "recorded_cosine": 0.8684,
-        "recomputed_cosine": 0.7526,
-        "titles": [
-          "Cygames Cancels Uma Musume: Pretty Derby Franchise's U.S. Concerts Due to Visa Issues",
-          "Cygames Cancels Uma Musume: Pretty Derby Franchise's U.S. Concerts"
-        ]
-      },
-      {
-        "cluster_id": "cluster_0f170789bb356b78",
-        "recorded_cosine": 0.9024,
-        "recomputed_cosine": 0.8589,
-        "titles": [
-          "Fate/EXTRA Record Game Streams Character Video for Archer",
-          "Fate/Extra Record Game Reveals Character Video for Caster"
-        ]
-      }
-    ],
-    "interpretation": "The recorded sweep was produced by a different clustering run than the one that published the snapshot: its input count is 36,168 (one more than the frozen 36,167), two of its 25 sample clusters do not exist in the frozen clusters.jsonl, and two recorded cosines differ from the current similarity function. The frozen snapshot itself is internally consistent, so the sweep table cannot be cited as the G1b calibration evidence until A says which run is authoritative."
+  "reproduced": {
+    "items": 36167,
+    "clusters": 36121,
+    "non_singleton": 46,
+    "collapsed": 46
   },
-  "pairs_worth_a_second_look": [
-    {
-      "cluster_id": "cluster_0f430642be472ca7",
-      "channel": "primary (media_ids [203] + event_type broadcast)",
-      "members": [
-        "doc_02d8a23b3d2e31565bbdc90bfdf23865459f2b8d30c73b4d85ec23a9b000e738 ja nijimen-news 【2026年最新版】『名探偵プリキュア！』キャラクター一覧！",
-        "doc_92bde677129b28b5fd24f4ce166a5e4370622491f2314b10a1dcaebdc4843d74 en ann-news Precure Franchise Streams 'Baton-Passing' Video"
-      ],
-      "why": "the primary channel merges a Japanese character-profile article with an English streaming announcement for the same franchise; the 72h window and the (media_ids, event_type) key are satisfied, but they are not the same event"
-    },
-    {
-      "cluster_id": "cluster_5a901a05fcdc5d1f",
-      "channel": "primary (media_ids [302] + event_type release)",
-      "members": [
-        "doc_18434ffe2231c60f en ann-news Crunchyroll Acquires Indian Rights to The Apothecary Diaries Anime Film",
-        "doc_3cda58bf0bb7783b ja realsound-acgn ヨルシカ、TVアニメ『薬屋のひとりごと』第3期第1クールOPテーマ「雲を抜け風下へ私だけ」リリース"
-      ],
-      "why": "same franchise, different event (licensing vs a theme-song release); the primary channel does not compare titles across languages"
-    },
-    {
-      "cluster_id": "cluster_4ccb59341083f46b",
-      "channel": "auxiliary (cosine 0.8639)",
-      "members": [
-        "doc_5a9f814a7287 ja nijimen-news 『鬼滅の刃』一番好きな柱を教えて！【アンケート】",
-        "doc_9d2323c36e1f ja nijimen-news 『薬屋のひとりごと』一番好きなキャラクターを教えて！【アンケート】"
-      ],
-      "why": "two different works' reader polls merged by template similarity alone; this is the failure mode the hand-label sheet exists to catch"
-    }
-  ],
-  "next": "label eval/dedup_g1b/label_sheet.csv (30 rows per threshold, 120 total), then python scripts/calibrate_dedup.py --score"
+  "recorded_sweep_row": {
+    "cluster_count": 36121,
+    "clustered_duplicates_collapsed": 46,
+    "non_singleton_clusters": 46,
+    "threshold": 0.86,
+    "total_items": 36167
+  },
+  "cluster_id_set_identical": true,
+  "member_sets_identical": true,
+  "item_counts_match": true,
+  "matches_snapshot": true,
+  "clusters_only_in_snapshot": 0,
+  "clusters_only_in_reproduction": 0,
+  "reason_histogram": {
+    "aux_above_threshold": 8,
+    "primary_channel_should_merge": 17
+  }
 }

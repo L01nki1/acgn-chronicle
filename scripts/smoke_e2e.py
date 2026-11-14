@@ -572,6 +572,14 @@ def main(argv: list[str] | None = None) -> int:
         report["steps"]["ask"] = _ask(
             args.snapshot, work_root, data_root, settings, args.top_k, report["steps"]["retrieval"]
         )
+        facts = report["steps"]["facts"]
+        if facts["rows_with_provenance"] < facts["rows"]:
+            raise RuntimeError("L0 fact rows are missing chunk_id/url provenance (G1b)")
+        ask = report["steps"]["ask"]
+        if ask["status_code"] != 200:
+            raise RuntimeError(f"/ask returned HTTP {ask['status_code']} (G2 wire contract)")
+        if not ask["abstained"] and not ask["cited_subset_of_retrieved"]:
+            raise RuntimeError("cited chunks outside the retrieved set (G2 hard check 4)")
     except Exception as exc:  # report the failing step rather than a bare traceback
         report["error"] = f"{type(exc).__name__}: {exc}"
     report["total_seconds"] = round(time.monotonic() - started, 3)

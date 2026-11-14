@@ -4,7 +4,8 @@ Owner: F (WP2) | Spec: docs/RUNBOOK.md §3.3
 
 These tests pin the *tooling* around the hand-labelling, never a label: the sweep must be
 deterministic on a frozen snapshot, the sheet must sample the whole cosine range instead of
-its top, and the scorer must refuse to invent precision from an unlabelled or incomplete sheet.
+its top with enough **aux** pairs to meet the gate, and the scorer must refuse to invent
+precision from an unlabelled, sparse, or channel-less sheet.
 """
 
 from __future__ import annotations
@@ -67,7 +68,8 @@ def test_score_refuses_an_unlabelled_sheet(
 ) -> None:
     sheet = tmp_path / "sheet.csv"
     sheet.write_text(
-        "threshold,pair_id,decision\n0.86,0.86-01,\n0.86,0.86-02,duplicate\n", encoding="utf-8"
+        "threshold,pair_id,channel,decision\n0.86,0.86-01,aux,\n0.86,0.86-02,aux,duplicate\n",
+        encoding="utf-8",
     )
     assert calibrate_dedup._score(sheet) == 2
     assert "unlabelled" in capsys.readouterr().err
@@ -75,58 +77,92 @@ def test_score_refuses_an_unlabelled_sheet(
 
 def test_score_rejects_an_unknown_decision(tmp_path: Path) -> None:
     sheet = tmp_path / "sheet.csv"
-    sheet.write_text("threshold,pair_id,decision\n0.86,0.86-01,maybe\n", encoding="utf-8")
+    sheet.write_text(
+        "threshold,pair_id,channel,decision\n0.86,0.86-01,aux,maybe\n", encoding="utf-8"
+    )
     assert calibrate_dedup._score(sheet) == 2
 
 
-def test_score_reports_precision_per_threshold(
+def test_score_rejects_a_sheet_without_channels(tmp_path: Path) -> None:
+    """E's #75 review, P3: without the channel column the gate cannot be aux-scoped."""
+    sheet = tmp_path / "sheet.csv"
+    sheet.write_text("threshold,pair_id,decision\n0.86,0.86-01,duplicate\n", encoding="utf-8")
+    assert calibrate_dedup._score(sheet) == 2
+    # The error is not raised in exploratory mode; the report just cannot be gate evidence.
+    assert calibrate_dedup._score(sheet, exploratory=True) == 2
+
+
+def test_score_reports_aux_precision_per_threshold(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sheet = tmp_path / "sheet.csv"
     sheet.write_text(
-        "threshold,pair_id,decision\n"
-        "0.82,0.82-01,duplicate\n"
-        "0.82,0.82-02,not_duplicate\n"
-        "0.82,0.82-03,skip\n"
-        "0.86,0.86-01,duplicate\n"
-        "0.86,0.86-02,duplicate\n",
+        "threshold,pair_id,channel,decision\n"
+        "0.82,0.82-01,aux,duplicate\n"
+        "0.82,0.82-02,aux,not_duplicate\n"
+        "0.82,0.82-03,primary,skip\n"
+        "0.82,0.82-04,primary,duplicate\n"
+        "0.86,0.86-01,aux,duplicate\n"
+        "0.86,0.86-02,aux,duplicate\n",
         encoding="utf-8",
     )
     assert calibrate_dedup._score(sheet, exploratory=True) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["mode"].startswith("exploratory")
     assert report["thresholds"]["0.82"] == {
-        "judged": 2,
+        "judged_aux": 2,
+        "aux_duplicate": 1,
+        "aux_precision": 0.5,
+        "judged_primary": 1,
+        "primary_duplicate": 1,
+        "primary_precision": 1.0,
         "skipped": 1,
-        "duplicate": 1,
-        "not_duplicate": 1,
-        "precision": 0.5,
         "insufficient": True,
     }
-    assert report["thresholds"]["0.86"]["precision"] == 1.0
+    assert report["thresholds"]["0.86"]["aux_precision"] == 1.0
 
 
-def test_sample_keeps_the_head_and_spreads_the_rest() -> None:
-    pairs = [{"cosine": 1.0 - index / 100} for index in range(100)]
+def test_sample_keeps_the_aux_head_and_spreads_the_rest() -> None:
+    pairs = [{"cosine": 1.0 - index / 100, "channel": "aux"} for index in range(100)] + [
+        {"cosine": 0.1, "channel": "primary"} for index in range(40)
+    ]
     sample = calibrate_dedup._sample(pairs, 30)
     assert len(sample) == 30
-    assert sample[: calibrate_dedup.HEAD_ROWS] == pairs[: calibrate_dedup.HEAD_ROWS]
-    # The spread reaches well below the head instead of stopping at the top of the range.
-    assert sample[-1]["cosine"] < pairs[calibrate_dedup.HEAD_ROWS]["cosine"]
+    aux_rows = [pair for pair in sample if pair["channel"] == "aux"]
+    primary_rows = [pair for pair in sample if pair["channel"] == "primary"]
+    # The gate minimum is aux pairs: 20 of them (head + spread), never swapped away.
+    assert len(aux_rows) == calibrate_dedup.PAIRS_PER_THRESHOLD
+    assert aux_rows[0]["cosine"] == 1.0
+    # The aux spread reaches below the head instead of stopping at the top of the range.
+    assert aux_rows[-1]["cosine"] < pairs[calibrate_dedup.HEAD_ROWS]["cosine"]
+    assert len(primary_rows) == 10
 
 
 def test_sample_returns_everything_when_the_cluster_has_few_pairs() -> None:
-    pairs = [{"cosine": 0.9}, {"cosine": 0.5}]
+    pairs = [
+        {"cosine": 0.9, "channel": "aux"},
+        {"cosine": 0.5, "channel": "primary"},
+    ]
     assert calibrate_dedup._sample(pairs, 30) == pairs
+
+
+def test_sample_takes_every_aux_pair_when_the_threshold_has_fewer_than_the_minimum() -> None:
+    """At 0.88 many pairs are primary-only; the sheet must still carry every aux pair."""
+    pairs = [{"cosine": 0.9, "channel": "aux"} for _ in range(6)]
+    pairs.extend({"cosine": 0.1, "channel": "primary"} for _ in range(40))
+    sample = calibrate_dedup._sample(pairs, 30)
+    assert len(sample) == 30
+    assert sum(1 for pair in sample if pair["channel"] == "aux") == 6
 
 
 def test_score_marks_an_insufficient_sheet_for_the_gate(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """F's #75 review, P2: 1 judged + 29 skips must not read as gate evidence."""
-    rows = ["threshold,pair_id,decision"]
-    rows.append("0.86,0.86-01,duplicate")
-    rows.extend(f"0.86,0.86-{index:02d},skip" for index in range(2, 31))
+    """E's #75 review, P3: primary pairs never count towards the aux gate."""
+    rows = ["threshold,pair_id,channel,decision"]
+    rows.append("0.86,0.86-01,aux,duplicate")
+    rows.extend(f"0.86,0.86-{index:02d},aux,skip" for index in range(2, 26))
+    rows.extend(f"0.86,0.86-{index:02d},primary,duplicate" for index in range(26, 31))
     sheet = tmp_path / "sheet.csv"
     sheet.write_text("\n".join(rows) + "\n", encoding="utf-8")
 
@@ -137,21 +173,26 @@ def test_score_marks_an_insufficient_sheet_for_the_gate(
     assert report["gate"] == "INSUFFICIENT"
     assert report["required_judged_per_threshold"] == 20
     threshold = report["thresholds"]["0.86"]
-    assert threshold["judged"] == 1
-    assert threshold["skipped"] == 29
+    assert threshold["judged_aux"] == 1
+    assert threshold["judged_primary"] == 5
+    assert threshold["skipped"] == 24
     assert threshold["insufficient"] is True
-    assert "insufficient hand labels" in captured.err
+    assert "aux judged 1/20" in captured.err
 
 
 def test_score_passes_a_sufficient_gate_sheet(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Gate evidence needs all four sweep values, each with distinct judged pairs."""
-    rows = ["threshold,pair_id,decision"]
+    """Gate evidence needs all four sweep values, each with distinct judged aux pairs."""
+    rows = ["threshold,pair_id,channel,decision"]
     for threshold in calibrate_dedup.REQUIRED_THRESHOLDS:
-        rows.extend(f"{threshold},{threshold}-{index:02d},duplicate" for index in range(1, 21))
-        rows.extend(f"{threshold},{threshold}-{index:02d},not_duplicate" for index in range(21, 26))
-        rows.extend(f"{threshold},{threshold}-{index:02d},skip" for index in range(26, 31))
+        rows.extend(f"{threshold},{threshold}-{index:02d},aux,duplicate" for index in range(1, 21))
+        rows.extend(
+            f"{threshold},{threshold}-{index:02d},aux,not_duplicate" for index in range(21, 26)
+        )
+        rows.extend(
+            f"{threshold},{threshold}-{index:02d},primary,duplicate" for index in range(26, 31)
+        )
     sheet = tmp_path / "sheet.csv"
     sheet.write_text("\n".join(rows) + "\n", encoding="utf-8")
 
@@ -162,18 +203,20 @@ def test_score_passes_a_sufficient_gate_sheet(
     assert report["missing_thresholds"] == []
     for threshold in calibrate_dedup.REQUIRED_THRESHOLDS:
         entry = report["thresholds"][threshold]
-        assert entry["judged"] == 25
-        assert entry["skipped"] == 5
+        assert entry["judged_aux"] == 25
+        assert entry["aux_duplicate"] == 20
+        assert entry["aux_precision"] == 0.8
+        assert entry["judged_primary"] == 5
+        assert entry["primary_precision"] == 1.0
         assert entry["insufficient"] is False
-        assert entry["precision"] == 0.8
 
 
 def test_score_rejects_a_single_threshold_gate_sheet(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """F's #75 re-review, P2: 20 judgements for 0.86 alone is not a four-value sweep."""
-    rows = ["threshold,pair_id,decision"]
-    rows.extend(f"0.86,0.86-{index:02d},duplicate" for index in range(1, 21))
+    rows = ["threshold,pair_id,channel,decision"]
+    rows.extend(f"0.86,0.86-{index:02d},aux,duplicate" for index in range(1, 21))
     sheet = tmp_path / "sheet.csv"
     sheet.write_text("\n".join(rows) + "\n", encoding="utf-8")
 
@@ -182,7 +225,7 @@ def test_score_rejects_a_single_threshold_gate_sheet(
     report = json.loads(captured.out)
     assert report["gate"] == "INSUFFICIENT"
     assert report["missing_thresholds"] == ["0.82", "0.84", "0.88"]
-    assert report["thresholds"]["0.86"]["judged"] == 20
+    assert report["thresholds"]["0.86"]["judged_aux"] == 20
     assert "insufficient hand labels" in captured.err
 
 
@@ -190,9 +233,9 @@ def test_score_counts_distinct_pairs_not_rows(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """One pair_id repeated 20 times must not read as 20 hand-checked pairs."""
-    rows = ["threshold,pair_id,decision"]
+    rows = ["threshold,pair_id,channel,decision"]
     for threshold in calibrate_dedup.REQUIRED_THRESHOLDS:
-        rows.extend(f"{threshold},{threshold}-01,duplicate" for _ in range(20))
+        rows.extend(f"{threshold},{threshold}-01,aux,duplicate" for _ in range(20))
     sheet = tmp_path / "sheet.csv"
     sheet.write_text("\n".join(rows) + "\n", encoding="utf-8")
 
@@ -200,7 +243,7 @@ def test_score_counts_distinct_pairs_not_rows(
     report = json.loads(capsys.readouterr().out)
     assert report["gate"] == "INSUFFICIENT"
     for threshold in calibrate_dedup.REQUIRED_THRESHOLDS:
-        assert report["thresholds"][threshold]["judged"] == 1
+        assert report["thresholds"][threshold]["judged_aux"] == 1
 
 
 def test_score_rejects_conflicting_decisions_for_one_pair(
@@ -208,7 +251,9 @@ def test_score_rejects_conflicting_decisions_for_one_pair(
 ) -> None:
     sheet = tmp_path / "sheet.csv"
     sheet.write_text(
-        "threshold,pair_id,decision\n0.86,0.86-01,duplicate\n0.86,0.86-01,not_duplicate\n",
+        "threshold,pair_id,channel,decision\n"
+        "0.86,0.86-01,aux,duplicate\n"
+        "0.86,0.86-01,aux,not_duplicate\n",
         encoding="utf-8",
     )
     assert calibrate_dedup._score(sheet) == 2
@@ -220,7 +265,9 @@ def test_score_required_judged_is_configurable(
 ) -> None:
     sheet = tmp_path / "sheet.csv"
     sheet.write_text(
-        "threshold,pair_id,decision\n0.86,0.86-01,duplicate\n0.86,0.86-02,not_duplicate\n",
+        "threshold,pair_id,channel,decision\n"
+        "0.86,0.86-01,aux,duplicate\n"
+        "0.86,0.86-02,aux,not_duplicate\n",
         encoding="utf-8",
     )
     # Below the RUNBOOK minimum the report must be explicitly non-gate, not a gate PASS.

@@ -30,6 +30,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from acgn_rag.config import load_settings
 from acgn_rag.core.ingest.dedup import (
     SWEEP_THRESHOLDS,
     DedupPolicy,
@@ -53,6 +54,7 @@ REQUIRED_THRESHOLDS = tuple(f"{value:.2f}" for value in SWEEP_THRESHOLDS)
 LABEL_COLUMNS = (
     "threshold",
     "pair_id",
+    "channel",
     "cosine",
     "cluster_id",
     "same_language",
@@ -109,16 +111,27 @@ def _sweep(items: list[NormalizedItem]) -> list[dict[str, Any]]:
     return rows
 
 
-def _pairs(clusters: list[Any], by_doc: dict[str, NormalizedItem]) -> list[dict[str, Any]]:
-    """Member pairs of every non-singleton cluster, highest cosine first."""
+def _pairs(
+    clusters: list[Any], by_doc: dict[str, NormalizedItem], threshold: float
+) -> list[dict[str, Any]]:
+    """Member pairs of every non-singleton cluster, highest cosine first, channel-tagged.
+
+    ``aux`` pairs (cosine >= threshold) are the ones the sweep's auxiliary channel decides:
+    a threshold change moves them, so they are what the hand labels must calibrate.
+    ``primary`` pairs (cosine < threshold) sit in the cluster only because the primary
+    channel's compatibility floor (>= 1.0) is threshold-independent; they cannot
+    discriminate one sweep value from another (E's #75 review, P3).
+    """
     pairs: list[dict[str, Any]] = []
     for cluster in clusters:
         members = [by_doc[doc_id] for doc_id in cluster.member_doc_ids]
         for index, first in enumerate(members):
             for second in members[index + 1 :]:
+                cosine = _default_item_similarity(first, second)
                 pairs.append(
                     {
-                        "cosine": _default_item_similarity(first, second),
+                        "cosine": cosine,
+                        "channel": "aux" if cosine >= threshold else "primary",
                         "cluster_id": cluster.cluster_id,
                         "a": first,
                         "b": second,
@@ -129,21 +142,29 @@ def _pairs(clusters: list[Any], by_doc: dict[str, NormalizedItem]) -> list[dict[
 
 
 def _sample(pairs: list[dict[str, Any]], size: int) -> list[dict[str, Any]]:
-    """``HEAD_ROWS`` highest cosines plus an evenly spaced spread over the rest.
+    """Aux pairs first — the ``HEAD_ROWS`` highest cosines, then a spread up to the gate
+    minimum — and an even spread of primary pairs for the remaining slots.
 
     Taking only the top rows would hand the labeller the easiest calls (identical syndicated
-    headlines) and inflate precision at every threshold. The spread is where a threshold is
-    actually decided: the pairs that one value merges and the next one does not.
+    headlines) and inflate precision at every threshold; the spread is where a threshold is
+    actually decided. Primary pairs fill only what is left after the aux requirement: they
+    carry policy precision, not threshold precision.
     """
-    head = pairs[:HEAD_ROWS]
-    rest = pairs[HEAD_ROWS:]
-    remaining = max(size - len(head), 0)
-    if not rest or remaining == 0:
-        return head
-    if len(rest) <= remaining:
-        return head + rest
-    step = len(rest) / remaining
-    return head + [rest[min(int(index * step), len(rest) - 1)] for index in range(remaining)]
+    aux = [pair for pair in pairs if pair["channel"] == "aux"]
+    primary = [pair for pair in pairs if pair["channel"] == "primary"]
+
+    def spread(rows: list[dict[str, Any]], count: int) -> list[dict[str, Any]]:
+        if count <= 0:
+            return []
+        if len(rows) <= count:
+            return list(rows)
+        step = len(rows) / count
+        return [rows[min(int(index * step), len(rows) - 1)] for index in range(count)]
+
+    head = aux[:HEAD_ROWS]
+    top_up = spread(aux[HEAD_ROWS:], max(PAIRS_PER_THRESHOLD - len(head), 0))
+    primary_rows = spread(primary, max(size - len(head) - len(top_up), 0))
+    return head + top_up + primary_rows
 
 
 def _sheet_row(threshold: float, rank: int, pair: dict[str, Any]) -> dict[str, Any]:
@@ -152,6 +173,7 @@ def _sheet_row(threshold: float, rank: int, pair: dict[str, Any]) -> dict[str, A
     return {
         "threshold": f"{threshold:.2f}",
         "pair_id": f"{threshold:.2f}-{rank:02d}",
+        "channel": pair["channel"],
         "cosine": f"{pair['cosine']:.4f}",
         "cluster_id": pair["cluster_id"],
         "same_language": "yes" if first.lang == second.lang else "no",
@@ -177,12 +199,16 @@ def _write_sheet(rows: list[dict[str, Any]], path: Path) -> None:
 
 
 def _score(path: Path, *, required: int = PAIRS_PER_THRESHOLD, exploratory: bool = False) -> int:
-    """Score a completed sheet: precision per threshold, and whether it is gate evidence.
+    """Score a completed sheet: aux precision per threshold, and whether it is gate evidence.
 
     Gate evidence requires **all four** RUNBOOK §3.3 sweep values and ``required`` distinct
-    non-skip judgements for each (20 by default). Repeated ``pair_id`` rows count once and
-    conflicting decisions for one pair are an error, not extra evidence. ``--exploratory`` or
-    a requirement below 20 is explicitly non-gate exploration and never fails the gate.
+    non-skip **aux** judgements for each (20 by default): aux pairs (cosine >= threshold) are
+    the ones a threshold change actually moves, while primary pairs (cosine < threshold,
+    merged by the primary channel's threshold-independent floor) are reported separately as
+    policy precision and never count towards the gate. Repeated ``pair_id`` rows count once;
+    conflicting decisions or channels for one pair are an error, not extra evidence.
+    ``--exploratory`` or a requirement below 20 is explicitly non-gate exploration and never
+    fails the gate.
     """
     with path.open(encoding="utf-8-sig", newline="") as handle:
         rows = list(csv.DictReader(handle))
@@ -204,19 +230,28 @@ def _score(path: Path, *, required: int = PAIRS_PER_THRESHOLD, exploratory: bool
         if decision not in {"duplicate", "not_duplicate", "skip"}:
             print(f"{row['pair_id']}: unknown decision {row['decision']!r}", file=sys.stderr)
             return 2
+        channel = (row.get("channel") or "").strip().lower()
+        if channel not in {"aux", "primary"}:
+            print(
+                f"{row['pair_id']}: channel {row.get('channel')!r} is not aux/primary - "
+                "regenerate the sheet with the current tooling (RUNBOOK §3.3)",
+                file=sys.stderr,
+            )
+            return 2
         bucket = by_threshold.setdefault(row["threshold"], {"pairs": {}, "skipped": 0})
         if decision == "skip":
             bucket["skipped"] += 1
             continue
         pair_id = row["pair_id"]
         previous = bucket["pairs"].get(pair_id)
-        if previous is not None and previous != decision:
+        if previous is not None and previous != (decision, channel):
             print(
-                f"{pair_id}: conflicting decisions {previous!r} and {decision!r} for one pair",
+                f"{pair_id}: conflicting decisions/channels {previous} vs "
+                f"{(decision, channel)} for one pair",
                 file=sys.stderr,
             )
             return 2
-        bucket["pairs"][pair_id] = decision
+        bucket["pairs"][pair_id] = (decision, channel)
 
     gate_mode = not exploratory and required >= PAIRS_PER_THRESHOLD
     if exploratory:
@@ -237,20 +272,26 @@ def _score(path: Path, *, required: int = PAIRS_PER_THRESHOLD, exploratory: bool
     insufficient: list[str] = []
     for threshold in sorted(set(REQUIRED_THRESHOLDS) | set(by_threshold)):
         bucket = by_threshold.get(threshold, {"pairs": {}, "skipped": 0})
-        pairs: dict[str, str] = bucket["pairs"]
-        duplicate = sum(1 for value in pairs.values() if value == "duplicate")
-        not_duplicate = sum(1 for value in pairs.values() if value == "not_duplicate")
-        judged = duplicate + not_duplicate
-        precision = duplicate / judged if judged else None
-        enough = judged >= required
+        pairs: dict[str, tuple[str, str]] = bucket["pairs"]
+        aux = [value for value in pairs.values() if value[1] == "aux"]
+        primary = [value for value in pairs.values() if value[1] == "primary"]
+        aux_duplicate = sum(1 for value in aux if value[0] == "duplicate")
+        aux_judged = len(aux)
+        aux_precision = aux_duplicate / aux_judged if aux_judged else None
+        primary_duplicate = sum(1 for value in primary if value[0] == "duplicate")
+        primary_judged = len(primary)
+        primary_precision = primary_duplicate / primary_judged if primary_judged else None
+        enough = aux_judged >= required
         if not enough:
             insufficient.append(threshold)
         report["thresholds"][threshold] = {
-            "judged": judged,
+            "judged_aux": aux_judged,
+            "aux_duplicate": aux_duplicate,
+            "aux_precision": None if aux_precision is None else round(aux_precision, 4),
+            "judged_primary": primary_judged,
+            "primary_duplicate": primary_duplicate,
+            "primary_precision": None if primary_precision is None else round(primary_precision, 4),
             "skipped": bucket["skipped"],
-            "duplicate": duplicate,
-            "not_duplicate": not_duplicate,
-            "precision": None if precision is None else round(precision, 4),
             "insufficient": not enough,
         }
     report["missing_thresholds"] = missing
@@ -259,12 +300,13 @@ def _score(path: Path, *, required: int = PAIRS_PER_THRESHOLD, exploratory: bool
     )
     if gate_mode and (insufficient or missing):
         detail = ", ".join(
-            f"{t}: judged {report['thresholds'][t]['judged']}/{required}" for t in insufficient
+            f"{t}: aux judged {report['thresholds'][t]['judged_aux']}/{required}"
+            for t in insufficient
         )
         print(
             f"{path}: insufficient hand labels for gate reporting ({detail}); "
-            f"all of {', '.join(REQUIRED_THRESHOLDS)} need {required} distinct non-skip pairs "
-            "(RUNBOOK §3.3), or pass --exploratory to score outside the gate",
+            f"all of {', '.join(REQUIRED_THRESHOLDS)} need {required} distinct non-skip AUX "
+            "pairs (RUNBOOK §3.3), or pass --exploratory to score outside the gate",
             file=sys.stderr,
         )
     print(json.dumps(report, indent=2))
@@ -298,7 +340,7 @@ def main(argv: list[str] | None = None) -> int:
         print("--snapshot is required unless --score is used", file=sys.stderr)
         return 2
 
-    data_root = Path(args.data_root) if args.data_root else Path("data")
+    data_root = Path(args.data_root) if args.data_root else load_settings().paths.root
     out = Path(args.out)
     items = _load(args.snapshot, data_root)
     sweep = _sweep(items)
@@ -306,7 +348,7 @@ def main(argv: list[str] | None = None) -> int:
     sheet: list[dict[str, Any]] = []
     summary: list[dict[str, Any]] = []
     for row in sweep:
-        pairs = _pairs(row["_clusters"], row["_by_doc"])
+        pairs = _pairs(row["_clusters"], row["_by_doc"], row["threshold"])
         summary.append(
             {
                 "threshold": row["threshold"],

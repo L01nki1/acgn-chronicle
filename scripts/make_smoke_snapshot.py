@@ -16,6 +16,7 @@ import argparse
 import hashlib
 import json
 import sys
+from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -105,13 +106,40 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Publish a synthetic frozen snapshot")
     parser.add_argument("--data-root", required=True, help="data root to publish under")
     parser.add_argument("--count", type=int, default=len(SEEDS), help="documents to write")
+    parser.add_argument(
+        "--pair",
+        action="store_true",
+        help="make docs 0 and 1 primary-mergeable (same media_ids/event_type within 72h) "
+        "and cluster with the standard 0.86 policy, so the snapshot carries a "
+        "multi-member cluster",
+    )
     args = parser.parse_args(argv)
     if args.count < 1:
         print("--count must be positive", file=sys.stderr)
         return 2
+    if args.pair and args.count < 3:
+        print(
+            "--pair needs at least 3 documents (a merged pair plus one singleton)", file=sys.stderr
+        )
+        return 2
 
     items = [_doc(index, SEEDS[index % len(SEEDS)]) for index in range(args.count)]
-    clustered = cluster_items(items, policy=DedupPolicy(algorithm="singleton-example-v0"))
+    if args.pair:
+        # Docs 0 and 1 become primary-mergeable: same non-empty media_ids, same event_type,
+        # same language, one day apart (inside the 72h window), and the same title (so the
+        # headline-number and title-similarity checks pass and the branch returns 1.0+).
+        published = (date(2026, 1, 5) + timedelta(days=1)).isoformat()
+        items[0] = replace(items[0], media_ids=[7], event_type="event")
+        items[1] = replace(
+            items[1],
+            media_ids=[7],
+            event_type="event",
+            title=items[0].title,
+            published_at=f"{published}T00:00:00Z",
+        )
+        clustered = cluster_items(items, policy=DedupPolicy(thresholds={"same_lang_cosine": 0.86}))
+    else:
+        clustered = cluster_items(items, policy=DedupPolicy(algorithm="singleton-example-v0"))
     built = clustered  # DedupResult carries the clustered items
     from acgn_rag.core.ingest.snapshot import build_snapshot_from_items
 

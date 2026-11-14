@@ -200,13 +200,16 @@ on the frozen corpus, report cluster counts and 20 hand-checked pairs per value,
 line what the threshold optimizes before it freezes.
 
 **Labelling procedure.** `scripts/calibrate_dedup.py` writes `eval/dedup_g1b/sweep.json` and
-`label_sheet.csv` (30 rows per threshold: the 10 highest cosines plus 20 spread evenly over the
-rest, so the sample is not just the easy calls). `scripts/render_label_sheet.py` turns that CSV
-into `label_sheet.html`, a self-contained page (no server, no network) with the judgement rules
-on top, one card per pair, keyboard shortcuts, and **export at any time**. Scoring
-(`--score`) is gate evidence only when every threshold carries ≥20 non-skip judgements
-(default `--required-judged 20`); sparser sheets exit 2 marked `insufficient`, and
-`--exploratory` scores are tagged as not gate evidence:
+`label_sheet.csv` (per threshold: the 10 highest-cosine **aux** pairs plus a spread topping the
+aux rows up to 20, then primary pairs for the remaining slots — every row carries a `channel`
+column). `scripts/render_label_sheet.py` turns that CSV into `label_sheet.html`, a
+self-contained page (no server, no network) with the judgement rules on top, one card per
+pair, keyboard shortcuts, and **export at any time**. Scoring (`--score`) is gate evidence
+only when every threshold carries ≥20 non-skip **aux** judgements (default
+`--required-judged 20`): aux pairs (cosine ≥ t) are what a threshold change moves, while
+primary pairs (cosine < t, merged by the primary channel's threshold-independent floor) are
+reported as policy precision and never count towards the gate. Sparser sheets exit 2 marked
+`insufficient`, and `--exploratory` scores are tagged as not gate evidence:
 
 1. Open `eval/dedup_g1b/label_sheet.html` in a browser; label 0.86 first, then the neighbours.
 2. `duplicate` = the same event reported twice; `not_duplicate` = same franchise but a different
