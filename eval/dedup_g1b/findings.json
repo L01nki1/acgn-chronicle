@@ -1,0 +1,33 @@
+{
+  "snapshot_id": "20261105-d797b5f0ae8e",
+  "threshold": 0.86,
+  "snapshot": {
+    "items": 36167,
+    "clusters": 36121,
+    "non_singleton": 46,
+    "collapsed": 46
+  },
+  "reproduced": {
+    "items": 36167,
+    "clusters": 36121,
+    "non_singleton": 46,
+    "collapsed": 46
+  },
+  "recorded_sweep_row": {
+    "cluster_count": 36121,
+    "clustered_duplicates_collapsed": 46,
+    "non_singleton_clusters": 46,
+    "threshold": 0.86,
+    "total_items": 36167
+  },
+  "cluster_id_set_identical": true,
+  "member_sets_identical": true,
+  "item_counts_match": true,
+  "matches_snapshot": true,
+  "clusters_only_in_snapshot": 0,
+  "clusters_only_in_reproduction": 0,
+  "reason_histogram": {
+    "aux_above_threshold": 8,
+    "primary_channel_should_merge": 17
+  }
+}
