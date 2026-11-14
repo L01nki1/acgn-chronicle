@@ -251,6 +251,17 @@ number alone invites the obvious objection. The calibration set's own rates may 
 
 - `temperature=0` **is not determinism**: MoE routing and batching still introduce jitter. Record provider, model,
   version, date and seed, and state in the report that reruns differ slightly, with the measured spread.
+- **Tier 1 assumes one encoder identity, not "GPU" as a device class.** G1b index builds are scheduled
+  on the Colab (T4) GPU lane (#49); the broader CPU-output reportability boundary is still pending
+  agreement (F, #48 review 2026-11-09). A tier-1 rerun must reuse the *same* identity. fp16 CUDA
+  kernels are not bitwise deterministic across GPU models, precision settings or kernel-selection
+  changes, so a rebuild on another card is a different experiment, not a rerun spread, and it must not
+  be reported in the spread column. **Caveat (F/B, #48 review 2026-11-09): the identity slug today
+  records the device string, not the physical GPU model — two different GPU models can share a slug
+  when the recorded fields match.** Until the identity gains a GPU-model field (a separate, reviewable
+  change), any comparison across GPU hardware must record and check the actual GPU model alongside the
+  slug. If tier 1 ever has to be compared across machines, fix the reduction order with
+  `torch.use_deterministic_algorithms(True)` and disclose the precision alongside the metric.
 - **Two reruns are archived, not one.** A spread claim with a single run behind it is unsupported.
 - Grading reproducibility is a separate question: **re-grade the same `answers.jsonl`** and the labels must be
   identical. A difference means the rubric is ambiguous, not that the model moved.
