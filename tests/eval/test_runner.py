@@ -2113,3 +2113,27 @@ def test_abstention_chunker_requires_version_not_budget(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="missing version"):
         validate_run_spec(_spec(tmp_path, abstention=block))
+
+
+def test_abstention_identity_requires_nonempty_embed_fields(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+    block["calibration_identity"]["embed"]["model"] = ""
+
+    with pytest.raises(ValueError, match=r"embed\.model"):
+        validate_run_spec(_spec(tmp_path, abstention=block))
+
+
+def test_abstention_identity_requires_library_versions(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+    block["calibration_identity"]["embed"]["library_versions"] = {}
+
+    with pytest.raises(ValueError, match="library_versions"):
+        validate_run_spec(_spec(tmp_path, abstention=block))
+
+
+def test_abstention_identity_rejects_zero_batch(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+    block["calibration_identity"]["embed"]["batch"] = 0
+
+    with pytest.raises(ValueError, match="batch"):
+        validate_run_spec(_spec(tmp_path, abstention=block))

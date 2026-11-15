@@ -116,3 +116,50 @@ def test_run_id_is_filesystem_safe() -> None:
 
     assert run_id.endswith("-cal-A-prime-fake-torch-cuda-fp32-12345678")
     assert calibrate_abstention._RUN_ID.fullmatch(run_id)
+
+
+def _rows(n: int = 30, answerable: int = 20) -> list[dict[str, object]]:
+    return [
+        {
+            "qa_id": f"X-{index:03d}",
+            "question": "q",
+            "answerable": index < answerable,
+            "window": ["2023-10-28", "2026-10-28"],
+        }
+        for index in range(n)
+    ]
+
+
+def test_filters_reads_the_item_window() -> None:
+    filters = calibrate_abstention._filters(_rows(1)[0])
+
+    assert filters.since == "2023-10-28"
+    assert filters.until == "2026-10-28"
+
+
+def test_filters_require_a_window() -> None:
+    with pytest.raises(ValueError, match="window"):
+        calibrate_abstention._filters({"qa_id": "X-1", "question": "q"})
+
+
+def test_set_problems_accepts_the_gate_shape() -> None:
+    assert calibrate_abstention._set_problems(_rows(), allow_any_set=False) == []
+
+
+def test_set_problems_rejects_a_short_gate_set() -> None:
+    problems = calibrate_abstention._set_problems(_rows(29), allow_any_set=False)
+
+    assert any("30 items" in problem for problem in problems)
+
+
+def test_set_problems_rejects_duplicate_ids() -> None:
+    rows = _rows()
+    rows[1]["qa_id"] = rows[0]["qa_id"]
+
+    problems = calibrate_abstention._set_problems(rows, allow_any_set=False)
+
+    assert any("duplicate" in problem for problem in problems)
+
+
+def test_set_problems_allows_an_exploration_set() -> None:
+    assert calibrate_abstention._set_problems(_rows(10, 5), allow_any_set=True) == []

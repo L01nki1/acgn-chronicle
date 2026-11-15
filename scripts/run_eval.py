@@ -38,6 +38,7 @@ from acgn_rag.core.eval.runner import (
     build_evidence_resolver,
     load_build_records,
     load_snapshot_member_urls,
+    qa_inputs_fingerprint,
     read_jsonl_rows,
     resolve_window,
     run,
@@ -225,8 +226,13 @@ def _abstention_block(
         return None
     if answerer_mode != "live":
         raise ValueError("--abstention-calibration requires --answerer live")
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    block = payload.get("abstention", payload) if isinstance(payload, Mapping) else None
+    artifact_path = Path(path)
+    if artifact_path.name != "calibration.json":
+        raise ValueError("--abstention-calibration must point at a calibration.json artifact")
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, Mapping):
+        raise ValueError("calibration artifact must be a JSON object")
+    block = payload.get("abstention", payload)
     if not isinstance(block, Mapping):
         raise ValueError("calibration artifact must be a JSON object")
     threshold = block.get("threshold")
@@ -236,6 +242,14 @@ def _abstention_block(
         or not math.isfinite(float(threshold))
     ):
         raise ValueError("calibration artifact threshold must be a finite number")
+    run_id = payload.get("run_id")
+    if not isinstance(run_id, str) or not run_id.strip():
+        raise ValueError("calibration artifact does not record its run_id")
+    calibration = payload.get("calibration")
+    if not isinstance(calibration, Mapping) or calibration.get("in_sample") is not True:
+        raise ValueError("calibration artifact does not carry CalibrationResult.to_metadata()")
+    if calibration.get("threshold") != threshold:
+        raise ValueError("calibration artifact threshold does not match its calibration record")
     if configured is None:
         raise ValueError(
             "calibration artifact provided but ACGN_ANSWER_MIN_RETRIEVAL_SCORE is unset"
@@ -270,6 +284,25 @@ def _preflight_device_problems(
             problems.append("CUDA encoder has no determinism.gpu_model")
     if require_gpu and not device.startswith("cuda"):
         problems.append("--require-gpu is set but the encoder device is not CUDA")
+    return problems
+
+
+def _preflight_expectation_problems(
+    *,
+    counts: Mapping[str, object],
+    qa_fingerprint: str,
+    expect_docs: int | None,
+    expect_chunks: int | None,
+    expect_qa_fingerprint: str | None,
+) -> list[str]:
+    """Compare the transferred build/QA against the values agreed in the handoff."""
+    problems: list[str] = []
+    if expect_docs is not None and counts.get("docs") != expect_docs:
+        problems.append(f"docs {counts.get('docs')} != expected {expect_docs}")
+    if expect_chunks is not None and counts.get("chunks") != expect_chunks:
+        problems.append(f"chunks {counts.get('chunks')} != expected {expect_chunks}")
+    if expect_qa_fingerprint and qa_fingerprint != expect_qa_fingerprint:
+        problems.append(f"qa fingerprint {qa_fingerprint} != expected {expect_qa_fingerprint}")
     return problems
 
 
@@ -370,6 +403,9 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="validate QA, build records, identity, GPU, threshold and binding; write no archive",
     )
+    parser.add_argument("--expect-docs", type=int, default=None)
+    parser.add_argument("--expect-chunks", type=int, default=None)
+    parser.add_argument("--expect-qa-fingerprint", default=None)
     args = parser.parse_args(argv)
 
     qa_path = Path(args.qa)
@@ -515,6 +551,16 @@ def main(argv: list[str] | None = None) -> int:
                 require_gpu=args.require_gpu,
             )
         )
+        qa_fingerprint = qa_inputs_fingerprint(items)
+        problems.extend(
+            _preflight_expectation_problems(
+                counts=counts,
+                qa_fingerprint=qa_fingerprint,
+                expect_docs=args.expect_docs,
+                expect_chunks=args.expect_chunks,
+                expect_qa_fingerprint=args.expect_qa_fingerprint,
+            )
+        )
         if problems:
             print("PREFLIGHT FAILED:", file=sys.stderr)
             for problem in problems:
@@ -529,6 +575,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  device:     {build_identity.get('device')}")
         print(f"  gpu_model:  {determinism.get('gpu_model')}")
         print(f"  qa:         {len(items)} items")
+        print(f"  qa_fp:      {qa_fingerprint}")
         print(f"  threshold:  {abstention['threshold'] if abstention else None}")
         return 0
     try:

@@ -41,13 +41,58 @@ from acgn_rag.core.eval.runner import (
     verify_build_identity,
 )
 from acgn_rag.core.ground.calibration import CalibrationSample, choose_threshold
-from acgn_rag.core.ports import RetrievalQuery
+from acgn_rag.core.ports import RetrievalFilters, RetrievalQuery
 from acgn_rag.core.retrieve.vector import search
 from acgn_rag.core.store import ChromaStore
 
 CONFIG_CHOICES = ("A", "A'", "A0", "B")
 COLLECTION_LABELS = {"A'": "A-prime"}
 _RUN_ID = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
+
+
+def _filters(row: Mapping[str, Any]) -> RetrievalFilters:
+    """The item's frozen window, matching what `runner.run()` applies to a QA item."""
+    window = row.get("window")
+    if not isinstance(window, (list, tuple)) or len(window) != 2:
+        raise ValueError(f"{row.get('qa_id', '?')}: window must be [start, end]")
+    return RetrievalFilters(since=str(window[0]), until=str(window[1]))
+
+
+def _set_problems(rows: Sequence[Mapping[str, Any]], *, allow_any_set: bool) -> list[str]:
+    """Validate the calibration set's shape before it can author a gate threshold."""
+    problems: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        qa_id = row.get("qa_id")
+        if not isinstance(qa_id, str) or not qa_id.strip():
+            problems.append("an item has no qa_id")
+        elif qa_id in seen:
+            problems.append(f"{qa_id}: duplicate qa_id")
+        else:
+            seen.add(qa_id)
+        question = row.get("question")
+        if not isinstance(question, str) or not question.strip():
+            problems.append(f"{qa_id or '?'}: question is missing")
+        if not isinstance(row.get("answerable"), bool):
+            problems.append(f"{qa_id or '?'}: answerable must be a bool")
+        try:
+            _filters(row)
+        except ValueError as exc:
+            problems.append(str(exc))
+    answerable = sum(1 for row in rows if row.get("answerable") is True)
+    unanswerable = sum(1 for row in rows if row.get("answerable") is False)
+    if not answerable or not unanswerable:
+        problems.append("the set needs at least one answerable and one unanswerable item")
+    if not allow_any_set:
+        if len(rows) != 30:
+            problems.append(f"gate calibration set must have 30 items, got {len(rows)}")
+        if answerable != 20:
+            problems.append(f"gate calibration set must have 20 answerable items, got {answerable}")
+        if unanswerable != 10:
+            problems.append(
+                f"gate calibration set must have 10 unanswerable items, got {unanswerable}"
+            )
+    return problems
 
 
 def _samples(
@@ -109,6 +154,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--target-missed-refusal-rate", type=float, default=0.2)
     parser.add_argument("--run-id", default=None)
+    parser.add_argument(
+        "--allow-any-set",
+        action="store_true",
+        help="exploration only: accept a calibration set other than 30 items (20/10); not gate evidence",
+    )
     args = parser.parse_args(argv)
 
     if args.top_k <= 0:
@@ -118,12 +168,11 @@ def main(argv: list[str] | None = None) -> int:
     if not rows:
         print(f"EMPTY: {args.qa}", file=sys.stderr)
         return 2
-    labels = [row.get("answerable") for row in rows]
-    if not any(value is True for value in labels) or not any(value is False for value in labels):
-        print(
-            "calibration set needs at least one answerable and one unanswerable item",
-            file=sys.stderr,
-        )
+    problems = _set_problems(rows, allow_any_set=args.allow_any_set)
+    if problems:
+        print("INVALID CALIBRATION SET:", file=sys.stderr)
+        for problem in problems:
+            print(f"  - {problem}", file=sys.stderr)
         return 2
 
     settings = load_settings()
@@ -178,6 +227,7 @@ def main(argv: list[str] | None = None) -> int:
                 text=str(row["question"]),
                 top_k=args.top_k,
                 snapshot_id=args.snapshot,
+                filters=_filters(row),
             ),
             store=store,
             embedder=embedder,
@@ -218,6 +268,13 @@ def main(argv: list[str] | None = None) -> int:
         identity=identity,
         result=result,
     )
+    answerable_count = sum(1 for row in rows if row.get("answerable") is True)
+    artifact["set"] = {
+        "total": len(rows),
+        "answerable": answerable_count,
+        "unanswerable": len(rows) - answerable_count,
+        "gate_set": not args.allow_any_set,
+    }
     out_dir.mkdir(parents=True)
     (out_dir / "calibration.json").write_text(
         json.dumps(artifact, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"

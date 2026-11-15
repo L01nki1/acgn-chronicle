@@ -448,11 +448,21 @@ def _calibration_artifact(
     nested: bool = False,
 ) -> Path:
     payload: dict[str, object] = {
+        "run_id": "20261115-cal-A-fake",
         "threshold": threshold,
+        "calibration": {"threshold": threshold, "in_sample": True},
         "calibration_identity": identity if identity is not None else {"snapshot_id": "s"},
     }
     if nested:
-        payload = {"abstention": payload}
+        payload = {
+            "run_id": payload["run_id"],
+            "calibration": payload["calibration"],
+            "abstention": {
+                "threshold": threshold,
+                "source": "ignored",
+                "calibration_identity": payload["calibration_identity"],
+            },
+        }
     path = tmp_path / "calibration.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
@@ -538,7 +548,144 @@ def test_live_validation_rejects_a_missing_abstention_block(tmp_path: Path) -> N
 
 def test_abstention_block_requires_an_identity_object(tmp_path: Path) -> None:
     path = tmp_path / "calibration.json"
-    path.write_text(json.dumps({"threshold": 0.42}), encoding="utf-8")
+    path.write_text(
+        json.dumps(
+            {
+                "run_id": "20261115-cal-A-fake",
+                "threshold": 0.42,
+                "calibration": {"threshold": 0.42, "in_sample": True},
+            }
+        ),
+        encoding="utf-8",
+    )
 
     with pytest.raises(ValueError, match="calibration_identity"):
         run_eval._abstention_block(str(path), _settings(answer_min_retrieval_score=0.42), "live")
+
+
+def _write_calibration(tmp_path: Path, payload: object, name: str = "calibration.json") -> Path:
+    path = tmp_path / name
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def test_abstention_block_requires_run_id(tmp_path: Path) -> None:
+    path = _write_calibration(
+        tmp_path,
+        {
+            "threshold": 0.42,
+            "calibration": {"threshold": 0.42, "in_sample": True},
+            "calibration_identity": {},
+        },
+    )
+
+    with pytest.raises(ValueError, match="run_id"):
+        run_eval._abstention_block(str(path), _settings(answer_min_retrieval_score=0.42), "live")
+
+
+def test_abstention_block_requires_calibration_record(tmp_path: Path) -> None:
+    path = _write_calibration(
+        tmp_path,
+        {
+            "run_id": "20261115-cal-A-fake",
+            "threshold": 0.42,
+            "calibration_identity": {},
+        },
+    )
+
+    with pytest.raises(ValueError, match="to_metadata"):
+        run_eval._abstention_block(str(path), _settings(answer_min_retrieval_score=0.42), "live")
+
+
+def test_abstention_block_rejects_out_of_sample_record(tmp_path: Path) -> None:
+    path = _write_calibration(
+        tmp_path,
+        {
+            "run_id": "20261115-cal-A-fake",
+            "threshold": 0.42,
+            "calibration": {"threshold": 0.42, "in_sample": False},
+            "calibration_identity": {},
+        },
+    )
+
+    with pytest.raises(ValueError, match="to_metadata"):
+        run_eval._abstention_block(str(path), _settings(answer_min_retrieval_score=0.42), "live")
+
+
+def test_abstention_block_rejects_calibration_threshold_mismatch(tmp_path: Path) -> None:
+    path = _write_calibration(
+        tmp_path,
+        {
+            "run_id": "20261115-cal-A-fake",
+            "threshold": 0.42,
+            "calibration": {"threshold": 0.5, "in_sample": True},
+            "calibration_identity": {},
+        },
+    )
+
+    with pytest.raises(ValueError, match="does not match"):
+        run_eval._abstention_block(str(path), _settings(answer_min_retrieval_score=0.42), "live")
+
+
+def test_abstention_block_requires_the_calibration_filename(tmp_path: Path) -> None:
+    path = _write_calibration(
+        tmp_path,
+        {
+            "run_id": "20261115-cal-A-fake",
+            "threshold": 0.42,
+            "calibration": {"threshold": 0.42, "in_sample": True},
+            "calibration_identity": {},
+        },
+        name="cal.json",
+    )
+
+    with pytest.raises(ValueError, match=r"calibration\.json"):
+        run_eval._abstention_block(str(path), _settings(answer_min_retrieval_score=0.42), "live")
+
+
+def test_preflight_expectations_pass_on_matching_values() -> None:
+    problems = run_eval._preflight_expectation_problems(
+        counts={"docs": 36121, "chunks": 74245},
+        qa_fingerprint="abc",
+        expect_docs=36121,
+        expect_chunks=74245,
+        expect_qa_fingerprint="abc",
+    )
+
+    assert problems == []
+
+
+def test_preflight_reports_a_docs_mismatch() -> None:
+    problems = run_eval._preflight_expectation_problems(
+        counts={"docs": 36120, "chunks": 74245},
+        qa_fingerprint="abc",
+        expect_docs=36121,
+        expect_chunks=None,
+        expect_qa_fingerprint=None,
+    )
+
+    assert problems == ["docs 36120 != expected 36121"]
+
+
+def test_preflight_reports_a_chunks_mismatch() -> None:
+    problems = run_eval._preflight_expectation_problems(
+        counts={"docs": 36121, "chunks": 70000},
+        qa_fingerprint="abc",
+        expect_docs=None,
+        expect_chunks=74245,
+        expect_qa_fingerprint=None,
+    )
+
+    assert problems == ["chunks 70000 != expected 74245"]
+
+
+def test_preflight_reports_a_qa_fingerprint_mismatch() -> None:
+    problems = run_eval._preflight_expectation_problems(
+        counts={"docs": 36121, "chunks": 74245},
+        qa_fingerprint="abc",
+        expect_docs=None,
+        expect_chunks=None,
+        expect_qa_fingerprint="def",
+    )
+
+    assert problems == ["qa fingerprint abc != expected def"]

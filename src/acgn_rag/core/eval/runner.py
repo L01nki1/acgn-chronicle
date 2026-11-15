@@ -409,6 +409,28 @@ def _validate_abstention(
         raise ValueError(
             "meta.abstention.calibration_identity.embed.library_versions must be an object"
         )
+    for name in ("snapshot_id", "chunk_config", "encoder_identity_slug"):
+        value = calibration[name]
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                f"meta.abstention.calibration_identity.{name} must be a non-empty string"
+            )
+    embed = calibration["embed"]
+    for name in ("model", "backend", "device", "precision"):
+        value = embed[name]
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                f"meta.abstention.calibration_identity.embed.{name} must be a non-empty string"
+            )
+    batch = embed["batch"]
+    if isinstance(batch, bool) or not isinstance(batch, int) or batch <= 0:
+        raise ValueError(
+            "meta.abstention.calibration_identity.embed.batch must be a positive integer"
+        )
+    if not calibration["embed"]["library_versions"]:
+        raise ValueError(
+            "meta.abstention.calibration_identity.embed.library_versions must not be empty"
+        )
 
     diffs: list[str] = []
     for name in ("snapshot_id", "chunk_config"):
@@ -832,6 +854,11 @@ def _qa_inputs_fingerprint(items: Sequence[Mapping[str, Any]]) -> str:
     canonical = [{key: item.get(key) for key in QA_INPUT_KEYS} for item in items]
     payload = json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def qa_inputs_fingerprint(items: Sequence[Mapping[str, Any]]) -> str:
+    """Public wrapper for the archived QA `inputs_fingerprint`."""
+    return _qa_inputs_fingerprint(items)
 
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -1438,6 +1465,7 @@ __all__ = [
     "compare_tier1_runs",
     "load_build_records",
     "load_snapshot_member_urls",
+    "qa_inputs_fingerprint",
     "read_jsonl_rows",
     "resolve_window",
     "run",
