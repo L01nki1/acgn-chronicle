@@ -132,6 +132,13 @@ set at resolution time, on 11/09, when nothing could be fixed any more.
   state no readable time, or whose readings straddle a boundary, are listed for manual verification
   instead of failing the run. Run it before the freeze, not on every commit: a page dated outside
   the window is not evidence for that snapshot, however plausible the claim.
+- **A gold url need not be an official first-party page.** A registered W1 L2 full-text outlet
+  (`docs/SOURCES.md` §3) may carry it when its own body states the fact; an official page whose
+  stored body is a bare headline does not. When a headline-only url is replaced, the superseded url
+  is recorded as provenance in `DECISIONS.md`, **not kept alongside the replacement** in
+  `gold_evidence.urls`: §4 scores `hit@k` on *any* gold url and `evidence_recall@k` over all of them,
+  so keeping both lets the answerless page count as a hit and halves the recall denominator for that
+  one item. One gold url per item keeps the denominators comparable across the set.
 
 ## 4. Retrieval quality — `retrieval_hit_rate`
 
