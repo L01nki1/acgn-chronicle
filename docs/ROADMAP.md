@@ -116,9 +116,12 @@ their owners.
 - encoding on the recorded lane with an identity-keyed cache (model policy: RUNBOOK §3.5); compliance tests green (`pytest tests/compliance -q`)
 - L0 fact extraction on a 30-item spot check ≥90% field accuracy, every row carries `chunkId` + `url`
 
-**G1b outbound guard (`KnowledgePort` §3.7):** code candidate in
-[#45](https://github.com/L01nki1/acgn-chronicle/pull/45) — not gate evidence; no real corpus, index or
-live LLM run yet.
+**G1b outbound guard (`KnowledgePort` §3.7):** [#45](https://github.com/L01nki1/acgn-chronicle/pull/45)
+merged as `6da42e7`. The offline suite covers request-local citation containment, final payload validation
+and explicit refusal. F built the E5 A and A′ indexes on the frozen snapshot
+([#44](https://github.com/L01nki1/acgn-chronicle/issues/44#issuecomment-6802835614)). B's five-question
+live `/ask` pilot requires a serving host for that snapshot and an answer provider. E's runner changes
+for the real evaluation archive are tracked in [#80](https://github.com/L01nki1/acgn-chronicle/pull/80).
 
 ### G2 · 2026-11-21 — Topic 5 complete (official brief, hard gate)
 
