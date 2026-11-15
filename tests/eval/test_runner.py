@@ -2213,3 +2213,52 @@ def test_abstention_archive_requires_the_six_chunker_fields(tmp_path: Path) -> N
     del result.meta["chunker"]["version"]
 
     assert validate_abstention_metadata(result.meta) == ["meta.chunker is missing version"]
+
+
+class _BombStore:
+    """Fails if the runner asks the store anything after a threshold-binding error."""
+
+    def count(self) -> int:
+        raise AssertionError("store was touched")
+
+    def query(self, *args: object, **kwargs: object) -> None:
+        raise AssertionError("store was queried")
+
+
+def test_threshold_binding_fails_before_the_store_is_touched(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="records no threshold"):
+        run(
+            _spec(tmp_path),
+            store=_BombStore(),
+            embedder=FakeEmbedder(),
+            answerer=_ThresholdAnswerer(0.8),
+            qa_items=[_qa_item()],
+        )
+
+
+def test_budget_sidecar_passes_preflight_and_archive_validation(tmp_path: Path) -> None:
+    chunker = {
+        "version": "composed-input-v2",
+        "header_version": "h1",
+        "config": "A",
+        "max_tokens": 512,
+        "overlap": 64,
+        "max_seq_length": 512,
+        "budget": 508,
+    }
+    base = _spec(tmp_path, chunker=chunker)
+    block = _abstention_block(base)
+    spec = _spec(tmp_path, chunker=chunker, abstention=block)
+
+    validate_run_spec(spec)
+    result = run(
+        spec,
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        answerer=_ThresholdAnswerer(0.42),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["c1"] for url in urls},
+    )
+
+    assert result.meta["chunker"]["budget"] == 508
+    assert validate_abstention_metadata(result.meta) == []
