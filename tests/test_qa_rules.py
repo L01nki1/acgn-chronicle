@@ -397,3 +397,43 @@ def test_check_urls_lists_undated_pages_instead_of_failing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     assert _run_cli_with_fetch(tmp_path, monkeypatch, "<html><body>no date</body></html>") == 0
+
+
+def test_registered_l2_media_hosts_are_in_scope() -> None:
+    """SOURCES.md §3 gained explicit schemes on 11/15; both hosts must follow into W1_HOSTS."""
+    assert host_in_scope("nijimen.kusuguru.co.jp")
+    assert host_in_scope("realsound.jp")
+    item = _item(
+        "A-001",
+        "A",
+        gold_evidence={
+            "urls": ["https://nijimen.kusuguru.co.jp/topics/475175"],
+            "publisher": "にじめん",
+            "spans": [],
+        },
+    )
+    assert validate_hosts([item]) == []
+
+
+def test_overlap_items_must_record_an_independent_verifier() -> None:
+    """An empty verifier used to satisfy the self-review rule while recording no label at all."""
+    item = _item("A-001", "A", overlap=True, verified_by="")
+    assert any("overlap item needs a non-empty verified_by" in p for p in validate([item]))
+    item["verified_by"] = "E"
+    assert not any("overlap item needs a non-empty verified_by" in p for p in validate([item]))
+
+
+def test_frozen_option4_items_carry_one_gold_url_and_all_overlap_signatures() -> None:
+    qa = load_jsonl(Path(__file__).resolve().parents[1] / "eval" / "qa_set.jsonl")
+    by_id = {item["qa_id"]: item for item in qa}
+    assert by_id["A-006"]["gold_evidence"]["urls"] == [
+        "https://nijimen.kusuguru.co.jp/topics/475175"
+    ]
+    assert by_id["B-005"]["gold_evidence"]["urls"] == [
+        "https://nijimen.kusuguru.co.jp/topics/627938"
+    ]
+    assert by_id["A-006"]["gold_evidence"]["publisher"] == "にじめん"
+    assert by_id["B-005"]["gold_evidence"]["publisher"] == "にじめん"
+    overlap = [item for item in qa if item.get("overlap") is True]
+    assert len(overlap) == 10
+    assert {item["verified_by"] for item in overlap} == {"E"}
