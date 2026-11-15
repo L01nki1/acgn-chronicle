@@ -38,6 +38,21 @@ CONFIG_TOKENS = {"A'": "A-prime"}
 BUILD_IDENTITY_KEYS = ("model", "backend", "device", "precision", "batch_size", "identity_slug")
 VECTOR_IDENTITY_KEYS = ("model", "backend", "device", "precision", "identity_slug")
 CHUNKER_FIELDS = ("version", "header_version", "config", "max_tokens", "overlap", "max_seq_length")
+#: `meta.abstention` shape (EVAL_PROTOCOL §7). The identity is compared field by field; a
+#: threshold calibrated at another identity must never be applied to this run.
+ABSTENTION_KEYS = ("threshold", "source", "calibration_identity")
+ABSTENTION_IDENTITY_KEYS = (
+    "snapshot_id",
+    "chunk_config",
+    "chunker",
+    "retrieval",
+    "embed",
+    "encoder_identity_slug",
+)
+ABSTENTION_RETRIEVAL_KEYS = ("mode", "top_k", "over_fetch")
+ABSTENTION_EMBED_KEYS = ("model", "backend", "device", "precision", "library_versions", "batch")
+#: The dedup auxiliary-channel sweep is a clustering threshold, never abstention provenance.
+_ABSTENTION_SOURCE_MARKERS = ("threshold_sweep", "snapshot_evidence")
 _FULL_SNAPSHOT_ID = re.compile(r"(\d{8})-([0-9a-f]{12})")
 _RUN_ID_SEGMENT = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
 # QA fields that change what retrieval is asked or judged. Review metadata (`annotator`,
@@ -141,6 +156,7 @@ class RunSpec:
     require_gpu: bool = False
     qa_validated: bool = False
     qa_source: Literal["cli", "caller", "runner"] = "caller"
+    abstention: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -282,6 +298,190 @@ def _embed_metadata(identity: Mapping[str, Any]) -> dict[str, Any]:
         "library_versions": versions,
         "batch": identity.get("batch_size"),
     }
+
+
+def _null_abstention() -> dict[str, Any]:
+    """The record for a run where no pre-generation score gate was applied."""
+    return {"threshold": None, "source": None, "calibration_identity": None}
+
+
+def run_identity(
+    *,
+    snapshot_id: str,
+    config: str,
+    chunker: Mapping[str, Any],
+    top_k: int,
+    over_fetch: int,
+    build_identity: Mapping[str, Any],
+) -> dict[str, Any]:
+    """The canonical identity a threshold must be calibrated at.
+
+    Both the applying run and the calibration artifact use this shape, so equality is a field
+    comparison, not a re-derivation. `chunker` is restricted to the six protocol fields; a
+    build sidecar's extra fields cannot silently enter the identity.
+    """
+    missing = [name for name in CHUNKER_FIELDS if name not in chunker]
+    if missing:
+        raise ValueError(f"run identity: chunker is missing {', '.join(missing)}")
+    slug = str(build_identity.get("identity_slug") or "").strip()
+    if not slug:
+        raise ValueError("run identity: build_identity['identity_slug'] is required")
+    return {
+        "snapshot_id": str(snapshot_id),
+        "chunk_config": str(config),
+        "chunker": {name: chunker[name] for name in CHUNKER_FIELDS},
+        "retrieval": {"mode": "vector", "top_k": int(top_k), "over_fetch": int(over_fetch)},
+        "embed": _embed_metadata(build_identity),
+        "encoder_identity_slug": slug,
+    }
+
+
+def _exact_keys(value: Any, expected: Sequence[str], label: str) -> None:
+    """Require a mapping with exactly `expected` keys, naming anything missing or extra."""
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{label} must be an object")
+    keys = set(value)
+    missing = [name for name in expected if name not in keys]
+    extra = sorted(str(name) for name in keys if name not in expected)
+    if missing or extra:
+        detail = []
+        if missing:
+            detail.append("missing " + ", ".join(missing))
+        if extra:
+            detail.append("unknown " + ", ".join(extra))
+        raise ValueError(f"{label} has {'; '.join(detail)}")
+
+
+def _validate_abstention(
+    block: Mapping[str, Any] | None,
+    identity: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Validate and normalize one `meta.abstention` record against the run identity.
+
+    `None` is the caller's "no threshold" request and becomes the null triple. A thresholded
+    record must name its archived calibration artifact and carry an identity equal to this run's
+    on every field that can move the score.
+    """
+    if block is None:
+        return _null_abstention()
+    _exact_keys(block, ABSTENTION_KEYS, "meta.abstention")
+    threshold = block["threshold"]
+    source = block["source"]
+    calibration = block["calibration_identity"]
+    if threshold is None:
+        if source is not None or calibration is not None:
+            raise ValueError(
+                "meta.abstention.source and calibration_identity must be null when threshold is null"
+            )
+        return _null_abstention()
+    if (
+        isinstance(threshold, bool)
+        or not isinstance(threshold, (int, float))
+        or not math.isfinite(float(threshold))
+    ):
+        raise ValueError("meta.abstention.threshold must be a finite number or null")
+    if not isinstance(source, str) or not source.strip():
+        raise ValueError("meta.abstention.source must name the archived calibration artifact")
+    lowered = source.lower()
+    for marker in _ABSTENTION_SOURCE_MARKERS:
+        if marker in lowered:
+            raise ValueError(
+                f"meta.abstention.source names {marker!r}; that is the dedup sweep, "
+                "not abstention calibration"
+            )
+    _exact_keys(calibration, ABSTENTION_IDENTITY_KEYS, "meta.abstention.calibration_identity")
+    _exact_keys(
+        calibration["chunker"],
+        CHUNKER_FIELDS,
+        "meta.abstention.calibration_identity.chunker",
+    )
+    _exact_keys(
+        calibration["retrieval"],
+        ABSTENTION_RETRIEVAL_KEYS,
+        "meta.abstention.calibration_identity.retrieval",
+    )
+    _exact_keys(
+        calibration["embed"],
+        ABSTENTION_EMBED_KEYS,
+        "meta.abstention.calibration_identity.embed",
+    )
+    if not isinstance(calibration["embed"]["library_versions"], Mapping):
+        raise ValueError(
+            "meta.abstention.calibration_identity.embed.library_versions must be an object"
+        )
+
+    diffs: list[str] = []
+    for name in ("snapshot_id", "chunk_config"):
+        if calibration[name] != identity.get(name):
+            diffs.append(name)
+    for name in ("chunker", "retrieval", "embed"):
+        claimed = calibration[name]
+        actual = identity.get(name) or {}
+        for part in actual:
+            if claimed.get(part) != actual.get(part):
+                diffs.append(f"{name}.{part}")
+    if calibration["encoder_identity_slug"] != identity.get("encoder_identity_slug"):
+        diffs.append("encoder_identity_slug")
+    if diffs:
+        raise ValueError(
+            "meta.abstention.calibration_identity does not match this run: " + ", ".join(diffs)
+        )
+    return {
+        "threshold": threshold,
+        "source": source,
+        "calibration_identity": {
+            "snapshot_id": calibration["snapshot_id"],
+            "chunk_config": calibration["chunk_config"],
+            "chunker": dict(calibration["chunker"]),
+            "retrieval": dict(calibration["retrieval"]),
+            "embed": {
+                **dict(calibration["embed"]),
+                "library_versions": dict(calibration["embed"]["library_versions"]),
+            },
+            "encoder_identity_slug": calibration["encoder_identity_slug"],
+        },
+    }
+
+
+def _spec_identity(spec: RunSpec) -> dict[str, Any]:
+    return run_identity(
+        snapshot_id=spec.snapshot_id,
+        config=spec.config,
+        chunker=spec.chunker,
+        top_k=spec.top_k,
+        over_fetch=spec.over_fetch,
+        build_identity=spec.build_identity,
+    )
+
+
+def _abstention_metadata(spec: RunSpec) -> dict[str, Any]:
+    return _validate_abstention(spec.abstention, _spec_identity(spec))
+
+
+def validate_abstention_metadata(meta: Mapping[str, Any]) -> list[str]:
+    """Validate an archived `meta.abstention` against the archive's own identity.
+
+    Returns problems instead of raising so the live-run validator can report them after the
+    archive exists. A missing block is a problem; explicit nulls are not.
+    """
+    block = meta.get("abstention")
+    if block is None:
+        return ["meta.abstention is missing"]
+    retrieval = meta.get("retrieval") or {}
+    build_identity = meta.get("build_identity") or {}
+    identity = {
+        "snapshot_id": meta.get("snapshot_id"),
+        "chunk_config": meta.get("chunk_config"),
+        "chunker": meta.get("chunker") or {},
+        "retrieval": {name: retrieval.get(name) for name in ABSTENTION_RETRIEVAL_KEYS},
+        "embed": meta.get("embed") or {},
+        "encoder_identity_slug": build_identity.get("identity_slug"),
+    }
+    try:
+        _validate_abstention(block, identity)
+    except ValueError as exc:
+        return [str(exc)]
+    return []
 
 
 _GPU_DEVICE_PREFIX = "cuda"
@@ -590,6 +790,12 @@ def _validate_spec(spec: RunSpec) -> None:
     if missing:
         raise ValueError(f"run spec is missing {', '.join(missing)}")
     _validate_chunker(spec.chunker, spec.config, source="run spec")
+    _validate_abstention(spec.abstention, _spec_identity(spec))
+
+
+def validate_run_spec(spec: RunSpec) -> None:
+    """Public preflight wrapper for `run_eval --preflight-only`."""
+    _validate_spec(spec)
 
 
 def _load_items(
@@ -851,6 +1057,7 @@ def run(
         "require_gpu": spec.require_gpu,
         "collection": spec.collection,
         "llm": dict(spec.llm),
+        "abstention": _abstention_metadata(spec),
         "git_sha": spec.git_sha,
         "qa": {
             "path": str(spec.qa_path),
@@ -1234,5 +1441,8 @@ __all__ = [
     "read_jsonl_rows",
     "resolve_window",
     "run",
+    "run_identity",
+    "validate_abstention_metadata",
+    "validate_run_spec",
     "verify_build_identity",
 ]

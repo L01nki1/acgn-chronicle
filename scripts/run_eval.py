@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import subprocess
 import sys
 from collections.abc import Mapping
@@ -40,6 +41,8 @@ from acgn_rag.core.eval.runner import (
     read_jsonl_rows,
     resolve_window,
     run,
+    validate_abstention_metadata,
+    validate_run_spec,
     verify_build_identity,
 )
 from acgn_rag.core.store import ChromaStore
@@ -204,6 +207,72 @@ def _live_metadata_problems(config: LLMConfig, metadata: Mapping[str, object]) -
     return problems
 
 
+def _abstention_block(
+    path: str | None, settings: object, answerer_mode: str
+) -> dict[str, object] | None:
+    """Load the calibration artifact that authorises a pre-generation threshold.
+
+    A threshold without provenance is refused, and provenance without a threshold is refused:
+    the archive must say what was applied and where it was calibrated.
+    """
+    llm = settings.llm
+    configured = getattr(llm, "answer_min_retrieval_score", None)
+    if path is None:
+        if configured is not None:
+            raise ValueError(
+                "ACGN_ANSWER_MIN_RETRIEVAL_SCORE is set but --abstention-calibration is missing"
+            )
+        return None
+    if answerer_mode != "live":
+        raise ValueError("--abstention-calibration requires --answerer live")
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    block = payload.get("abstention", payload) if isinstance(payload, Mapping) else None
+    if not isinstance(block, Mapping):
+        raise ValueError("calibration artifact must be a JSON object")
+    threshold = block.get("threshold")
+    if (
+        isinstance(threshold, bool)
+        or not isinstance(threshold, (int, float))
+        or not math.isfinite(float(threshold))
+    ):
+        raise ValueError("calibration artifact threshold must be a finite number")
+    if configured is None:
+        raise ValueError(
+            "calibration artifact provided but ACGN_ANSWER_MIN_RETRIEVAL_SCORE is unset"
+        )
+    if float(configured) != float(threshold):
+        raise ValueError(
+            f"ACGN_ANSWER_MIN_RETRIEVAL_SCORE ({configured}) "
+            f"does not equal the calibration threshold ({threshold})"
+        )
+    identity = block.get("calibration_identity")
+    if not isinstance(identity, Mapping):
+        raise ValueError("calibration artifact has no calibration_identity object")
+    return {
+        "threshold": threshold,
+        "source": str(path),
+        "calibration_identity": identity,
+    }
+
+
+def _preflight_device_problems(
+    build_identity: Mapping[str, object],
+    determinism: Mapping[str, object],
+    *,
+    require_gpu: bool,
+) -> list[str]:
+    """CUDA/GPU checks that must pass before a reportable run starts."""
+    device = str(build_identity.get("device") or "").strip().lower()
+    problems: list[str] = []
+    if device.startswith("cuda"):
+        gpu_model = determinism.get("gpu_model")
+        if not isinstance(gpu_model, str) or not gpu_model:
+            problems.append("CUDA encoder has no determinism.gpu_model")
+    if require_gpu and not device.startswith("cuda"):
+        problems.append("--require-gpu is set but the encoder device is not CUDA")
+    return problems
+
+
 def _validate_live_run(result: RunResult) -> list[str]:
     """Enforce the ROADMAP ④ definition of a real-LLM archive.
 
@@ -211,6 +280,7 @@ def _validate_live_run(result: RunResult) -> list[str]:
     model, version and temperature. `seed` stays `None` because the request carries none.
     """
     problems: list[str] = _llm_metadata_problems(result.meta.get("llm") or {})
+    problems.extend(validate_abstention_metadata(result.meta))
 
     build_identity = result.meta.get("build_identity") or {}
     device = str(build_identity.get("device") or "").lower()
@@ -290,6 +360,16 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="enforce the PR #48 GPU-first policy; CPU runs are then non-reportable",
     )
+    parser.add_argument(
+        "--abstention-calibration",
+        default=None,
+        help="archived calibration.json authorising ACGN_ANSWER_MIN_RETRIEVAL_SCORE; live runs only",
+    )
+    parser.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help="validate QA, build records, identity, GPU, threshold and binding; write no archive",
+    )
     args = parser.parse_args(argv)
 
     qa_path = Path(args.qa)
@@ -311,6 +391,11 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     settings = load_settings()
+    try:
+        abstention = _abstention_block(args.abstention_calibration, settings, args.answerer)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        print(f"ABSTENTION CONFIG: {exc}", file=sys.stderr)
+        return 2
     llm_metadata = _llm_metadata(settings.llm, args.answerer)
     if args.answerer == "live":
         metadata_problems = _live_metadata_problems(settings.llm, llm_metadata)
@@ -415,7 +500,37 @@ def main(argv: list[str] | None = None) -> int:
         require_gpu=args.require_gpu,
         qa_validated=not args.allow_invalid_qa,
         qa_source="cli",
+        abstention=abstention,
     )
+    if args.preflight_only:
+        problems: list[str] = []
+        try:
+            validate_run_spec(spec)
+        except ValueError as exc:
+            problems.append(str(exc))
+        problems.extend(
+            _preflight_device_problems(
+                build_identity,
+                determinism,
+                require_gpu=args.require_gpu,
+            )
+        )
+        if problems:
+            print("PREFLIGHT FAILED:", file=sys.stderr)
+            for problem in problems:
+                print(f"  - {problem}", file=sys.stderr)
+            return 1
+        print("PREFLIGHT OK")
+        print(f"  snapshot:   {args.snapshot}")
+        print(f"  config:     {args.config}")
+        print(f"  collection: {collection}")
+        print(f"  counts:     {dict(counts)}")
+        print(f"  identity:   {build_identity.get('identity_slug')}")
+        print(f"  device:     {build_identity.get('device')}")
+        print(f"  gpu_model:  {determinism.get('gpu_model')}")
+        print(f"  qa:         {len(items)} items")
+        print(f"  threshold:  {abstention['threshold'] if abstention else None}")
+        return 0
     result = run(
         spec,
         store=store,
