@@ -26,6 +26,7 @@ from acgn_rag.core.eval.runner import (
     resolve_window,
     run,
     run_identity,
+    validate_abstention_metadata,
     validate_run_spec,
     verify_build_identity,
 )
@@ -1993,6 +1994,14 @@ def _abstention_block(spec: RunSpec) -> dict[str, Any]:
     }
 
 
+class _ThresholdAnswerer:
+    def __init__(self, threshold: float | None) -> None:
+        self.min_retrieval_score = threshold
+
+    def answer(self, query: object, chunks: object) -> None:
+        return None
+
+
 def test_meta_abstention_defaults_to_null_triple(tmp_path: Path) -> None:
     result = run(
         _spec(tmp_path),
@@ -2015,11 +2024,48 @@ def test_meta_abstention_records_a_matching_identity(tmp_path: Path) -> None:
         _spec(tmp_path, abstention=block),
         store=FakeStore([_hit()]),
         embedder=FakeEmbedder(),
+        answerer=_ThresholdAnswerer(0.42),
         qa_items=[_qa_item()],
         evidence_resolver=lambda urls: {url: ["c1"] for url in urls},
     )
 
     assert result.meta["abstention"] == block
+
+
+def test_threshold_without_answerer_is_rejected(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+
+    with pytest.raises(ValueError, match="no answerer"):
+        run(
+            _spec(tmp_path, abstention=block),
+            store=FakeStore([_hit()]),
+            embedder=FakeEmbedder(),
+            qa_items=[_qa_item()],
+        )
+
+
+def test_answerer_threshold_without_record_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="records no threshold"):
+        run(
+            _spec(tmp_path),
+            store=FakeStore([_hit()]),
+            embedder=FakeEmbedder(),
+            answerer=_ThresholdAnswerer(0.8),
+            qa_items=[_qa_item()],
+        )
+
+
+def test_recorded_threshold_must_match_answerer(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+
+    with pytest.raises(ValueError, match="does not equal"):
+        run(
+            _spec(tmp_path, abstention=block),
+            store=FakeStore([_hit()]),
+            embedder=FakeEmbedder(),
+            answerer=_ThresholdAnswerer(0.8),
+            qa_items=[_qa_item()],
+        )
 
 
 @pytest.mark.parametrize(
@@ -2137,3 +2183,33 @@ def test_abstention_identity_rejects_zero_batch(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="batch"):
         validate_run_spec(_spec(tmp_path, abstention=block))
+
+
+def test_abstention_archive_ignores_extra_chunker_fields(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+    result = run(
+        _spec(tmp_path, abstention=block),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        answerer=_ThresholdAnswerer(0.42),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["c1"] for url in urls},
+    )
+    result.meta["chunker"]["budget"] = 508
+
+    assert validate_abstention_metadata(result.meta) == []
+
+
+def test_abstention_archive_requires_the_six_chunker_fields(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+    result = run(
+        _spec(tmp_path, abstention=block),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        answerer=_ThresholdAnswerer(0.42),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["c1"] for url in urls},
+    )
+    del result.meta["chunker"]["version"]
+
+    assert validate_abstention_metadata(result.meta) == ["meta.chunker is missing version"]

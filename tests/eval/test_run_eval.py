@@ -451,12 +451,14 @@ def _calibration_artifact(
         "run_id": "20261115-cal-A-fake",
         "threshold": threshold,
         "calibration": {"threshold": threshold, "in_sample": True},
+        "set": {"gate_set": True},
         "calibration_identity": identity if identity is not None else {"snapshot_id": "s"},
     }
     if nested:
         payload = {
             "run_id": payload["run_id"],
             "calibration": payload["calibration"],
+            "set": payload["set"],
             "abstention": {
                 "threshold": threshold,
                 "source": "ignored",
@@ -554,6 +556,7 @@ def test_abstention_block_requires_an_identity_object(tmp_path: Path) -> None:
                 "run_id": "20261115-cal-A-fake",
                 "threshold": 0.42,
                 "calibration": {"threshold": 0.42, "in_sample": True},
+                "set": {"gate_set": True},
             }
         ),
         encoding="utf-8",
@@ -689,3 +692,19 @@ def test_preflight_reports_a_qa_fingerprint_mismatch() -> None:
     )
 
     assert problems == ["qa fingerprint abc != expected def"]
+
+
+def test_abstention_block_rejects_an_exploration_artifact(tmp_path: Path) -> None:
+    path = _calibration_artifact(tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["set"] = {"gate_set": False}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="exploration-only"):
+        run_eval._abstention_block(str(path), _settings(answer_min_retrieval_score=0.42), "live")
+
+
+def test_abstention_block_returns_null_for_retrieval_only(tmp_path: Path) -> None:
+    block = run_eval._abstention_block(None, _settings(answer_min_retrieval_score=0.42), "null")
+
+    assert block is None

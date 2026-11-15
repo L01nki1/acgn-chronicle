@@ -218,14 +218,18 @@ def _abstention_block(
     """
     llm = settings.llm
     configured = getattr(llm, "answer_min_retrieval_score", None)
+    if answerer_mode != "live":
+        if path is not None:
+            raise ValueError("--abstention-calibration requires --answerer live")
+        # Retrieval-only runs cannot apply a pre-generation score gate; record nulls even when
+        # the environment carries a threshold set for a live answerer.
+        return None
     if path is None:
         if configured is not None:
             raise ValueError(
                 "ACGN_ANSWER_MIN_RETRIEVAL_SCORE is set but --abstention-calibration is missing"
             )
         return None
-    if answerer_mode != "live":
-        raise ValueError("--abstention-calibration requires --answerer live")
     artifact_path = Path(path)
     if artifact_path.name != "calibration.json":
         raise ValueError("--abstention-calibration must point at a calibration.json artifact")
@@ -250,6 +254,11 @@ def _abstention_block(
         raise ValueError("calibration artifact does not carry CalibrationResult.to_metadata()")
     if calibration.get("threshold") != threshold:
         raise ValueError("calibration artifact threshold does not match its calibration record")
+    calibration_set = payload.get("set")
+    if not isinstance(calibration_set, Mapping) or calibration_set.get("gate_set") is not True:
+        raise ValueError(
+            "calibration artifact is exploration-only and cannot author a reportable run"
+        )
     if configured is None:
         raise ValueError(
             "calibration artifact provided but ACGN_ANSWER_MIN_RETRIEVAL_SCORE is unset"

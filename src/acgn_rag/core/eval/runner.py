@@ -480,6 +480,41 @@ def _abstention_metadata(spec: RunSpec) -> dict[str, Any]:
     return _validate_abstention(spec.abstention, _spec_identity(spec))
 
 
+def _validate_applied_threshold(spec: RunSpec, answerer: Answerer | None) -> None:
+    """Bind the recorded threshold to the answerer that will actually apply it.
+
+    A caller can pass a `GroundedAnswerer(min_retrieval_score=...)` without a spec block, or a
+    spec block without an answerer. Either direction makes `meta.abstention` false evidence, so
+    reject the disagreement before retrieval or generation.
+    """
+    recorded = _abstention_metadata(spec)["threshold"]
+    applied = None if answerer is None else getattr(answerer, "min_retrieval_score", None)
+    if applied is not None:
+        if (
+            isinstance(applied, bool)
+            or not isinstance(applied, (int, float))
+            or not math.isfinite(float(applied))
+        ):
+            raise ValueError("answerer min_retrieval_score must be a finite number or None")
+        applied = float(applied)
+    if recorded is not None:
+        recorded = float(recorded)
+    if recorded == applied:
+        return
+    if recorded is None:
+        raise ValueError(
+            "the answerer applies a threshold but meta.abstention records no threshold"
+        )
+    if applied is None:
+        raise ValueError(
+            "meta.abstention records a threshold but the run has no answerer to apply it"
+        )
+    raise ValueError(
+        f"answerer min_retrieval_score ({applied}) does not equal "
+        f"meta.abstention.threshold ({recorded})"
+    )
+
+
 def validate_abstention_metadata(meta: Mapping[str, Any]) -> list[str]:
     """Validate an archived `meta.abstention` against the archive's own identity.
 
@@ -489,12 +524,23 @@ def validate_abstention_metadata(meta: Mapping[str, Any]) -> list[str]:
     block = meta.get("abstention")
     if block is None:
         return ["meta.abstention is missing"]
+    recorded = block.get("threshold") if isinstance(block, Mapping) else None
+    if recorded is None:
+        try:
+            _validate_abstention(block, {})
+        except ValueError as exc:
+            return [str(exc)]
+        return []
     retrieval = meta.get("retrieval") or {}
     build_identity = meta.get("build_identity") or {}
+    chunker = meta.get("chunker") or {}
+    missing_chunker = [name for name in CHUNKER_FIELDS if name not in chunker]
+    if missing_chunker:
+        return [f"meta.chunker is missing {', '.join(missing_chunker)}"]
     identity = {
         "snapshot_id": meta.get("snapshot_id"),
         "chunk_config": meta.get("chunk_config"),
-        "chunker": meta.get("chunker") or {},
+        "chunker": {name: chunker[name] for name in CHUNKER_FIELDS},
         "retrieval": {name: retrieval.get(name) for name in ABSTENTION_RETRIEVAL_KEYS},
         "embed": meta.get("embed") or {},
         "encoder_identity_slug": build_identity.get("identity_slug"),
@@ -937,6 +983,7 @@ def run(
     not `gold_unavailable`; the alias policy is pending the E/F/D rule.
     """
     _validate_spec(spec)
+    _validate_applied_threshold(spec, answerer)
     items = _load_items(spec, qa_items)
     if qa_items is None:
         # The runner loaded and validated the file path itself.
