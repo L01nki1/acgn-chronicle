@@ -531,15 +531,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  qa:         {len(items)} items")
         print(f"  threshold:  {abstention['threshold'] if abstention else None}")
         return 0
-    result = run(
-        spec,
-        store=store,
-        embedder=embedder,
-        answerer=answerer,
-        qa_items=items,
-        evidence_resolver=evidence_resolver,
-        snapshot_member_urls=member_urls,
-    )
+    try:
+        result = run(
+            spec,
+            store=store,
+            embedder=embedder,
+            answerer=answerer,
+            qa_items=items,
+            evidence_resolver=evidence_resolver,
+            snapshot_member_urls=member_urls,
+        )
+    except ValueError as exc:
+        print(f"RUN REFUSED: {exc}", file=sys.stderr)
+        return 1
     print(f"run_id: {result.run_id}")
     print(f"out:    {result.out_dir}")
     if args.answerer == "live":
