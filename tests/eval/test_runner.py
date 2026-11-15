@@ -25,6 +25,9 @@ from acgn_rag.core.eval.runner import (
     load_snapshot_member_urls,
     resolve_window,
     run,
+    run_identity,
+    validate_abstention_metadata,
+    validate_run_spec,
     verify_build_identity,
 )
 from acgn_rag.core.ports import GroundedAnswer
@@ -1974,3 +1977,288 @@ def test_a_prime_run_changes_only_config_identity(tmp_path: Path) -> None:
     assert a["chunker"]["config"] != a_prime["chunker"]["config"]
     assert a["chunker"]["max_tokens"] != a_prime["chunker"]["max_tokens"]
     assert a["chunker"]["overlap"] != a_prime["chunker"]["overlap"]
+
+
+def _abstention_block(spec: RunSpec) -> dict[str, Any]:
+    return {
+        "threshold": 0.42,
+        "source": "eval/runs/20261115-cal-A-fake/calibration.json",
+        "calibration_identity": run_identity(
+            snapshot_id=spec.snapshot_id,
+            config=spec.config,
+            chunker=spec.chunker,
+            top_k=spec.top_k,
+            over_fetch=spec.over_fetch,
+            build_identity=spec.build_identity,
+        ),
+    }
+
+
+class _ThresholdAnswerer:
+    def __init__(self, threshold: float | None) -> None:
+        self.min_retrieval_score = threshold
+
+    def answer(self, query: object, chunks: object) -> None:
+        return None
+
+
+def test_meta_abstention_defaults_to_null_triple(tmp_path: Path) -> None:
+    result = run(
+        _spec(tmp_path),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["c1"] for url in urls},
+    )
+
+    assert result.meta["abstention"] == {
+        "threshold": None,
+        "source": None,
+        "calibration_identity": None,
+    }
+
+
+def test_meta_abstention_records_a_matching_identity(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+    result = run(
+        _spec(tmp_path, abstention=block),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        answerer=_ThresholdAnswerer(0.42),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["c1"] for url in urls},
+    )
+
+    assert result.meta["abstention"] == block
+
+
+def test_threshold_without_answerer_is_rejected(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+
+    with pytest.raises(ValueError, match="no answerer"):
+        run(
+            _spec(tmp_path, abstention=block),
+            store=FakeStore([_hit()]),
+            embedder=FakeEmbedder(),
+            qa_items=[_qa_item()],
+        )
+
+
+def test_answerer_threshold_without_record_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="records no threshold"):
+        run(
+            _spec(tmp_path),
+            store=FakeStore([_hit()]),
+            embedder=FakeEmbedder(),
+            answerer=_ThresholdAnswerer(0.8),
+            qa_items=[_qa_item()],
+        )
+
+
+def test_recorded_threshold_must_match_answerer(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+
+    with pytest.raises(ValueError, match="does not equal"):
+        run(
+            _spec(tmp_path, abstention=block),
+            store=FakeStore([_hit()]),
+            embedder=FakeEmbedder(),
+            answerer=_ThresholdAnswerer(0.8),
+            qa_items=[_qa_item()],
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutate", "field"),
+    [
+        (lambda i: i.__setitem__("snapshot_id", "20261028ffffff"), "snapshot_id"),
+        (lambda i: i.__setitem__("chunk_config", "A'"), "chunk_config"),
+        (lambda i: i["chunker"].__setitem__("overlap", 32), "chunker.overlap"),
+        (lambda i: i["retrieval"].__setitem__("top_k", 10), "retrieval.top_k"),
+        (lambda i: i["embed"].__setitem__("precision", "fp16"), "embed.precision"),
+        (
+            lambda i: i["embed"]["library_versions"].__setitem__("torch", "9.9"),
+            "embed.library_versions",
+        ),
+        (lambda i: i["embed"].__setitem__("batch", 64), "embed.batch"),
+        (lambda i: i.__setitem__("encoder_identity_slug", "other"), "encoder_identity_slug"),
+    ],
+)
+def test_abstention_identity_mismatch_rejected(tmp_path: Path, mutate: Any, field: str) -> None:
+    block = _abstention_block(_spec(tmp_path))
+    mutate(block["calibration_identity"])
+
+    with pytest.raises(ValueError, match=field):
+        validate_run_spec(_spec(tmp_path, abstention=block))
+
+
+def test_abstention_bool_threshold_rejected(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+    block["threshold"] = True
+
+    with pytest.raises(ValueError, match="finite number"):
+        validate_run_spec(_spec(tmp_path, abstention=block))
+
+
+def test_abstention_string_threshold_rejected(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+    block["threshold"] = "0.42"
+
+    with pytest.raises(ValueError, match="finite number"):
+        validate_run_spec(_spec(tmp_path, abstention=block))
+
+
+def test_abstention_missing_source_rejected(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+    block["source"] = ""
+
+    with pytest.raises(ValueError, match="source"):
+        validate_run_spec(_spec(tmp_path, abstention=block))
+
+
+def test_abstention_dedup_sweep_source_rejected(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+    block["source"] = "eval/runs/x/calibration.json#threshold_sweep"
+
+    with pytest.raises(ValueError, match="dedup sweep"):
+        validate_run_spec(_spec(tmp_path, abstention=block))
+
+
+def test_abstention_null_threshold_with_source_rejected(tmp_path: Path) -> None:
+    block = {
+        "threshold": None,
+        "source": "eval/runs/x/calibration.json",
+        "calibration_identity": None,
+    }
+
+    with pytest.raises(ValueError, match="must be null"):
+        validate_run_spec(_spec(tmp_path, abstention=block))
+
+
+def test_abstention_unknown_key_rejected(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+    block["extra"] = 1
+
+    with pytest.raises(ValueError, match="unknown extra"):
+        validate_run_spec(_spec(tmp_path, abstention=block))
+
+
+def test_abstention_unknown_identity_key_rejected(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+    block["calibration_identity"]["extra"] = 1
+
+    with pytest.raises(ValueError, match="unknown extra"):
+        validate_run_spec(_spec(tmp_path, abstention=block))
+
+
+def test_abstention_chunker_requires_version_not_budget(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+    chunker = block["calibration_identity"]["chunker"]
+    chunker.pop("version")
+    chunker["budget"] = 508
+
+    with pytest.raises(ValueError, match="missing version"):
+        validate_run_spec(_spec(tmp_path, abstention=block))
+
+
+def test_abstention_identity_requires_nonempty_embed_fields(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+    block["calibration_identity"]["embed"]["model"] = ""
+
+    with pytest.raises(ValueError, match=r"embed\.model"):
+        validate_run_spec(_spec(tmp_path, abstention=block))
+
+
+def test_abstention_identity_requires_library_versions(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+    block["calibration_identity"]["embed"]["library_versions"] = {}
+
+    with pytest.raises(ValueError, match="library_versions"):
+        validate_run_spec(_spec(tmp_path, abstention=block))
+
+
+def test_abstention_identity_rejects_zero_batch(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+    block["calibration_identity"]["embed"]["batch"] = 0
+
+    with pytest.raises(ValueError, match="batch"):
+        validate_run_spec(_spec(tmp_path, abstention=block))
+
+
+def test_abstention_archive_ignores_extra_chunker_fields(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+    result = run(
+        _spec(tmp_path, abstention=block),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        answerer=_ThresholdAnswerer(0.42),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["c1"] for url in urls},
+    )
+    result.meta["chunker"]["budget"] = 508
+
+    assert validate_abstention_metadata(result.meta) == []
+
+
+def test_abstention_archive_requires_the_six_chunker_fields(tmp_path: Path) -> None:
+    block = _abstention_block(_spec(tmp_path))
+    result = run(
+        _spec(tmp_path, abstention=block),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        answerer=_ThresholdAnswerer(0.42),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["c1"] for url in urls},
+    )
+    del result.meta["chunker"]["version"]
+
+    assert validate_abstention_metadata(result.meta) == ["meta.chunker is missing version"]
+
+
+class _BombStore:
+    """Fails if the runner asks the store anything after a threshold-binding error."""
+
+    def count(self) -> int:
+        raise AssertionError("store was touched")
+
+    def query(self, *args: object, **kwargs: object) -> None:
+        raise AssertionError("store was queried")
+
+
+def test_threshold_binding_fails_before_the_store_is_touched(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="records no threshold"):
+        run(
+            _spec(tmp_path),
+            store=_BombStore(),
+            embedder=FakeEmbedder(),
+            answerer=_ThresholdAnswerer(0.8),
+            qa_items=[_qa_item()],
+        )
+
+
+def test_budget_sidecar_passes_preflight_and_archive_validation(tmp_path: Path) -> None:
+    chunker = {
+        "version": "composed-input-v2",
+        "header_version": "h1",
+        "config": "A",
+        "max_tokens": 512,
+        "overlap": 64,
+        "max_seq_length": 512,
+        "budget": 508,
+    }
+    base = _spec(tmp_path, chunker=chunker)
+    block = _abstention_block(base)
+    spec = _spec(tmp_path, chunker=chunker, abstention=block)
+
+    validate_run_spec(spec)
+    result = run(
+        spec,
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        answerer=_ThresholdAnswerer(0.42),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["c1"] for url in urls},
+    )
+
+    assert result.meta["chunker"]["budget"] == 508
+    assert validate_abstention_metadata(result.meta) == []
