@@ -1,6 +1,6 @@
 # KnowledgePort — contract reference
 
-> **Status: 0.2.5 score-comparability candidate (2026-11-11).** 0.2.3 merged in
+> **Status: 0.2.5 score-comparability clarification (2026-11-11).** 0.2.3 merged in
 > [PR #26](https://github.com/L01nki1/acgn-chronicle/pull/26) and 0.2.4 aligned the `source_count` unit
 > with A's merged producer handoff; 0.2.5 scopes score comparability to one identity for
 > abstention-threshold calibration only (§3.6, §5.6 of [G1aReview.md](G1aReview.md)). Examples are
@@ -97,9 +97,9 @@ implementation and real-source two-rebuild evidence are still required on #9.
 including members whose cluster representative is selected from another source. A registered source
 with no accepted rows contributes zero. One feed carrying several publisher display names still counts
 as one source; two feeds attributed to one organization count as two. The count is neither a publisher
-display-name cardinality nor a canonical organization count. Candidate 0.2.4 clarifies the old
+display-name cardinality nor a canonical organization count. Version 0.2.4 clarifies the old
 "distinct publishers" wording to match A's producer definition, without changing the integer field or
-adding `publisher_id`; C/E/F review this semantic change before adoption.
+adding `publisher_id`. Consumer review records are in §8.1.
 
 QA metrics run over the deduplicated corpus but use their own eligible QA item sets as divisors, with
 `n` and exclusion counts reported beside the rates. `deduped_count` remains corpus provenance. This
@@ -470,9 +470,9 @@ Per the [PM resolution on Issue #4](https://github.com/L01nki1/acgn-chronicle/is
 the 2026-11-02 contract gate covers code types, the exported schema, this reference and green CI. Live
 curl and retirement checks gate W2's running service. Existing filter/refusal design artifacts remain useful
 G1a deliveries; their runtime checks move with the host. Actual C/F/E questions and answers are recorded
-in G1aReview §5; C approved 0.2.2 at `c8c3e88` and the 0.2.3 delta at `aac6598`, now merged via #26.
-The source-count unit in candidate 0.2.4 is a new semantic clarification requiring consumer review;
-the earlier approvals do not cover it. The separate corpus gate remains open.
+in G1aReview §5. C [approved 0.2.2 at `c8c3e88`](https://github.com/L01nki1/acgn-chronicle/pull/26#pullrequestreview-5723391766)
+and approved the 0.2.3 delta at `aac6598`, now merged via #26. The 0.2.4 and 0.2.5 consumer
+review records are tracked by version below. The separate corpus gate remains open.
 
 - [x] Decide `score`'s meaning — cosine similarity, higher is better, comparable across queries only within one identity and only for threshold calibration (§3.6)
 - [x] `episode_table` — dropped from 0.2.0 rather than guessed (§3.8)
@@ -484,8 +484,15 @@ the earlier approvals do not cover it. The separate corpus gate remains open.
 - [x] C / F / E each raise at least three consumer questions, resolve them, and record the actual answers in the PR (G1aReview §5)
 - [x] C re-reviews the 0.2.3 delta at `aac6598` ([APPROVE](https://github.com/L01nki1/acgn-chronicle/pull/26#pullrequestreview-5724246386)); approvals remain version-bound
 - [x] Notify C and F of 0.2.3 ([publication reply](https://github.com/L01nki1/acgn-chronicle/pull/26#issuecomment-6546162341)); notice sent is not F acknowledgement
-- [ ] C/E/F review the 0.2.4 source-count clarification against A's merged producer definition
-- [ ] C/F review the 0.2.5 score-comparability clarification and confirm the one-identity scope for threshold calibration (§3.6, G1aReview §5.6); E confirmed the wording in its PR #67 review, C/F notification is pending
+- [ ] Complete the 0.2.4 `source_count` consumer review record against A's merged producer definition.
+  [F approved `97a7c1f` in #40](https://github.com/L01nki1/acgn-chronicle/pull/40#pullrequestreview-5763011646).
+  [E's #30 closeout](https://github.com/L01nki1/acgn-chronicle/issues/30#issuecomment-6761242060) records the merge at `fb02d3a`.
+  Direct 0.2.4 consumer review references for C and E are still missing from this record.
+- [ ] Complete the 0.2.5 score-comparability consumer review record (§3.6, G1aReview §5.6).
+  [F approved `a0e908b` in #79](https://github.com/L01nki1/acgn-chronicle/pull/79#pullrequestreview-5855178700).
+  [E confirmed the one-identity calibration wording in #67 at `4153380`](https://github.com/L01nki1/acgn-chronicle/pull/67#pullrequestreview-5837763564).
+  [D's PM review of #79](https://github.com/L01nki1/acgn-chronicle/pull/79#pullrequestreview-5862872108) reports C's approval.
+  A direct C review reference tied to 0.2.5 remains to be linked.
 
 ### 8.2 W2: verify the running contract
 
