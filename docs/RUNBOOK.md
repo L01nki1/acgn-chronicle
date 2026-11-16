@@ -299,9 +299,10 @@ this section is only the decision.
   `pyproject.toml` maps Linux to the `pytorch-cpu` index, treats the macOS/Windows PyPI wheels as
   CPU/MPS builds, and declares no CUDA index — so `uv sync --extra embed` yields a CPU-only torch on
   every platform. **Delivery is decided but not implemented (DECISIONS 2026-11-05, option A):** a
-  `[gpu]` extra pointing at a CUDA index lands in the G2 window, from 2026-11-10. Until then the
+  `[gpu]` extra pointing at a CUDA index lands in the G2 window (**2026-11-16 – 2026-11-21**,
+  ROADMAP §3). Until then the
   local GPU lane does not exist in practice and **every G1b index build runs on Colab (T4)** —
-  `torch.cuda.is_available() == False` on a member laptop is expected during G1b, not a bug.
+  `torch.cuda.is_available() == False` on a member laptop is expected until the extra lands, not a bug.
 - Usage differences to respect: Qwen3 takes an **instruct-style query prompt** (`prompt_name="query"` in
   sentence-transformers), documents carry no prefix. **bge-m3 needs no prefixes** and mean-pools —
   with 8k context it is the named late-chunking-capable fallback for config B (the EmbeddingGemma
