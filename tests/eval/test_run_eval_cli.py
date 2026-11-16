@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import run_eval  # noqa: E402
 
 from acgn_rag.config import EmbedConfig, LLMConfig  # noqa: E402
-from acgn_rag.core.eval import runner  # noqa: E402
+from acgn_rag.core.eval import qa, runner  # noqa: E402
 
 SNAPSHOT = "20261028abcdef"
 CHUNKER = {
@@ -63,34 +63,9 @@ def _settings(root: Path, answer_threshold: float | None = None) -> SimpleNamesp
 def _stub_boundary(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, threshold: float | None = None
 ):
-    qa_path = tmp_path / "qa.jsonl"
-    qa_path.write_text(
-        json.dumps(
-            {
-                "qa_id": "A-001",
-                "type": "A",
-                "lang": "en",
-                "answerable": True,
-                "question": "q",
-                "gold_answer": "a",
-                "gold_evidence": {
-                    "urls": ["https://example.invalid/x"],
-                    "publisher": "p",
-                    "spans": ["s"],
-                },
-                "key_entities": ["a"],
-                "window": ["2023-10-28", "2026-10-28"],
-                "annotator": "D",
-                "verified_by": "",
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    qa_path = ROOT / "eval" / "qa_set.jsonl"
     settings = _settings(tmp_path, threshold)
     monkeypatch.setattr(run_eval, "load_settings", lambda: settings)
-    monkeypatch.setattr(run_eval, "load_jsonl", lambda path: [json.loads(qa_path.read_text())])
-    monkeypatch.setattr(run_eval, "validate", lambda items: [])
     monkeypatch.setattr(
         run_eval, "resolve_window", lambda *args: ("2023-10-28", "2026-10-28", True)
     )
@@ -145,7 +120,7 @@ def test_preflight_only_writes_no_archive(monkeypatch: pytest.MonkeyPatch, tmp_p
 
     monkeypatch.setattr(run_eval, "run", _fail)
     out = tmp_path / "runs"
-    fingerprint = runner.qa_inputs_fingerprint([json.loads(qa_path.read_text(encoding="utf-8"))])
+    fingerprint = runner.qa_inputs_fingerprint(qa.load_jsonl(qa_path))
 
     code = run_eval.main(
         [
@@ -245,6 +220,7 @@ def test_abstention_artifact_reaches_runspec(
     captured: dict[str, object] = {}
 
     def _capture(spec: runner.RunSpec, **kwargs: object) -> None:
+        runner.validate_run_spec(spec)
         captured["spec"] = spec
         raise RuntimeError("stop after capture")
 
