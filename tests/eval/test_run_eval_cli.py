@@ -145,6 +145,7 @@ def test_preflight_only_writes_no_archive(monkeypatch: pytest.MonkeyPatch, tmp_p
 
     monkeypatch.setattr(run_eval, "run", _fail)
     out = tmp_path / "runs"
+    fingerprint = runner.qa_inputs_fingerprint([json.loads(qa_path.read_text(encoding="utf-8"))])
 
     code = run_eval.main(
         [
@@ -161,6 +162,8 @@ def test_preflight_only_writes_no_archive(monkeypatch: pytest.MonkeyPatch, tmp_p
             "36121",
             "--expect-chunks",
             "74245",
+            "--expect-qa-fingerprint",
+            fingerprint,
         ]
     )
 
@@ -169,10 +172,32 @@ def test_preflight_only_writes_no_archive(monkeypatch: pytest.MonkeyPatch, tmp_p
     assert not out.exists()
 
 
-def test_preflight_only_rejects_a_count_mismatch(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(
+    ("flag", "value", "message"),
+    [
+        ("--expect-docs", "36000", "docs 36121 != expected 36000"),
+        ("--expect-chunks", "74244", "chunks 74245 != expected 74244"),
+        ("--expect-qa-fingerprint", "deadbeef", "qa fingerprint"),
+    ],
+)
+def test_preflight_only_rejects_each_expectation_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    flag: str,
+    value: str,
+    message: str,
 ) -> None:
     run_eval, qa_path, _ = _stub_boundary(monkeypatch, tmp_path)
+    called = False
+
+    def _fail(*args: object, **kwargs: object) -> None:
+        nonlocal called
+        called = True
+        raise AssertionError("run() must not be called for a failed preflight")
+
+    monkeypatch.setattr(run_eval, "run", _fail)
+    out = tmp_path / "runs"
 
     code = run_eval.main(
         [
@@ -182,14 +207,18 @@ def test_preflight_only_rejects_a_count_mismatch(
             SNAPSHOT,
             "--qa",
             str(qa_path),
+            "--out",
+            str(out),
             "--preflight-only",
-            "--expect-docs",
-            "36000",
+            flag,
+            value,
         ]
     )
 
     assert code == 1
-    assert "docs 36121 != expected 36000" in capsys.readouterr().err
+    assert message in capsys.readouterr().err
+    assert called is False
+    assert not out.exists()
 
 
 def test_abstention_artifact_reaches_runspec(
