@@ -89,6 +89,10 @@ W1_HOSTS: tuple[str, ...] = (
     "paworks.jp",
     "prtimes.jp",
     "animenewsnetwork.com",
+    # Registered W1 L2 full-text media (SOURCES.md §3, promoted 2026-11-15 with the QA freeze).
+    # Their §3 endpoints were written without a scheme, so the allowlist-sync test never saw them.
+    "nijimen.kusuguru.co.jp",
+    "realsound.jp",
     "gcores.com",
     "chuapp.com",
     "yystv.cn",
@@ -183,6 +187,11 @@ def _check_item(item: dict[str, Any], index: int) -> list[str]:
     if item["annotator"] == item["verified_by"]:
         problems.append(
             f"{where}: annotator and verified_by must differ (self-review is not review)"
+        )
+    if item.get("overlap") is True and not item["verified_by"]:
+        problems.append(
+            f"{where}: overlap item needs a non-empty verified_by - an empty string passes the "
+            "self-review rule but records no independent label"
         )
     return problems
 
