@@ -77,12 +77,21 @@ def _live_llm(**overrides: object) -> dict[str, object]:
 
 
 def _live_result(
-    out_dir: Path, rows: list[dict[str, object]], llm: dict[str, object]
+    out_dir: Path,
+    rows: list[dict[str, object]],
+    llm: dict[str, object],
+    *,
+    abstention: dict[str, object] | None = None,
 ) -> SimpleNamespace:
     (out_dir / "answers.jsonl").write_text(
         "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
     )
-    return SimpleNamespace(out_dir=out_dir, meta={"llm": llm})
+    block = abstention or {
+        "threshold": None,
+        "source": None,
+        "calibration_identity": None,
+    }
+    return SimpleNamespace(out_dir=out_dir, meta={"llm": llm, "abstention": block})
 
 
 def test_live_validation_accepts_an_answered_run(tmp_path: Path) -> None:
@@ -114,7 +123,17 @@ def test_live_validation_accepts_unicode_line_separators(tmp_path: Path) -> None
     (tmp_path / "answers.jsonl").write_text(
         json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8"
     )
-    result = SimpleNamespace(out_dir=tmp_path, meta={"llm": _live_llm()})
+    result = SimpleNamespace(
+        out_dir=tmp_path,
+        meta={
+            "llm": _live_llm(),
+            "abstention": {
+                "threshold": None,
+                "source": None,
+                "calibration_identity": None,
+            },
+        },
+    )
 
     assert run_eval._validate_live_run(result) == []
 
@@ -419,3 +438,273 @@ def test_main_live_missing_answer_version_fails_before_answerer(
     )
 
     assert code == 2
+
+
+def _calibration_artifact(
+    tmp_path: Path,
+    *,
+    threshold: object = 0.42,
+    identity: object | None = None,
+    nested: bool = False,
+) -> Path:
+    payload: dict[str, object] = {
+        "run_id": "20261115-cal-A-fake",
+        "threshold": threshold,
+        "calibration": {"threshold": threshold, "in_sample": True},
+        "set": {"gate_set": True},
+        "calibration_identity": identity if identity is not None else {"snapshot_id": "s"},
+    }
+    if nested:
+        payload = {
+            "run_id": payload["run_id"],
+            "calibration": payload["calibration"],
+            "set": payload["set"],
+            "abstention": {
+                "threshold": threshold,
+                "source": "ignored",
+                "calibration_identity": payload["calibration_identity"],
+            },
+        }
+    path = tmp_path / "calibration.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def _settings(**overrides: object) -> SimpleNamespace:
+    return SimpleNamespace(llm=_config(**overrides))
+
+
+def test_abstention_block_requires_artifact_when_threshold_set() -> None:
+    with pytest.raises(ValueError, match="missing"):
+        run_eval._abstention_block(None, _settings(answer_min_retrieval_score=0.42), "live")
+
+
+def test_abstention_block_rejects_null_answerer(tmp_path: Path) -> None:
+    path = _calibration_artifact(tmp_path)
+
+    with pytest.raises(ValueError, match="live"):
+        run_eval._abstention_block(str(path), _settings(answer_min_retrieval_score=0.42), "null")
+
+
+def test_abstention_block_requires_env_threshold(tmp_path: Path) -> None:
+    path = _calibration_artifact(tmp_path)
+
+    with pytest.raises(ValueError, match="unset"):
+        run_eval._abstention_block(str(path), _settings(), "live")
+
+
+def test_abstention_block_rejects_threshold_mismatch(tmp_path: Path) -> None:
+    path = _calibration_artifact(tmp_path, threshold=0.42)
+
+    with pytest.raises(ValueError, match="does not equal"):
+        run_eval._abstention_block(str(path), _settings(answer_min_retrieval_score=0.5), "live")
+
+
+def test_abstention_block_uses_the_artifact_path_as_source(tmp_path: Path) -> None:
+    path = _calibration_artifact(tmp_path, nested=True)
+
+    block = run_eval._abstention_block(
+        str(path), _settings(answer_min_retrieval_score=0.42), "live"
+    )
+
+    assert block is not None
+    assert block["source"] == str(path)
+    assert block["threshold"] == 0.42
+
+
+def test_preflight_rejects_cuda_without_gpu_model() -> None:
+    problems = run_eval._preflight_device_problems(
+        {"device": "cuda"}, {"gpu_model": None}, require_gpu=False
+    )
+
+    assert problems == ["CUDA encoder has no determinism.gpu_model"]
+
+
+def test_preflight_require_gpu_rejects_cpu() -> None:
+    problems = run_eval._preflight_device_problems(
+        {"device": "cpu"}, {"gpu_model": None}, require_gpu=True
+    )
+
+    assert problems == ["--require-gpu is set but the encoder device is not CUDA"]
+
+
+def test_live_validation_rejects_a_missing_abstention_block(tmp_path: Path) -> None:
+    (tmp_path / "answers.jsonl").write_text(
+        json.dumps(
+            {
+                "qa_id": "A-001",
+                "status": "answered",
+                "answer": "ok",
+                "provider_completion": True,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    result = SimpleNamespace(out_dir=tmp_path, meta={"llm": _live_llm()})
+
+    problems = run_eval._validate_live_run(result)
+
+    assert "meta.abstention is missing" in problems
+
+
+def test_abstention_block_requires_an_identity_object(tmp_path: Path) -> None:
+    path = tmp_path / "calibration.json"
+    path.write_text(
+        json.dumps(
+            {
+                "run_id": "20261115-cal-A-fake",
+                "threshold": 0.42,
+                "calibration": {"threshold": 0.42, "in_sample": True},
+                "set": {"gate_set": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="calibration_identity"):
+        run_eval._abstention_block(str(path), _settings(answer_min_retrieval_score=0.42), "live")
+
+
+def _write_calibration(tmp_path: Path, payload: object, name: str = "calibration.json") -> Path:
+    path = tmp_path / name
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def test_abstention_block_requires_run_id(tmp_path: Path) -> None:
+    path = _write_calibration(
+        tmp_path,
+        {
+            "threshold": 0.42,
+            "calibration": {"threshold": 0.42, "in_sample": True},
+            "calibration_identity": {},
+        },
+    )
+
+    with pytest.raises(ValueError, match="run_id"):
+        run_eval._abstention_block(str(path), _settings(answer_min_retrieval_score=0.42), "live")
+
+
+def test_abstention_block_requires_calibration_record(tmp_path: Path) -> None:
+    path = _write_calibration(
+        tmp_path,
+        {
+            "run_id": "20261115-cal-A-fake",
+            "threshold": 0.42,
+            "calibration_identity": {},
+        },
+    )
+
+    with pytest.raises(ValueError, match="to_metadata"):
+        run_eval._abstention_block(str(path), _settings(answer_min_retrieval_score=0.42), "live")
+
+
+def test_abstention_block_rejects_out_of_sample_record(tmp_path: Path) -> None:
+    path = _write_calibration(
+        tmp_path,
+        {
+            "run_id": "20261115-cal-A-fake",
+            "threshold": 0.42,
+            "calibration": {"threshold": 0.42, "in_sample": False},
+            "calibration_identity": {},
+        },
+    )
+
+    with pytest.raises(ValueError, match="to_metadata"):
+        run_eval._abstention_block(str(path), _settings(answer_min_retrieval_score=0.42), "live")
+
+
+def test_abstention_block_rejects_calibration_threshold_mismatch(tmp_path: Path) -> None:
+    path = _write_calibration(
+        tmp_path,
+        {
+            "run_id": "20261115-cal-A-fake",
+            "threshold": 0.42,
+            "calibration": {"threshold": 0.5, "in_sample": True},
+            "calibration_identity": {},
+        },
+    )
+
+    with pytest.raises(ValueError, match="does not match"):
+        run_eval._abstention_block(str(path), _settings(answer_min_retrieval_score=0.42), "live")
+
+
+def test_abstention_block_requires_the_calibration_filename(tmp_path: Path) -> None:
+    path = _write_calibration(
+        tmp_path,
+        {
+            "run_id": "20261115-cal-A-fake",
+            "threshold": 0.42,
+            "calibration": {"threshold": 0.42, "in_sample": True},
+            "calibration_identity": {},
+        },
+        name="cal.json",
+    )
+
+    with pytest.raises(ValueError, match=r"calibration\.json"):
+        run_eval._abstention_block(str(path), _settings(answer_min_retrieval_score=0.42), "live")
+
+
+def test_preflight_expectations_pass_on_matching_values() -> None:
+    problems = run_eval._preflight_expectation_problems(
+        counts={"docs": 36121, "chunks": 74245},
+        qa_fingerprint="abc",
+        expect_docs=36121,
+        expect_chunks=74245,
+        expect_qa_fingerprint="abc",
+    )
+
+    assert problems == []
+
+
+def test_preflight_reports_a_docs_mismatch() -> None:
+    problems = run_eval._preflight_expectation_problems(
+        counts={"docs": 36120, "chunks": 74245},
+        qa_fingerprint="abc",
+        expect_docs=36121,
+        expect_chunks=None,
+        expect_qa_fingerprint=None,
+    )
+
+    assert problems == ["docs 36120 != expected 36121"]
+
+
+def test_preflight_reports_a_chunks_mismatch() -> None:
+    problems = run_eval._preflight_expectation_problems(
+        counts={"docs": 36121, "chunks": 70000},
+        qa_fingerprint="abc",
+        expect_docs=None,
+        expect_chunks=74245,
+        expect_qa_fingerprint=None,
+    )
+
+    assert problems == ["chunks 70000 != expected 74245"]
+
+
+def test_preflight_reports_a_qa_fingerprint_mismatch() -> None:
+    problems = run_eval._preflight_expectation_problems(
+        counts={"docs": 36121, "chunks": 74245},
+        qa_fingerprint="abc",
+        expect_docs=None,
+        expect_chunks=None,
+        expect_qa_fingerprint="def",
+    )
+
+    assert problems == ["qa fingerprint abc != expected def"]
+
+
+def test_abstention_block_rejects_an_exploration_artifact(tmp_path: Path) -> None:
+    path = _calibration_artifact(tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["set"] = {"gate_set": False}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="exploration-only"):
+        run_eval._abstention_block(str(path), _settings(answer_min_retrieval_score=0.42), "live")
+
+
+def test_abstention_block_returns_null_for_retrieval_only(tmp_path: Path) -> None:
+    block = run_eval._abstention_block(None, _settings(answer_min_retrieval_score=0.42), "null")
+
+    assert block is None
