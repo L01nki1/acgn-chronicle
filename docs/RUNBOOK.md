@@ -213,6 +213,16 @@ primary pairs (cosine < t, merged by the primary channel's threshold-independent
 reported as policy precision and never count towards the gate. Sparser sheets exit 2 marked
 `insufficient`, and `--exploratory` scores are tagged as not gate evidence:
 
+**Exhaustive populations below 20.** A threshold whose aux population is itself smaller than 20
+cannot reach the sample size — the sheet already carries every aux pair that exists. Labelling
+all of them is complete evidence, not short evidence: at `0.88` the frozen snapshot
+`20261105-d797b5f0ae8e` has **19** aux pairs in total, so requiring 20 asks for a pair that does
+not exist. The exemption is decided against the `aux_pairs` count recorded in `sweep.json`, never
+against the sheet alone: the sheet's aux rows for that threshold must equal the recorded
+population, so a sheet that dropped rows stays `insufficient`. The report prints
+`population_exhausted` and `aux_population` per threshold so the exemption is auditable rather
+than silent.
+
 1. Open `eval/dedup_g1b/label_sheet.html` in a browser; label 0.86 first, then the neighbours.
 2. `duplicate` = the same event reported twice; `not_duplicate` = same franchise but a different
    event, a different region's release, or a different work behind a shared template;
