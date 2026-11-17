@@ -1,0 +1,103 @@
+{
+  "snapshot_id": "20261105-d797b5f0ae8e",
+  "config": "A'",
+  "collection": "snap_full_20261105-d797b5f0ae8e_A-prime",
+  "build_identity": {
+    "model": "intfloat/multilingual-e5-base",
+    "backend": "torch",
+    "device": "cuda",
+    "precision": "fp32",
+    "batch_size": 16,
+    "identity_slug": "multilingual-e5-base-torch-cuda-fp32-d2fa8669",
+    "lib_sentence_transformers": "6.2.0",
+    "lib_torch": "2.15.0+cu132",
+    "lib_transformers": "5.21.0",
+    "lib_numpy": "2.5.4"
+  },
+  "resolved": {
+    "https://corp.toei-anim.co.jp/ja/press/COPY-press8150009092261170999.html": [
+      "doc_46cc35d3e1e95890ba80bc463ca1820dba602c69dbef198c1910e79165e25540::A'::1"
+    ],
+    "https://corp.toei-anim.co.jp/ja/press/press-462785755694520346.html": [
+      "doc_d505366fd280a663d4963abde95f4c1bebc0c237afb3458503ac72ce851ba930::A'::1"
+    ],
+    "https://corp.toei-anim.co.jp/ja/press/press-9185586683674845972.html": [
+      "doc_8b75231893838a22db1d43744ec73d2b59ee7e7829d6f9e1ad60bdec62423360::A'::1"
+    ],
+    "https://corp.toei-anim.co.jp/ja/press/press5863404116982109091.html": [
+      "doc_74a70264a2538504dbb2f243a797d73547e057fb1ad0a905333fec23ddcf3af7::A'::1"
+    ],
+    "https://nijimen.kusuguru.co.jp/topics/475175": [
+      "doc_ed9dd16922d78109a57779d522aa7e52d661162b0dfc1281e4c95fca41900c78::A'::1"
+    ],
+    "https://nijimen.kusuguru.co.jp/topics/627938": [
+      "doc_59c66549f54cb052d733c1fcc5a177f4b81ca8225157f4be721ac37d016f2c5f::A'::1",
+      "doc_59c66549f54cb052d733c1fcc5a177f4b81ca8225157f4be721ac37d016f2c5f::A'::2",
+      "doc_59c66549f54cb052d733c1fcc5a177f4b81ca8225157f4be721ac37d016f2c5f::A'::3",
+      "doc_59c66549f54cb052d733c1fcc5a177f4b81ca8225157f4be721ac37d016f2c5f::A'::4",
+      "doc_59c66549f54cb052d733c1fcc5a177f4b81ca8225157f4be721ac37d016f2c5f::A'::5",
+      "doc_59c66549f54cb052d733c1fcc5a177f4b81ca8225157f4be721ac37d016f2c5f::A'::6",
+      "doc_59c66549f54cb052d733c1fcc5a177f4b81ca8225157f4be721ac37d016f2c5f::A'::7",
+      "doc_59c66549f54cb052d733c1fcc5a177f4b81ca8225157f4be721ac37d016f2c5f::A'::8",
+      "doc_59c66549f54cb052d733c1fcc5a177f4b81ca8225157f4be721ac37d016f2c5f::A'::9"
+    ],
+    "https://prtimes.jp/main/html/rd/p/000000002.000160632.html": [],
+    "https://prtimes.jp/main/html/rd/p/000000005.000189559.html": [],
+    "https://prtimes.jp/main/html/rd/p/000000322.000069413.html": [],
+    "https://www.animenewsnetwork.com/news/2024-07-05/ubel-blatt-anime-trailer-reveals-new-cast-main-staff-winter-2025-premiere/.212901": [
+      "doc_e5f06d312334d9c0a4d9075cb9b62979bfa601ee890c8b71cad79f2079209420::A'::1"
+    ],
+    "https://www.animenewsnetwork.com/news/2025-03-21/let-this-grieving-soul-retire-season-2-teaser-announces-october-debut/.222642": [
+      "doc_18f945682cc01f0ac1bb409961a4df75da4c4cb6569f7e8a126b5ac911e77f13::A'::1"
+    ],
+    "https://www.bones.co.jp/2026/05/26/380/": [
+      "doc_10e4f4027c2be95819a840a2e1bfd495ea005632173e360941e413b41c932860::A'::1"
+    ],
+    "https://www.bones.co.jp/2026/07/06/382/": [
+      "doc_c3b1b97a5bbfe1b7e6d3718ed1d4afae8dbc9e9af85be46bdfa5765f4027f83e::A'::1"
+    ],
+    "https://www.capcom.co.jp/ir/news/html/260608b.html?utm_source=capcom_top&utm_medium=web&utm_campaign=referer": [
+      "doc_52891dd58fd73f46461ce517351528a03f9256763c245fe2eafc7b782c983aa0::A'::1"
+    ],
+    "https://www.capcom.co.jp/ir/news/html/260610.html?utm_source=capcom_top&utm_medium=web&utm_campaign=referer": [
+      "doc_b3132495b947f27f8a31b3b285721772df288c4cfece5d8238abecac1c02b79f::A'::1"
+    ],
+    "https://www.capcom.co.jp/ir/news/html/260831.html?utm_source=capcom_top&utm_medium=web&utm_campaign=referer": [
+      "doc_6b43aef961a866a8837abe4d4cfe954035a0e04477e9817e0b29e44029411081::A'::1"
+    ],
+    "https://www.capcom.co.jp/ir/news/html/260901.html?utm_source=capcom_top&utm_medium=web&utm_campaign=referer": [
+      "doc_0c69a74765d114c98ae7505cb4fdac0efa6ff7808f82da863642649b4d312771::A'::1"
+    ],
+    "https://www.capcom.co.jp/ir/news/html/260910.html?utm_source=capcom_top&utm_medium=web&utm_campaign=referer": [
+      "doc_a3d3b7db9a9fe7f8a420198861c475fb97d4b08f2653db9443eb626da411e1a8::A'::1"
+    ],
+    "https://www.mappa.co.jp/news/2026/3600/": [
+      "doc_b42419959d09248deb2da9bcab69c7cab9190138c3d325068c55584c9fddac14::A'::1"
+    ],
+    "https://www.mappa.co.jp/news/works/2025/3262/": [
+      "doc_d36efb6f8fa9930faef41ee0928ba356f7aebc82dfca0d5e5116c715fbc55e9c::A'::1"
+    ],
+    "https://www.mappa.co.jp/news/works/2025/3390/": [
+      "doc_44e28c1d1e5fea5c9bea76750ea50a923537dc39f93b3141b1b751dbd507434c::A'::1"
+    ],
+    "https://www.mappa.co.jp/news/works/2025/3395/": [
+      "doc_73ab81dd56b5b792bc8b211ee0df5f09c9d8e060b65b5182d49999d2b2e2cf02::A'::1"
+    ],
+    "https://www.mappa.co.jp/news/works/2026/3634/": [
+      "doc_bf28bcabf800995db9f30e39dbca1ac36abe1a5464024186683449cc46b28d0e::A'::1"
+    ],
+    "https://www.toei-anim.co.jp/news/detail/0aod9v9yw_s/": [
+      "doc_3b9cb7c315ce52a6fd50090916bec4d0c85c111e9f8290785838bb054916f0c6::A'::1"
+    ],
+    "https://www.toei-anim.co.jp/news/detail/2024080701/": [
+      "doc_5ec15a1c34aa77d0a542d48baa04aeaa5b6b7b0839266a968176103015a1d61f::A'::1"
+    ]
+  },
+  "unresolved": [
+    "https://prtimes.jp/main/html/rd/p/000000002.000160632.html",
+    "https://prtimes.jp/main/html/rd/p/000000005.000189559.html",
+    "https://prtimes.jp/main/html/rd/p/000000322.000069413.html"
+  ],
+  "member_not_indexed": [],
+  "status": "resolved"
+}
