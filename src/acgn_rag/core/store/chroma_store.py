@@ -509,7 +509,10 @@ class ChromaStore:
 
         Chroma 1.x filters pre-KNN, but HNSW can still under-return (ef/M), so the internal
         request is ``top_k x over_fetch_factor``; the assert then guarantees at least
-        ``min(top_k, available_after_filter)`` rows before truncation to ``top_k``.
+        ``min(top_k, available_after_filter)`` rows before truncation to ``top_k``. The
+        availability probe only runs when the over-fetch returns fewer than ``top_k`` rows:
+        at or above ``top_k`` the assert cannot fire, and probing there would add a filtered
+        near-full scan to every query (issue #94).
         """
         collection = self._require_collection()
         if top_k < 1:
@@ -519,9 +522,12 @@ class ChromaStore:
                 f"collection {collection.name!r} is empty: a rebuild is in progress or failed"
             )
         n_results = top_k * max(self.settings.over_fetch_factor, 1)
-        available = self._available(where, n_results + 1)
         rows = self._fetch_rows(embedding, n_results, where)
-        _assert_min_rows(len(rows), top_k, available, collection.name)
+        if len(rows) < top_k:
+            # Only a short result can violate the assert; probing on every query would
+            # add a filtered near-full scan (#94).
+            available = self._available(where, n_results + 1)
+            _assert_min_rows(len(rows), top_k, available, collection.name)
         hits = [
             ScoredPayload(payload=payload_from_metadata(metadata, document), score=1.0 - distance)
             for (_chunk_id, document, metadata, distance) in rows
