@@ -1,0 +1,215 @@
+{
+  "run_id": "20261117-A-20261105-d797b5f0ae8e-multilingual-e5-base-torch-cuda-fp32-d2fa8669",
+  "snapshot_id": "20261105-d797b5f0ae8e",
+  "window_start": "2023-11-05",
+  "window_end": "2026-11-05",
+  "window_verified": true,
+  "chunk_config": "A",
+  "retrieval": {
+    "mode": "vector",
+    "top_k": 5,
+    "over_fetch": 5,
+    "latency_ms": {
+      "n": 32,
+      "p50": 1181.125,
+      "p95": 1800.683
+    }
+  },
+  "embed": {
+    "model": "intfloat/multilingual-e5-base",
+    "backend": "torch",
+    "device": "cuda",
+    "precision": "fp32",
+    "library_versions": {
+      "sentence_transformers": "6.2.0",
+      "torch": "2.15.0+cu132",
+      "transformers": "5.21.0",
+      "numpy": "2.5.4"
+    },
+    "batch": 16
+  },
+  "build_identity": {
+    "model": "intfloat/multilingual-e5-base",
+    "backend": "torch",
+    "device": "cuda",
+    "precision": "fp32",
+    "batch_size": 16,
+    "identity_slug": "multilingual-e5-base-torch-cuda-fp32-d2fa8669",
+    "lib_sentence_transformers": "6.2.0",
+    "lib_torch": "2.15.0+cu132",
+    "lib_transformers": "5.21.0",
+    "lib_numpy": "2.5.4"
+  },
+  "chunker": {
+    "version": "composed-input-v2",
+    "header_version": "h1",
+    "config": "A",
+    "max_tokens": 512,
+    "overlap": 64,
+    "max_seq_length": 512
+  },
+  "reportable": true,
+  "non_reportable_reason": null,
+  "reportable_scope": "run; per-family availability is in metrics.reporting",
+  "determinism": {
+    "torch_available": true,
+    "torch_seed": 0,
+    "use_deterministic_algorithms": true,
+    "warn_only": true,
+    "gpu_model": "Tesla T4"
+  },
+  "gpu_policy": "not_enforced",
+  "require_gpu": false,
+  "collection": "snap_full_20261105-d797b5f0ae8e_A",
+  "llm": {
+    "provider": "none",
+    "model": "none",
+    "version": "none",
+    "temperature": 0.0,
+    "seed": null
+  },
+  "abstention": {
+    "threshold": null,
+    "source": null,
+    "calibration_identity": null
+  },
+  "git_sha": "c8dd5b5",
+  "qa": {
+    "path": "eval/qa_set.jsonl",
+    "count": 32,
+    "inputs_fingerprint": "dd0bbe1a302df6d527491af5b95b1b1c1311b6c8551667f0d7851c63a1c03acc",
+    "validated": true,
+    "validation": "validated",
+    "source": "cli"
+  },
+  "created_at": "2026-11-17T08:00:56+00:00",
+  "metrics": {
+    "counts": {
+      "qa_total": 32,
+      "answerable": 26,
+      "unanswerable": 6,
+      "gold_unavailable": 3,
+      "gold_member_not_indexed": 0,
+      "gold_unresolved": 0,
+      "dropped": 0,
+      "deduped_count": 36121,
+      "indexed_chunks": 74245
+    },
+    "retrieval": {
+      "k": 5,
+      "hit": {
+        "all": {
+          "value": 0.2608695652173913,
+          "n": 23
+        },
+        "en": {
+          "value": 0.13333333333333333,
+          "n": 15
+        },
+        "zh": {
+          "value": 0.5,
+          "n": 8
+        }
+      },
+      "mrr": {
+        "all": {
+          "value": 0.21014492753623187,
+          "n": 23
+        },
+        "en": {
+          "value": 0.08888888888888888,
+          "n": 15
+        },
+        "zh": {
+          "value": 0.4375,
+          "n": 8
+        }
+      },
+      "evidence_recall": {
+        "all": {
+          "value": 0.2391304347826087,
+          "n": 23
+        },
+        "en": {
+          "value": 0.13333333333333333,
+          "n": 15
+        },
+        "zh": {
+          "value": 0.4375,
+          "n": 8
+        }
+      },
+      "excluded": {
+        "unanswerable": 6,
+        "gold_unavailable": 3,
+        "gold_member_not_indexed": 0,
+        "gold_unresolved": 0,
+        "missing_gold": 0,
+        "dropped": 0
+      }
+    },
+    "correctness": {
+      "counts": {
+        "fully_correct": 0,
+        "partially_correct": 0,
+        "incorrect": 0
+      },
+      "rates": {
+        "all": {
+          "value": null,
+          "n": 0
+        },
+        "en": {
+          "value": null,
+          "n": 0
+        },
+        "zh": {
+          "value": null,
+          "n": 0
+        }
+      }
+    },
+    "abstention": {
+      "threshold": null,
+      "refusal_rate": {
+        "value": null,
+        "n": 0
+      },
+      "false_refusal_rate": {
+        "value": null,
+        "n": 0
+      },
+      "calibration_in_sample": {
+        "value": null,
+        "n": 0
+      }
+    },
+    "citation": {
+      "containment_rate": {
+        "value": null,
+        "n": 0
+      },
+      "violations": 0,
+      "abstained_violations": 0
+    },
+    "reporting": {
+      "retrieval": {
+        "available": true,
+        "n": 23
+      },
+      "correctness": {
+        "available": false,
+        "n": 0
+      },
+      "abstention": {
+        "available": false,
+        "n": 0
+      },
+      "citation": {
+        "available": false,
+        "n": 0
+      }
+    },
+    "provisional": false
+  }
+}
