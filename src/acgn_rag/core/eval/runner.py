@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
+import time
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import UTC, datetime
@@ -36,6 +38,21 @@ CONFIG_TOKENS = {"A'": "A-prime"}
 BUILD_IDENTITY_KEYS = ("model", "backend", "device", "precision", "batch_size", "identity_slug")
 VECTOR_IDENTITY_KEYS = ("model", "backend", "device", "precision", "identity_slug")
 CHUNKER_FIELDS = ("version", "header_version", "config", "max_tokens", "overlap", "max_seq_length")
+#: `meta.abstention` shape (EVAL_PROTOCOL §7). The identity is compared field by field; a
+#: threshold calibrated at another identity must never be applied to this run.
+ABSTENTION_KEYS = ("threshold", "source", "calibration_identity")
+ABSTENTION_IDENTITY_KEYS = (
+    "snapshot_id",
+    "chunk_config",
+    "chunker",
+    "retrieval",
+    "embed",
+    "encoder_identity_slug",
+)
+ABSTENTION_RETRIEVAL_KEYS = ("mode", "top_k", "over_fetch")
+ABSTENTION_EMBED_KEYS = ("model", "backend", "device", "precision", "library_versions", "batch")
+#: The dedup auxiliary-channel sweep is a clustering threshold, never abstention provenance.
+_ABSTENTION_SOURCE_MARKERS = ("threshold_sweep", "snapshot_evidence")
 _FULL_SNAPSHOT_ID = re.compile(r"(\d{8})-([0-9a-f]{12})")
 _RUN_ID_SEGMENT = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
 # QA fields that change what retrieval is asked or judged. Review metadata (`annotator`,
@@ -139,6 +156,7 @@ class RunSpec:
     require_gpu: bool = False
     qa_validated: bool = False
     qa_source: Literal["cli", "caller", "runner"] = "caller"
+    abstention: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -280,6 +298,258 @@ def _embed_metadata(identity: Mapping[str, Any]) -> dict[str, Any]:
         "library_versions": versions,
         "batch": identity.get("batch_size"),
     }
+
+
+def _null_abstention() -> dict[str, Any]:
+    """The record for a run where no pre-generation score gate was applied."""
+    return {"threshold": None, "source": None, "calibration_identity": None}
+
+
+def run_identity(
+    *,
+    snapshot_id: str,
+    config: str,
+    chunker: Mapping[str, Any],
+    top_k: int,
+    over_fetch: int,
+    build_identity: Mapping[str, Any],
+) -> dict[str, Any]:
+    """The canonical identity a threshold must be calibrated at.
+
+    Both the applying run and the calibration artifact use this shape, so equality is a field
+    comparison, not a re-derivation. `chunker` is restricted to the six protocol fields; a
+    build sidecar's extra fields cannot silently enter the identity.
+    """
+    missing = [name for name in CHUNKER_FIELDS if name not in chunker]
+    if missing:
+        raise ValueError(f"run identity: chunker is missing {', '.join(missing)}")
+    slug = str(build_identity.get("identity_slug") or "").strip()
+    if not slug:
+        raise ValueError("run identity: build_identity['identity_slug'] is required")
+    return {
+        "snapshot_id": str(snapshot_id),
+        "chunk_config": str(config),
+        "chunker": {name: chunker[name] for name in CHUNKER_FIELDS},
+        "retrieval": {"mode": "vector", "top_k": int(top_k), "over_fetch": int(over_fetch)},
+        "embed": _embed_metadata(build_identity),
+        "encoder_identity_slug": slug,
+    }
+
+
+def _exact_keys(value: Any, expected: Sequence[str], label: str) -> None:
+    """Require a mapping with exactly `expected` keys, naming anything missing or extra."""
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{label} must be an object")
+    keys = set(value)
+    missing = [name for name in expected if name not in keys]
+    extra = sorted(str(name) for name in keys if name not in expected)
+    if missing or extra:
+        detail = []
+        if missing:
+            detail.append("missing " + ", ".join(missing))
+        if extra:
+            detail.append("unknown " + ", ".join(extra))
+        raise ValueError(f"{label} has {'; '.join(detail)}")
+
+
+def _validate_abstention(
+    block: Mapping[str, Any] | None,
+    identity: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Validate and normalize one `meta.abstention` record against the run identity.
+
+    `None` is the caller's "no threshold" request and becomes the null triple. A thresholded
+    record must name its archived calibration artifact and carry an identity equal to this run's
+    on every field that can move the score.
+    """
+    if block is None:
+        return _null_abstention()
+    _exact_keys(block, ABSTENTION_KEYS, "meta.abstention")
+    threshold = block["threshold"]
+    source = block["source"]
+    calibration = block["calibration_identity"]
+    if threshold is None:
+        if source is not None or calibration is not None:
+            raise ValueError(
+                "meta.abstention.source and calibration_identity must be null when threshold is null"
+            )
+        return _null_abstention()
+    if (
+        isinstance(threshold, bool)
+        or not isinstance(threshold, (int, float))
+        or not math.isfinite(float(threshold))
+    ):
+        raise ValueError("meta.abstention.threshold must be a finite number or null")
+    if not isinstance(source, str) or not source.strip():
+        raise ValueError("meta.abstention.source must name the archived calibration artifact")
+    lowered = source.lower()
+    for marker in _ABSTENTION_SOURCE_MARKERS:
+        if marker in lowered:
+            raise ValueError(
+                f"meta.abstention.source names {marker!r}; that is the dedup sweep, "
+                "not abstention calibration"
+            )
+    _exact_keys(calibration, ABSTENTION_IDENTITY_KEYS, "meta.abstention.calibration_identity")
+    _exact_keys(
+        calibration["chunker"],
+        CHUNKER_FIELDS,
+        "meta.abstention.calibration_identity.chunker",
+    )
+    _exact_keys(
+        calibration["retrieval"],
+        ABSTENTION_RETRIEVAL_KEYS,
+        "meta.abstention.calibration_identity.retrieval",
+    )
+    _exact_keys(
+        calibration["embed"],
+        ABSTENTION_EMBED_KEYS,
+        "meta.abstention.calibration_identity.embed",
+    )
+    if not isinstance(calibration["embed"]["library_versions"], Mapping):
+        raise ValueError(
+            "meta.abstention.calibration_identity.embed.library_versions must be an object"
+        )
+    for name in ("snapshot_id", "chunk_config", "encoder_identity_slug"):
+        value = calibration[name]
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                f"meta.abstention.calibration_identity.{name} must be a non-empty string"
+            )
+    embed = calibration["embed"]
+    for name in ("model", "backend", "device", "precision"):
+        value = embed[name]
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                f"meta.abstention.calibration_identity.embed.{name} must be a non-empty string"
+            )
+    batch = embed["batch"]
+    if isinstance(batch, bool) or not isinstance(batch, int) or batch <= 0:
+        raise ValueError(
+            "meta.abstention.calibration_identity.embed.batch must be a positive integer"
+        )
+    if not calibration["embed"]["library_versions"]:
+        raise ValueError(
+            "meta.abstention.calibration_identity.embed.library_versions must not be empty"
+        )
+
+    diffs: list[str] = []
+    for name in ("snapshot_id", "chunk_config"):
+        if calibration[name] != identity.get(name):
+            diffs.append(name)
+    for name in ("chunker", "retrieval", "embed"):
+        claimed = calibration[name]
+        actual = identity.get(name) or {}
+        for part in actual:
+            if claimed.get(part) != actual.get(part):
+                diffs.append(f"{name}.{part}")
+    if calibration["encoder_identity_slug"] != identity.get("encoder_identity_slug"):
+        diffs.append("encoder_identity_slug")
+    if diffs:
+        raise ValueError(
+            "meta.abstention.calibration_identity does not match this run: " + ", ".join(diffs)
+        )
+    return {
+        "threshold": threshold,
+        "source": source,
+        "calibration_identity": {
+            "snapshot_id": calibration["snapshot_id"],
+            "chunk_config": calibration["chunk_config"],
+            "chunker": dict(calibration["chunker"]),
+            "retrieval": dict(calibration["retrieval"]),
+            "embed": {
+                **dict(calibration["embed"]),
+                "library_versions": dict(calibration["embed"]["library_versions"]),
+            },
+            "encoder_identity_slug": calibration["encoder_identity_slug"],
+        },
+    }
+
+
+def _spec_identity(spec: RunSpec) -> dict[str, Any]:
+    return run_identity(
+        snapshot_id=spec.snapshot_id,
+        config=spec.config,
+        chunker=spec.chunker,
+        top_k=spec.top_k,
+        over_fetch=spec.over_fetch,
+        build_identity=spec.build_identity,
+    )
+
+
+def _abstention_metadata(spec: RunSpec) -> dict[str, Any]:
+    return _validate_abstention(spec.abstention, _spec_identity(spec))
+
+
+def _validate_applied_threshold(spec: RunSpec, answerer: Answerer | None) -> None:
+    """Bind the recorded threshold to the answerer that will actually apply it.
+
+    A caller can pass a `GroundedAnswerer(min_retrieval_score=...)` without a spec block, or a
+    spec block without an answerer. Either direction makes `meta.abstention` false evidence, so
+    reject the disagreement before retrieval or generation.
+    """
+    recorded = _abstention_metadata(spec)["threshold"]
+    applied = None if answerer is None else getattr(answerer, "min_retrieval_score", None)
+    if applied is not None:
+        if (
+            isinstance(applied, bool)
+            or not isinstance(applied, (int, float))
+            or not math.isfinite(float(applied))
+        ):
+            raise ValueError("answerer min_retrieval_score must be a finite number or None")
+        applied = float(applied)
+    if recorded is not None:
+        recorded = float(recorded)
+    if recorded == applied:
+        return
+    if recorded is None:
+        raise ValueError(
+            "the answerer applies a threshold but meta.abstention records no threshold"
+        )
+    if applied is None:
+        raise ValueError(
+            "meta.abstention records a threshold but the run has no answerer to apply it"
+        )
+    raise ValueError(
+        f"answerer min_retrieval_score ({applied}) does not equal "
+        f"meta.abstention.threshold ({recorded})"
+    )
+
+
+def validate_abstention_metadata(meta: Mapping[str, Any]) -> list[str]:
+    """Validate an archived `meta.abstention` against the archive's own identity.
+
+    Returns problems instead of raising so the live-run validator can report them after the
+    archive exists. A missing block is a problem; explicit nulls are not.
+    """
+    block = meta.get("abstention")
+    if block is None:
+        return ["meta.abstention is missing"]
+    recorded = block.get("threshold") if isinstance(block, Mapping) else None
+    if recorded is None:
+        try:
+            _validate_abstention(block, {})
+        except ValueError as exc:
+            return [str(exc)]
+        return []
+    retrieval = meta.get("retrieval") or {}
+    build_identity = meta.get("build_identity") or {}
+    chunker = meta.get("chunker") or {}
+    missing_chunker = [name for name in CHUNKER_FIELDS if name not in chunker]
+    if missing_chunker:
+        return [f"meta.chunker is missing {', '.join(missing_chunker)}"]
+    identity = {
+        "snapshot_id": meta.get("snapshot_id"),
+        "chunk_config": meta.get("chunk_config"),
+        "chunker": {name: chunker[name] for name in CHUNKER_FIELDS},
+        "retrieval": {name: retrieval.get(name) for name in ABSTENTION_RETRIEVAL_KEYS},
+        "embed": meta.get("embed") or {},
+        "encoder_identity_slug": build_identity.get("identity_slug"),
+    }
+    try:
+        _validate_abstention(block, identity)
+    except ValueError as exc:
+        return [str(exc)]
+    return []
 
 
 _GPU_DEVICE_PREFIX = "cuda"
@@ -438,26 +708,58 @@ def _canonical_manifest_digest(manifest: Mapping[str, Any]) -> str | None:
     return hashlib.sha256(data).hexdigest()
 
 
+EVIDENCE_PAGE_SIZE = 500
+
+
 def build_evidence_resolver(
     collection: Any,
+    *,
+    page_size: int = EVIDENCE_PAGE_SIZE,
 ) -> Callable[[Sequence[str]], Mapping[str, Sequence[str]]]:
     """Resolve gold URLs to chunk ids from the bound collection's metadata.
 
     The resolver is scoped to the collection the runner will query: a URL present in a
     different snapshot/config must stay unresolved rather than borrowing evidence.
+
+    Metadata is read in bounded pages: an unbounded `get()` on the full collection can exceed
+    SQLite's variable limit. Duplicate/overlapping ids and a final count mismatch raise instead
+    of returning a partial map. This is a consistency check, not a lock; the index must not be
+    changing while the scan runs.
     """
-    rows = collection.get(include=["metadatas"])
-    ids = list(rows.get("ids") or [])
-    metadatas = list(rows.get("metadatas") or [])
-    if len(ids) != len(metadatas):
-        raise RuntimeError("collection metadata rows are incomplete")
+    if page_size < 1:
+        raise ValueError("page_size must be >= 1")
+
     by_url: dict[str, list[str]] = {}
-    for chunk_id, metadata in zip(ids, metadatas, strict=True):
-        if not isinstance(metadata, dict):
-            continue
-        url = metadata.get("url")
-        if isinstance(url, str) and url:
-            by_url.setdefault(metrics.normalize_url(url), []).append(str(chunk_id))
+    seen: set[str] = set()
+    offset = 0
+    while True:
+        rows = collection.get(limit=page_size, offset=offset, include=["metadatas"])
+        ids = [str(chunk_id) for chunk_id in (rows.get("ids") or [])]
+        metadatas = list(rows.get("metadatas") or [])
+        if len(ids) != len(metadatas):
+            raise RuntimeError("collection metadata rows are incomplete")
+        if not ids:
+            break
+        if len(set(ids)) != len(ids) or seen.intersection(ids):
+            raise RuntimeError("collection metadata scan returned duplicate chunk ids")
+        seen.update(ids)
+        for chunk_id, metadata in zip(ids, metadatas, strict=True):
+            if not isinstance(metadata, dict):
+                continue
+            url = metadata.get("url")
+            if isinstance(url, str) and url:
+                by_url.setdefault(metrics.normalize_url(url), []).append(chunk_id)
+        if len(ids) < page_size:
+            break
+        offset += len(ids)
+
+    count = getattr(collection, "count", None)
+    if callable(count):
+        total = count()
+        if total != len(seen):
+            raise RuntimeError(
+                f"collection metadata scan incomplete: read {len(seen)} of {total} chunk ids"
+            )
 
     def resolve(urls: Sequence[str]) -> Mapping[str, Sequence[str]]:
         return {str(url): list(by_url.get(metrics.normalize_url(str(url)), [])) for url in urls}
@@ -556,6 +858,12 @@ def _validate_spec(spec: RunSpec) -> None:
     if missing:
         raise ValueError(f"run spec is missing {', '.join(missing)}")
     _validate_chunker(spec.chunker, spec.config, source="run spec")
+    _validate_abstention(spec.abstention, _spec_identity(spec))
+
+
+def validate_run_spec(spec: RunSpec) -> None:
+    """Public preflight wrapper for `run_eval --preflight-only`."""
+    _validate_spec(spec)
 
 
 def _load_items(
@@ -594,6 +902,11 @@ def _qa_inputs_fingerprint(items: Sequence[Mapping[str, Any]]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def qa_inputs_fingerprint(items: Sequence[Mapping[str, Any]]) -> str:
+    """Public wrapper for the archived QA `inputs_fingerprint`."""
+    return _qa_inputs_fingerprint(items)
+
+
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
@@ -613,12 +926,31 @@ def _item_urls(item: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(str(url) for url in urls)
 
 
+def _percentile(values: Sequence[float], fraction: float) -> float | None:
+    """Nearest-rank percentile; deterministic for the small QA sets used here."""
+    if not values:
+        return None
+    ordered = sorted(values)
+    index = max(0, math.ceil(fraction * len(ordered)) - 1)
+    return round(ordered[index], 3)
+
+
+def _latency_summary(values: Sequence[float]) -> dict[str, float | int | None]:
+    return {
+        "n": len(values),
+        "p50": _percentile(values, 0.50),
+        "p95": _percentile(values, 0.95),
+    }
+
+
 def _answer_record(
     item: Mapping[str, Any],
     chunks: Sequence[RetrievedChunk],
     answer: GroundedAnswer | None,
     diagnostics: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    diagnostics_row = diagnostics or {}
+    provider_completion = diagnostics_row.get("provider_completion") is True
     return {
         "qa_id": str(item["qa_id"]),
         "question": str(item["question"]),
@@ -629,6 +961,7 @@ def _answer_record(
         "cited_chunk_ids": list(answer.cited_chunk_ids) if answer else [],
         "abstained": answer.abstained if answer else None,
         "status": "answered" if answer else "not_run",
+        "provider_completion": provider_completion,
         "diagnostics": diagnostics,
     }
 
@@ -650,6 +983,7 @@ def run(
     not `gold_unavailable`; the alias policy is pending the E/F/D rule.
     """
     _validate_spec(spec)
+    _validate_applied_threshold(spec, answerer)
     items = _load_items(spec, qa_items)
     if qa_items is None:
         # The runner loaded and validated the file path itself.
@@ -694,6 +1028,7 @@ def run(
 
     cases: list[metrics.CaseResult] = []
     answers: list[dict[str, Any]] = []
+    retrieval_latencies: list[float] = []
     for item in items:
         gold_urls = _item_urls(item)
         window = item["window"]
@@ -703,7 +1038,9 @@ def run(
             snapshot_id=spec.snapshot_id,
             filters=RetrievalFilters(since=str(window[0]), until=str(window[1])),
         )
+        started = time.perf_counter()
         chunks = search(query, store=store, embedder=embedder)
+        retrieval_latencies.append((time.perf_counter() - started) * 1000.0)
         answer: GroundedAnswer | None = None
         diagnostics: dict[str, Any] | None = None
         if answerer is not None:
@@ -781,6 +1118,7 @@ def run(
             "mode": "vector",
             "top_k": spec.top_k,
             "over_fetch": spec.over_fetch,
+            "latency_ms": _latency_summary(retrieval_latencies),
         },
         "embed": _embed_metadata(spec.build_identity),
         "build_identity": dict(spec.build_identity),
@@ -793,6 +1131,7 @@ def run(
         "require_gpu": spec.require_gpu,
         "collection": spec.collection,
         "llm": dict(spec.llm),
+        "abstention": _abstention_metadata(spec),
         "git_sha": spec.git_sha,
         "qa": {
             "path": str(spec.qa_path),
@@ -831,11 +1170,13 @@ def run(
     return RunResult(run_id=run_id, out_dir=out_dir, meta=meta, metrics=metrics_payload)
 
 
-def _read_jsonl_rows(path: Path) -> list[dict[str, Any]]:
-    """Read a JSONL run archive file; every row must be a JSON object."""
+def read_jsonl_rows(path: Path) -> list[dict[str, Any]]:
+    """Read a JSONL run archive file; every row must be a JSON object.
+
+    Split on LF only: JSON strings written with ``ensure_ascii=False`` may contain
+    U+2028/U+2029/U+0085, and ``str.splitlines()`` would split a record mid-JSON.
+    """
     try:
-        # Split on LF only: U+2028/U+2029/U+0085 can appear inside JP/ZH question text
-        # and must not split a JSONL record mid-JSON.
         lines = path.read_text(encoding="utf-8").split("\n")
     except OSError as exc:
         raise ValueError(f"cannot read run archive file {path}: {exc}") from exc
@@ -860,7 +1201,7 @@ def _load_run_archive(
     try:
         meta = _read_json(root / "meta.json")
         metrics = _read_json(root / "metrics.json")
-        answers = _read_jsonl_rows(root / "answers.jsonl")
+        answers = read_jsonl_rows(root / "answers.jsonl")
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         raise ValueError(f"invalid run archive {root}: {exc}") from exc
     return meta, metrics, answers
@@ -1171,7 +1512,12 @@ __all__ = [
     "compare_tier1_runs",
     "load_build_records",
     "load_snapshot_member_urls",
+    "qa_inputs_fingerprint",
+    "read_jsonl_rows",
     "resolve_window",
     "run",
+    "run_identity",
+    "validate_abstention_metadata",
+    "validate_run_spec",
     "verify_build_identity",
 ]

@@ -132,6 +132,13 @@ set at resolution time, on 11/09, when nothing could be fixed any more.
   state no readable time, or whose readings straddle a boundary, are listed for manual verification
   instead of failing the run. Run it before the freeze, not on every commit: a page dated outside
   the window is not evidence for that snapshot, however plausible the claim.
+- **A gold url need not be an official first-party page.** A registered W1 L2 full-text outlet
+  (`docs/SOURCES.md` §3) may carry it when its own body states the fact; an official page whose
+  stored body is a bare headline does not. When a headline-only url is replaced, the superseded url
+  is recorded as provenance in `DECISIONS.md`, **not kept alongside the replacement** in
+  `gold_evidence.urls`: §4 scores `hit@k` on *any* gold url and `evidence_recall@k` over all of them,
+  so keeping both lets the answerless page count as a hit and halves the recall denominator for that
+  one item. One gold url per item keeps the denominators comparable across the set.
 
 ## 4. Retrieval quality — `retrieval_hit_rate`
 
@@ -192,7 +199,7 @@ number alone invites the obvious objection. The calibration set's own rates may 
 
 | File | Content |
 |---|---|
-| `meta.json` | snapshot, window, config, retrieval settings, **embed identity (model / backend / device / precision / library versions / batch)**, **chunker identity (`max_tokens` / `overlap` / `budget` / `max_seq_length` / `header_version`)**, llm provider/model/version/temperature/seed, git sha, metrics |
+| `meta.json` | snapshot, window, config, retrieval settings, **embed identity (model / backend / device / precision / library versions / batch)**, **chunker identity (`version` / `header_version` / `config` / `max_tokens` / `overlap` / `max_seq_length`)**, **`build_identity.identity_slug`**, llm provider/model/version/temperature/seed, **abstention threshold, its calibration-run provenance and full `calibration_identity`** (§6, `docs/RUNBOOK.md` §3.7), git sha, metrics |
 | `answers.jsonl` | the exact generated outputs that were graded — frozen, so grading can be replayed without the model |
 | `labels.jsonl` | the human labels, per item, with annotator |
 | `metrics.json` | the numbers the report quotes — retrieval totals carry **per-language blocks (`all` / `en` / `zh`) beside them** (§3.1) |
@@ -206,16 +213,34 @@ number alone invites the obvious objection. The calibration set's own rates may 
   "window_start": "2023-10-28",
   "window_end": "2026-10-28",
   "chunk_config": "A",
-  "chunker": {"max_tokens": 512, "overlap": 64, "budget": 508, "max_seq_length": 512, "header_version": "h1"},
+  "chunker": {"version": "composed-input-v2", "header_version": "h1", "config": "A", "max_tokens": 512, "overlap": 64, "max_seq_length": 512},
   "retrieval": {"mode": "vector", "top_k": 5, "over_fetch": 5},
   "embed": {"model": "intfloat/multilingual-e5-base", "backend": "torch", "device": "cpu", "precision": "fp32", "library_versions": {"torch": "2.15.0", "sentence_transformers": "6.1.0"}, "batch": 32},
+  "build_identity": {"model": "intfloat/multilingual-e5-base", "backend": "torch", "device": "cpu", "precision": "fp32", "batch_size": 32, "lib_torch": "2.15.0", "lib_sentence_transformers": "6.1.0", "identity_slug": "<encoder_identity_slug of this build>"},
   "llm": {"provider": "...", "model": "...", "version": "...", "temperature": 0.0, "seed": 0},
+  "abstention": {
+    "threshold": "<float selected by choose_threshold()>",
+    "source": "eval/runs/<calibration_run_id>/calibration.json",
+    "calibration_identity": {
+      "snapshot_id": "20261028abcdef",
+      "chunk_config": "A",
+      "chunker": {"version": "composed-input-v2", "header_version": "h1", "config": "A", "max_tokens": 512, "overlap": 64, "max_seq_length": 512},
+      "retrieval": {"mode": "vector", "top_k": 5, "over_fetch": 5},
+      "embed": {"model": "intfloat/multilingual-e5-base", "backend": "torch", "device": "cpu", "precision": "fp32", "library_versions": {"torch": "2.15.0", "sentence_transformers": "6.1.0"}, "batch": 32},
+      "encoder_identity_slug": "<encoder_identity_slug of this build>"
+    }
+  },
   "git_sha": "...",
   "metrics": {"retrieval_hit_rate": {"all": 0.0, "en": 0.0, "zh": 0.0}, "evidence_recall": {"all": 0.0, "en": 0.0, "zh": 0.0}, "answer_correctness": {}, "abstention_accuracy": {}}
 }
 ```
 
 - **A run without `snapshot_id` or `window` is invalid** (invariant 2, spec 02).
+- **A run with an abstention threshold whose `calibration_identity` does not equal its own identity is invalid and non-reportable** (`docs/RUNBOOK.md` §3.7, `ports.SCORE_SEMANTICS`, DECISIONS 2026-11-11). The identity is the complete set of `snapshot_id`, `chunk_config` + the six `chunker` fields, `retrieval.mode` + `top_k` + `over_fetch`, the full `embed` field set (model / backend / device / precision / library versions / batch), and `build_identity.identity_slug`. Scores are comparable across queries only inside that one identity, so a threshold calibrated elsewhere must never be ported; re-calibrate when any field changes.
+- **When no pre-generation threshold is applied, `meta.abstention` is `{"threshold": null, "source": null, "calibration_identity": null}`.** `null` means "no score gate applied", never `0.0`. A non-null `source` or `calibration_identity` with a null `threshold` is invalid. The block is **always present**, including on retrieval-only archives, where it records explicitly that no gate was applied rather than leaving absence to be inferred.
+- **`calibration_identity.encoder_identity_slug` must equal the run's `build_identity.identity_slug` exactly**, and that slug must describe the same encoder build as `embed`: a CPU/fp32 `embed` cannot be paired with a CUDA/fp32 slug. A model name alone does not establish comparability. The runner writes `build_identity` into `meta.json` (`src/acgn_rag/core/eval/runner.py`); `identity_slug` comes from `EncoderIdentity.slug()`, which hashes the model, backend, device, precision and library versions. The abstention identity deliberately includes `batch` even though `verify_build_identity` treats `batch_size` as run metadata for vector comparison — a threshold can move with batching even when the vectors themselves do not, so the two scopes are intentionally different. The `embed` field set must agree with `build_identity`'s `lib_*` normalization: the runner derives both from one identity object, so a hand-edited archive that diverges is invalid.
+- **`threshold` is the JSON number this run actually used as `ACGN_ANSWER_MIN_RETRIEVAL_SCORE`**, selected by `core/ground/calibration.py::choose_threshold()` from labelled per-item top retrieval scores over `eval/abstain_calibration.jsonl` (§6). `source` names the archived abstention calibration run holding `CalibrationResult.to_metadata()` and its identity; the labelled set is that run's input, not its provenance. **`eval/snapshot_evidence.json#threshold_sweep_20261105` is the dedup auxiliary-channel sweep** (`docs/RUNBOOK.md` §3.3): its 0.86 is a clustering threshold, never an abstention threshold. In-sample calibration rates stay in the calibration artifact and are never quoted as QA-set metrics.
+- **Angle-bracket values in the example are placeholders, not measured results.** A real `meta.json` stores a number in `threshold`, a concrete run id in `source` and a concrete slug in `identity_slug`; no threshold is recordable until the calibration run at this identity has been archived. A retrieval-only archive (the default live mode until calibration exists, and every A/A′ archive today) records `"abstention": {"threshold": null, "source": null, "calibration_identity": null}` in the same block.
 - **Every number in the report carries a `run_id`.** A number produced in an interactive session, or in a
   notebook cell that was not archived as a run, is not reportable. If it is worth printing, it is worth
   archiving.
@@ -233,6 +258,17 @@ number alone invites the obvious objection. The calibration set's own rates may 
 
 - `temperature=0` **is not determinism**: MoE routing and batching still introduce jitter. Record provider, model,
   version, date and seed, and state in the report that reruns differ slightly, with the measured spread.
+- **Tier 1 assumes one encoder identity, not "GPU" as a device class.** G1b index builds are scheduled
+  on the Colab (T4) GPU lane (#49); the broader CPU-output reportability boundary is still pending
+  agreement (F, #48 review 2026-11-09). A tier-1 rerun must reuse the *same* identity. fp16 CUDA
+  kernels are not bitwise deterministic across GPU models, precision settings or kernel-selection
+  changes, so a rebuild on another card is a different experiment, not a rerun spread, and it must not
+  be reported in the spread column. **Caveat (F/B, #48 review 2026-11-09): the identity slug today
+  records the device string, not the physical GPU model — two different GPU models can share a slug
+  when the recorded fields match.** Until the identity gains a GPU-model field (a separate, reviewable
+  change), any comparison across GPU hardware must record and check the actual GPU model alongside the
+  slug. If tier 1 ever has to be compared across machines, fix the reduction order with
+  `torch.use_deterministic_algorithms(True)` and disclose the precision alongside the metric.
 - **Two reruns are archived, not one.** A spread claim with a single run behind it is unsupported.
 - Grading reproducibility is a separate question: **re-grade the same `answers.jsonl`** and the labels must be
   identical. A difference means the rubric is ambiguous, not that the model moved.

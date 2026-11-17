@@ -30,6 +30,12 @@ pytest -q                                     # 4 tests
 | Daily increment | `python scripts/discover_daily.py` | ready |
 | Build index | `python scripts/build_index.py --snapshot <id> --input <docs.jsonl> [--config A] [--fresh]` | ready (`--input` until A's reader lands) |
 | Fact extraction | `python scripts/extract_facts.py --snapshot <id> --input <chunks.jsonl>` | ready |
+| Offline end-to-end smoke (no model, no LLM) | `python scripts/smoke_e2e.py --snapshot <id> [--limit N]` | ready |
+| Synthetic snapshot for the smoke | `python scripts/make_smoke_snapshot.py --data-root <root>` | fixture only |
+| Dedup sweep + hand-label sheet (§3.3) | `python scripts/calibrate_dedup.py --snapshot <id> --out eval/dedup_g1b` | ready |
+| Render the label sheet as a page | `python scripts/render_label_sheet.py --csv eval/dedup_g1b/label_sheet.csv --out eval/dedup_g1b/label_sheet.html` | ready |
+| Score a completed label sheet | `python scripts/calibrate_dedup.py --score eval/dedup_g1b/label_sheet.csv` | ready |
+| Diff a recorded sweep against the snapshot | `python scripts/dedup_diff.py --snapshot <id>` | ready |
 | Evaluation | `python scripts/run_eval.py --config A --snapshot <id>` | pending E |
 | Serve | `uvicorn acgn_rag.web.api:app --reload` | pending C |
 
@@ -48,8 +54,10 @@ Unlimited raw input is still accepted but is not verified as a complete frozen s
 
 1. Back up `data/` before any backfill.
 2. `python scripts/backfill.py --since <start> --until <end>`; check `items > 0` per source.
-3. `python scripts/build_index.py --config A` (run the three configs sequentially — running them in parallel
-   oversubscribes the CPU and is slower overall).
+3. `python scripts/build_index.py --config A` (run the three configs sequentially. On the CPU fallback the
+   reason is oversubscription; on a GPU lane it is VRAM — three concurrent builds contend for the same
+   device and the smallest allocation fails first. The sequential rule survives the lane change, its
+   rationale does not).
 4. Verify idempotency: rebuild once and compare `snapshot_id`.
 5. Post the `snapshot_id` + window in the group; every later run must use that id.
 
@@ -193,6 +201,32 @@ corpus full of syndicated re-publication. **G1b calibration item: sweep 0.82 / 0
 on the frozen corpus, report cluster counts and 20 hand-checked pairs per value, and state in one
 line what the threshold optimizes before it freezes.
 
+**Labelling procedure.** `scripts/calibrate_dedup.py` writes `eval/dedup_g1b/sweep.json` and
+`label_sheet.csv` (per threshold: the 10 highest-cosine **aux** pairs plus a spread topping the
+aux rows up to 20, then primary pairs for the remaining slots — every row carries a `channel`
+column). `scripts/render_label_sheet.py` turns that CSV into `label_sheet.html`, a
+self-contained page (no server, no network) with the judgement rules on top, one card per
+pair, keyboard shortcuts, and **export at any time**. Scoring (`--score`) is gate evidence
+only when every threshold carries ≥20 non-skip **aux** judgements (default
+`--required-judged 20`): aux pairs (cosine ≥ t) are what a threshold change moves, while
+primary pairs (cosine < t, merged by the primary channel's threshold-independent floor) are
+reported as policy precision and never count towards the gate. Sparser sheets exit 2 marked
+`insufficient`, and `--exploratory` scores are tagged as not gate evidence:
+
+1. Open `eval/dedup_g1b/label_sheet.html` in a browser; label 0.86 first, then the neighbours.
+2. `duplicate` = the same event reported twice; `not_duplicate` = same franchise but a different
+   event, a different region's release, or a different work behind a shared template;
+   `skip` = cannot judge (dead link, truncated body). A **cross-language** pair has cosine 0 by
+   construction — the auxiliary channel only compares same-language text — so judge it from the
+   titles and URLs, not the number.
+3. Export CSV (button or `Ctrl+S`) and overwrite `eval/dedup_g1b/label_sheet.csv`. Progress is
+   also kept in the browser's localStorage, so closing the tab loses nothing.
+4. `python scripts/calibrate_dedup.py --score eval/dedup_g1b/label_sheet.csv` refuses to score
+   until every row is labelled, then prints precision per threshold.
+
+A recorded sweep is only evidence if it reproduces from the frozen snapshot: `scripts/dedup_diff.py`
+compares a recorded table against the snapshot's own `clusters.jsonl` (see issue #70).
+
 ### 3.4 Encoding lanes and encoder identity
 
 - **Encoder identity** = model + backend (`torch` / `openvino` / `onnx`) + device + precision + library
@@ -219,13 +253,20 @@ line what the threshold optimizes before it freezes.
   new chunk counts. The vector-identity slug change invalidates old caches once. Subsequent
   changes of batch size reuse cache entries while preserving the actual batch size in metadata.
 - **Throughput is reported in tokens/s, never bare items/s** — items/s varies ~3× with chunk length
-  and reads as noise. Measured CPU baseline (i5-13400TEF, 16 threads, torch 2.15 CPU): e5-base ≈
-  **1,661 tokens/s** on the pilot corpus (re-measured 1,644 inside the A380 run) ⇒ a 40k-chunk ×
-  512-token corpus ≈ **3.4 h per config** — plan on it. Config-A-shaped 145/431-token batches
-  (batch 32) measured 1.9–2.0k tokens/s; the ~15 % gap tracks batch size and passage-length mix and
-  is not isolated, so the lower figure plans the schedule. Peak RSS ≈ 1.4 GB. Lane tables and
-  per-run provenance: `notebooks/embedding-bakeoff/`.
-- GPU lanes are permitted (DECISIONS 2026-10-29); `.env.example` keeps `cpu` as the default lane.
+  and reads as noise. The canonical lane is Colab (T4); the measured GPU tables in
+  `notebooks/embedding-bakeoff/` are the figures that plan a build. The CPU numbers below are kept as
+  the **emergency-fallback budget**, not as a scheduling input: e5-base ≈ **1,661 tokens/s** on the
+  pilot corpus (i5-13400TEF, 16 threads, torch 2.15 CPU; re-measured 1,644 inside the A380 run) ⇒ a
+  40k-chunk × 512-token corpus ≈ **3.4 h per config**, and bge-m3 on CPU ≈ 365 tokens/s ⇒ ~15.6 h per
+  config. Config-A-shaped 145/431-token batches (batch 32) measured 1.9–2.0k tokens/s on CPU; the
+  ~15 % gap tracks batch size and passage-length mix and is not isolated. Peak CPU RSS ≈ 1.4 GB.
+  Per-run provenance: `notebooks/embedding-bakeoff/`.
+- **GPU-first (DECISIONS 2026-11-05, scheduled via #49):** G1b index builds run on a GPU lane. The canonical lane is Colab (T4); a local CUDA lane is a cross-check. `ACGN_EMBED_DEVICE` must be set to the GPU lane explicitly for any build or run, and that value is recorded in the identity.
+  `.env.example` keeps `cpu` only as an **install-time** default, so a machine with no GPU can still
+  create a working environment. Whether a CPU-produced build or metric is *reportable* is a **proposed
+  boundary still pending agreement (F, #48 review 2026-11-09)** — treat CPU output as fallback evidence
+  and do not file it as a headline number until the boundary is confirmed; the CPU figures above exist
+  solely for the case where no GPU lane is reachable.
 - **Extraction-vendor quirk:** if extraction runs on the CSLab DSV4-flash deployment, set `max_tokens ≥ 1024`
   — it is a reasoning model and returns empty content below that, because reasoning tokens consume the budget.
 
@@ -236,7 +277,9 @@ validation — lives in `notebooks/embedding-bakeoff/` (reproducible from there 
 this section is only the decision.
 
 - **GPU canonical lane: two candidates — Qwen3-Embedding-0.6B and bge-m3 (dense)** — decided by the G1a
-  bake-off on the real frozen corpus; **CPU lane: e5-base** stays the any-member fallback. Encoder
+  bake-off on the real frozen corpus. **e5-base is not a build lane**: since DECISIONS 2026-11-05 it is
+  an emergency fallback used only when no GPU lane is reachable, and any result produced on it is
+  reported as fallback evidence, never as the canonical number. Encoder
   identity keeps lanes separable; a G2 run binds to the identity that built its index.
 - **Bake-off menu amendment (2026-10-29): EmbeddingGemma joins the GPU-lane candidates** — that is
   **`google/embeddinggemma-300m`** (308M params / 768-d MRL / Apache-2.0 / 2048-token context, strong
@@ -245,12 +288,21 @@ this section is only the decision.
   Its usage recipe (query task prompt) is verified against the model card at bake-off time, not
   from memory.
 - **Pre-registered single-lane rule:** if bge-m3 ties or wins the G1a bake-off under the existing
-  rule **and** keeps the top zh-subset MRR, bge-m3 is adopted for **both** lanes, e5-base is
-  demoted to emergency fallback, and G1b scheduling books CPU rebuilds at ~15.6 h/config
-  (365 tokens/s measured).
-- **GPU lane priority (2026-10-29): the canonical GPU runtime is Colab** (T4 measured; every member
-  can reproduce it). The local A380/OpenVINO lane is a cross-check / evaluation fallback recorded
-  via encoder identity, not a canonical build lane — members cannot reproduce that hardware.
+  rule **and** keeps the top zh-subset MRR, bge-m3 becomes the single model for the GPU lane.
+  Because CPU is emergency-only since 2026-11-05, the rule no longer books CPU rebuilds into the
+  schedule; the ~15.6 h/config CPU figure (365 tokens/s measured) remains only as the fallback cost
+  to quote if no GPU lane is reachable.
+- **GPU lane priority (2026-10-29, reaffirmed 2026-11-05): the canonical GPU runtime is Colab** (T4
+  measured; every member can reproduce it). A local CUDA lane — currently the RTX 5060 on the
+  development machine — is a cross-check recorded via encoder identity, not a canonical build lane:
+  members cannot reproduce that hardware, and its identity differs from T4's. Dependency gap:
+  `pyproject.toml` maps Linux to the `pytorch-cpu` index, treats the macOS/Windows PyPI wheels as
+  CPU/MPS builds, and declares no CUDA index — so `uv sync --extra embed` yields a CPU-only torch on
+  every platform. **Delivery is decided but not implemented (DECISIONS 2026-11-05, option A):** a
+  `[gpu]` extra pointing at a CUDA index lands in the G2 window (**2026-11-16 – 2026-11-21**,
+  ROADMAP §3). Until then the
+  local GPU lane does not exist in practice and **every G1b index build runs on Colab (T4)** —
+  `torch.cuda.is_available() == False` on a member laptop is expected until the extra lands, not a bug.
 - Usage differences to respect: Qwen3 takes an **instruct-style query prompt** (`prompt_name="query"` in
   sentence-transformers), documents carry no prefix. **bge-m3 needs no prefixes** and mean-pools —
   with 8k context it is the named late-chunking-capable fallback for config B (the EmbeddingGemma
@@ -260,7 +312,15 @@ this section is only the decision.
 - **Bake-off protocol before the G1b freeze**: rerun the mini-eval on the real frozen corpus with
   30+ hand-checked queries, both candidates; pick by zh-subset MRR and overall MRR with the spread
   reported; a candidate must beat e5-base by ≥10 points hit@5 or ≥0.05 MRR on the zh subset to
-  displace it. Decision and identity recorded in DECISIONS.
+  displace it. Since 2026-11-05 that baseline must be a **GPU-lane e5-base measured on the same
+  hardware**; the historical CPU e5-base numbers are not an admissible yardstick, because a
+  cross-device gap would then be attributed to the model. **Model vs device are separate things**: the
+  baseline's model is e5-base, its *device* is whatever GPU lane the bake-off ran on, and the baseline
+  stays **reportable as the e5 row of the model comparison regardless of which model wins** (so the
+  report can always show the displacement evidence). Note two distinct e5-base-on-T4 figures must not
+  be conflated: the **done small T4 e5-base pilot** (the preview build cited in #48) and the
+  **formal frozen-corpus baseline**, which is still pending — only the latter is an admissible
+  yardstick for the bake-off. Decision and identity recorded in DECISIONS.
 - Considered and rejected: **Ruri v3** (JP-specialist, tops JMTEB but cannot serve zh/en queries — we
   need one trilingual retriever) · **8B+ embedders** (Qwen3-8B, Octen-8B, harrier-oss-27b: out of our
   compute class for 4×40k chunks) · **`embeddinggemma-2`** (multimodal 740M — 270M text tower + vision/audio
@@ -276,7 +336,8 @@ this section is only the decision.
 - **Reranker stretch (proposed, pairs with the Qwen3 lane):** Qwen3-Reranker-0.6B beats
   bge-reranker-v2-m3 on the published multilingual benches, but community reports show the default
   instruction can underperform — it needs a task-specific instruction tuned on our data. Retrieve
-  top-50 with the embedder, rerank to top-5; only viable on the GPU lane within the p95 budget. Owner:
+  top-50 with the embedder, rerank to top-5; with CPU out of the build path, its feasibility is purely
+  a canonical-lane p95 latency question, not a lane-selection one. Owner:
   E decides latency, F owns the instruction. Not in the minimum pass condition.
 - **Contingencies, not defaults:** *late chunking* (Jina) needs a long-context **mean-pooling** encoder —
   applies to bge-m3 (8k), not to e5 (512) nor to Qwen3 (last-token pooling); if config B's aggregated
@@ -340,8 +401,30 @@ and that comparability exists solely for this calibration; `score` is never aver
 metric. Cross-configuration comparisons use `retrieval_hit_rate` / `answer_correctness`, not
 thresholds carried across identities.
 
-## 4. Emergency degradation
 
+### 3.8 Offline end-to-end smoke (before spending the measured hours)
+
+`python scripts/smoke_e2e.py --snapshot <id> [--limit N] [--out <report>.json]` runs the whole
+code path on a frozen snapshot with **injected fakes** — a hash encoder, a stub extraction client
+and a stub answer client — so it costs seconds, needs no model download, no `[embed]` extra and no
+LLM key, and makes no network call:
+
+1. `build_index.py --config A` over the snapshot's `representatives.jsonl` (the smoke writes the
+   `docs.jsonl` that the build CLI still takes until A's reader is wired in);
+2. `export_fact_chunks.py` over that index;
+3. `extract_facts.py` over the exported chunks, then an audit that every fact row carries
+   `chunk_id` + `url` (the G1b provenance line);
+4. a retrieval query through the bound collection;
+5. `POST /ask` through the web app's own route, reporting `cited_subset_of_retrieved`.
+
+It proves **plumbing, not quality**: the chunk counts, retrieval scores and fact values are the
+fakes' and are never G1b evidence. What it does catch is the class of failure that otherwise
+surfaces only after a 3.4 h CPU build — a broken sidecar, an unbound collection, a citation that
+is not in the retrieved set. `--limit N` exercises the preview paths instead of the formal ones.
+`python scripts/make_smoke_snapshot.py --data-root <root>` publishes a synthetic snapshot when
+the private archive is not on the machine; its text is invented and must never be cited.
+
+## 4. Emergency degradation
 
 - **Corpus below 8,000 items**: decide before W3; downgrade the A/B comparison to "qualitative + small-sample
   quantitative" and say so in the report (04 R6).
