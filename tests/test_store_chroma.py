@@ -320,7 +320,7 @@ def test_query_raises_when_hnsw_under_returns(
         loaded.query([1.0, 0.0], top_k=5)
 
 
-def test_filtered_availability_probe_is_bounded(
+def test_filtered_full_result_skips_availability_probe(
     store: ChromaStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     collection = store.bind(SNAP, "A")
@@ -342,9 +342,33 @@ def test_filtered_availability_probe_is_bounded(
         lambda *_args: [(p.chunk_id, p.body, to_payload(p), 0.0) for p in payloads[:6]],
     )
     assert len(store.query([1.0, 0.0], top_k=3, where=media_filter([1]))) == 3
+    assert calls == []
+
+
+def test_filtered_short_result_probes_availability_with_bounded_limit(
+    store: ChromaStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    collection = store.bind(SNAP, "A")
+    payloads = [_payload(f"doc-{index}::A::1", (1 if index < 30 else 2,)) for index in range(2000)]
+    store.upsert_chunks(payloads, [[1.0, 0.0]] * len(payloads))
+    calls: list[dict[str, Any]] = []
+    original_get = type(collection).get
+
+    def observed_get(self, *args, **kwargs):
+        calls.append(kwargs)
+        return original_get(self, *args, **kwargs)
+
+    monkeypatch.setattr(type(collection), "get", observed_get)
+    monkeypatch.setattr(
+        store,
+        "_fetch_rows",
+        lambda *_args: [(p.chunk_id, p.body, to_payload(p), 0.0) for p in payloads[:1]],
+    )
+    with pytest.raises(RuntimeError, match="under-returned"):
+        store.query([1.0, 0.0], top_k=3, where=media_filter([1]))
     assert len(calls) == 1
     assert calls[0]["include"] == []
-    assert 0 < calls[0].get("limit", 2000) <= 3 * store.settings.over_fetch_factor + 1
+    assert calls[0]["limit"] == 3 * store.settings.over_fetch_factor + 1
 
 
 def test_empty_replacement_collection_is_an_error(loaded: ChromaStore) -> None:
