@@ -82,12 +82,16 @@ def test_narrow_viewports_reveal_results_and_hide_contract_notes() -> None:
     """On a phone the results live below the fold, so a submit looked like nothing happened.
 
     The page brings the result region into view and collapses the contract notes first (#97).
+    The page also queries once on load; that render must not yank the visitor into the results
+    before they have asked for anything.
     """
     source = APP_FILE.read_text(encoding="utf-8")
     assert "scrollIntoView" in source
     assert "function revealResults()" in source
     assert "dom.contractNotes.open = false" in source
     assert "revealResults();" in source
+    assert "let userIntent = false;" in source
+    assert "if (!userIntent ||" in source
 
 
 @pytest.mark.skipif(

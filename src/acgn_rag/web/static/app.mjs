@@ -107,12 +107,16 @@ function setResultStatus(message) {
   dom.resultStatus.textContent = message;
 }
 
+// The page runs one query on load, but a visitor who just arrived did not ask for it; scrolling
+// them into the middle of the page would be a worse first impression than the missing feedback.
+let userIntent = false;
+
 /**
  * On a narrow viewport the results sit far below the form, so a submit used to look like nothing
- * happened. Bring the result region into view; desktop is left alone.
+ * happened. Bring the result region into view; desktop and the initial load are left alone.
  */
 function revealResults() {
-  if (!window.matchMedia("(max-width: 860px)").matches) {
+  if (!userIntent || !window.matchMedia("(max-width: 860px)").matches) {
     return;
   }
   dom.resultState.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -539,6 +543,7 @@ function renderEmpty(request, detail) {
   const filters = request.body.filters;
   const clearFilters = element("button", { text: "改用无筛选检索", attrs: { type: "button" } });
   clearFilters.addEventListener("click", () => {
+    userIntent = true;
     dom.sourceInputs.forEach((input) => {
       input.checked = true;
     });
@@ -729,6 +734,7 @@ function renderApiError(error, request = state.lastRequest) {
 }
 
 async function handleAction(action, request) {
+  userIntent = true;
   if (action === "refresh") {
     try {
       await loadInventory();
@@ -787,6 +793,7 @@ function bindEvents() {
   }
   dom.form.addEventListener("submit", (event) => {
     event.preventDefault();
+    userIntent = true;
     runQuery();
   });
   dom.form.addEventListener("input", markFormChanged);
@@ -802,6 +809,7 @@ function bindEvents() {
   });
   document.querySelectorAll("[data-example]").forEach((button) => {
     button.addEventListener("click", () => {
+      userIntent = true;
       dom.question.value = button.dataset.example ?? "";
       dom.question.focus();
       runQuery();
