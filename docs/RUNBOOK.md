@@ -338,7 +338,8 @@ this section is only the decision.
   instruction can underperform — it needs a task-specific instruction tuned on our data. Retrieve
   top-50 with the embedder, rerank to top-5; with CPU out of the build path, its feasibility is purely
   a canonical-lane p95 latency question, not a lane-selection one. Owner:
-  E decides latency, F owns the instruction. Not in the minimum pass condition.
+  D owns the latency target and measurement rule (`ROADMAP.md` ③), E measures and reports latency
+  against the benchmark artifact, F owns the instruction. Not in the minimum pass condition.
 - **Contingencies, not defaults:** *late chunking* (Jina) needs a long-context **mean-pooling** encoder —
   applies to bge-m3 (8k), not to e5 (512) nor to Qwen3 (last-token pooling); if config B's aggregated
   chunks underperform, late-chunking-over-bge-m3 is the documented fallback experiment, not a default.
