@@ -221,6 +221,11 @@ def test_prompt_contains_the_actual_question_evidence_and_shared_media_policy() 
     system, user = build_grounding_prompt(query, chunks)
 
     assert system.endswith(MEDIA_SOURCE_RULE)
+    assert "answer only the facts asked for" in system
+    assert "cite only those official blocks" in system
+    assert "Keep verbatim quotes in their source language" in system
+    assert "without an attribution prefix" in system
+    assert "Cite only the media blocks that contain that excerpt" in system
     assert query.text in user
     assert chunks[0].text in user
     assert chunks[1].citation.url in user
@@ -351,7 +356,52 @@ def test_run_diagnostics_record_completion_metadata_and_dropped_claims(
     assert run.diagnostics.finish_reason == finish_reason
     assert run.diagnostics.usage == usage
     assert run.diagnostics.dropped_claims == 1
+    assert run.diagnostics.claims_seen == 2
+    assert run.diagnostics.parse_ok == 1
+    assert run.diagnostics.dropped_by_rule == {"invalid_shape": 1}
     assert run.diagnostics.abstain_code is None
+
+
+def test_run_diagnostics_count_only_the_first_rule_that_drops_each_claim() -> None:
+    quote = "放送直後よりNetflixにて独占配信"
+    media = _chunk(2)
+    media = media.model_copy(
+        update={
+            "text": f"放送・配信情報。{quote}。以上。",
+            "citation": media.citation.model_copy(update={"source_type": "media"}),
+        }
+    )
+    copied_text = "The official release contains a detailed announcement of the schedule. " * 4
+    official = _chunk(3).model_copy(update={"text": copied_text})
+    client = FakeAnswerClient(
+        _response(
+            [
+                {"text": "Malformed index.", "evidence_indices": ["1"]},
+                {"text": "Fabricated [1] at https://example.com/fact.", "evidence_indices": [99]},
+                {"text": "See https://example.com/fact.", "evidence_indices": [99]},
+                {"text": "Invalid reference.", "evidence_indices": [99]},
+                {"text": "The series streams exclusively on Netflix.", "evidence_indices": [1, 2]},
+                {"text": copied_text, "evidence_indices": [3]},
+                {"text": quote, "evidence_indices": [2]},
+            ]
+        )
+    )
+
+    run = generate_grounded_answer_run(_query(), [_chunk(1), media, official], client)
+
+    assert run.answer.answer == f'"{quote}" [1]'
+    assert list(run.answer.cited_chunk_ids) == ["chunk-2"]
+    assert run.diagnostics.claims_seen == 7
+    assert run.diagnostics.parse_ok == 6
+    assert run.diagnostics.dropped_by_rule == {
+        "invalid_shape": 1,
+        "citation_marker": 1,
+        "forbidden_reference": 1,
+        "bad_index": 1,
+        "invalid_media_quote": 1,
+        "exposure_budget": 1,
+    }
+    assert run.diagnostics.dropped_claims == sum(run.diagnostics.dropped_by_rule.values()) == 6
 
 
 @pytest.mark.parametrize(
@@ -414,12 +464,16 @@ def test_abstention_diagnostics_distinguish_the_abstention_causes() -> None:
     no_evidence = generate_grounded_answer_run(_query(), [], FakeAnswerClient(_response([])))
     assert no_evidence.diagnostics.abstain_code == ABSTAIN_NO_EVIDENCE
     assert no_evidence.diagnostics.provider_completion is False
+    assert no_evidence.diagnostics.claims_seen == no_evidence.diagnostics.parse_ok == 0
+    assert no_evidence.diagnostics.dropped_by_rule == {}
 
     model_empty = generate_grounded_answer_run(
         _query(), [_chunk(1)], FakeAnswerClient(_response([]))
     )
     assert model_empty.diagnostics.abstain_code == ABSTAIN_MODEL_EMPTY
     assert model_empty.diagnostics.provider_completion is True
+    assert model_empty.diagnostics.claims_seen == model_empty.diagnostics.parse_ok == 0
+    assert model_empty.diagnostics.dropped_by_rule == {}
 
     rejected = generate_grounded_answer_run(
         _query(),
@@ -428,6 +482,8 @@ def test_abstention_diagnostics_distinguish_the_abstention_causes() -> None:
     )
     assert rejected.diagnostics.abstain_code == ABSTAIN_ALL_CLAIMS_REJECTED
     assert rejected.diagnostics.dropped_claims == 1
+    assert rejected.diagnostics.claims_seen == rejected.diagnostics.parse_ok == 1
+    assert rejected.diagnostics.dropped_by_rule == {"bad_index": 1}
     assert rejected.diagnostics.provider_completion is True
 
 
