@@ -361,3 +361,43 @@ def test_score_required_judged_is_configurable(
     assert report["gate"] == "NOT_GATE"
     assert report["mode_reason"].startswith("--required-judged")
     assert report["thresholds"]["0.86"]["insufficient"] is False
+
+
+def test_committed_dedup_g1b_sheet_and_sweep_wiring(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Exercise the real committed eval/dedup_g1b/ artifacts together (E #91 review)."""
+    repo_root = Path(__file__).resolve().parents[1]
+    sheet = repo_root / "eval" / "dedup_g1b" / "label_sheet.csv"
+    sweep = repo_root / "eval" / "dedup_g1b" / "sweep.json"
+    assert sheet.is_file()
+    assert sweep.is_file()
+
+    sweep_payload = json.loads(sweep.read_text(encoding="utf-8"))
+    by_thresh = {f"{float(r['threshold']):.2f}": r for r in sweep_payload["thresholds"]}
+    assert set(by_thresh) == set(calibrate_dedup.REQUIRED_THRESHOLDS)
+    for key, entry in by_thresh.items():
+        assert isinstance(entry.get("aux_pairs"), int), f"{key} missing aux_pairs in sweep.json"
+        assert 0 <= entry["aux_pairs"] <= entry["member_pairs"]
+
+    rc = calibrate_dedup._score(sheet)
+    report = json.loads(capsys.readouterr().out)
+    assert report["missing_thresholds"] == []
+    for key in ("0.82", "0.84", "0.86"):
+        assert report["thresholds"][key]["aux_population"] == by_thresh[key]["aux_pairs"]
+        assert report["thresholds"][key]["judged_aux"] >= calibrate_dedup.PAIRS_PER_THRESHOLD
+        assert report["thresholds"][key]["insufficient"] is False
+
+    row_088 = report["thresholds"]["0.88"]
+    assert row_088["aux_population"] == by_thresh["0.88"]["aux_pairs"] == 19
+    assert row_088["judged_aux"] == 19
+    if calibrate_dedup.EXHAUSTIVE_POPULATION_EXEMPT:
+        assert rc == 0
+        assert report["gate"] == "PASS"
+        assert row_088["population_exhausted"] is True
+        assert row_088["insufficient"] is False
+    else:
+        assert rc == 2
+        assert report["gate"] == "INSUFFICIENT"
+        assert row_088["population_exhausted"] is False
+        assert row_088["insufficient"] is True

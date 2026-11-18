@@ -9,7 +9,8 @@
       "non_singleton_clusters": 62,
       "collapsed": 64,
       "largest_cluster": 3,
-      "member_pairs": 66
+      "member_pairs": 66,
+      "aux_pairs": 45
     },
     {
       "threshold": 0.84,
@@ -18,7 +19,8 @@
       "non_singleton_clusters": 54,
       "collapsed": 56,
       "largest_cluster": 3,
-      "member_pairs": 58
+      "member_pairs": 58,
+      "aux_pairs": 37
     },
     {
       "threshold": 0.86,
@@ -27,7 +29,8 @@
       "non_singleton_clusters": 46,
       "collapsed": 46,
       "largest_cluster": 2,
-      "member_pairs": 46
+      "member_pairs": 46,
+      "aux_pairs": 25
     },
     {
       "threshold": 0.88,
@@ -36,7 +39,8 @@
       "non_singleton_clusters": 41,
       "collapsed": 41,
       "largest_cluster": 2,
-      "member_pairs": 41
+      "member_pairs": 41,
+      "aux_pairs": 19
     }
   ],
   "note": "cluster counts from cluster_items on the frozen corpus; hand labels pending"
