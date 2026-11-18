@@ -345,6 +345,25 @@ def test_filtered_full_result_skips_availability_probe(
     assert calls == []
 
 
+def test_unfiltered_full_result_skips_availability_probe(
+    store: ChromaStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store.bind(SNAP, "A")
+    payloads = [_payload(f"doc-{index}::A::1", (1,)) for index in range(6)]
+    store.upsert_chunks(payloads, [[1.0, 0.0]] * len(payloads))
+    monkeypatch.setattr(
+        store,
+        "_available",
+        lambda *_args, **_kwargs: pytest.fail("unfiltered full result probed availability"),
+    )
+    monkeypatch.setattr(
+        store,
+        "_fetch_rows",
+        lambda *_args: [(p.chunk_id, p.body, to_payload(p), 0.0) for p in payloads],
+    )
+    assert len(store.query([1.0, 0.0], top_k=3)) == 3
+
+
 def test_filtered_short_result_probes_availability_with_bounded_limit(
     store: ChromaStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
