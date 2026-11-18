@@ -175,6 +175,31 @@ def measure(query, repeats: int, warmups: int) -> dict[str, object]:
     return {"summary": latency_summary(samples), "raw_ms": samples}
 
 
+def gate_ineligible_reasons(
+    *,
+    chunk_config: str,
+    qa_set: Path | None,
+    dirty: bool,
+    sha: str,
+    model: str,
+    sidecars: dict[str, object],
+) -> list[str]:
+    reasons: list[str] = []
+    if chunk_config != "A":
+        reasons.append("rule gates Config A only; A-prime is reported")
+    if qa_set is None:
+        reasons.append("rule requires the QA per-item window; pass --qa-set")
+    if dirty:
+        reasons.append("git worktree is dirty")
+    if sha == "unknown":
+        reasons.append("git SHA unavailable")
+    if model == "unknown":
+        reasons.append("CPU model unavailable")
+    if not sidecars.get("build.json") or not sidecars.get("identity.json"):
+        reasons.append("build.json/identity.json sidecars missing")
+    return reasons
+
+
 def build_artifact(
     *,
     gate_eligible: bool,
@@ -223,6 +248,10 @@ def main() -> int:
     from acgn_rag.core.store.chroma_store import ChromaStore
 
     repo_root = Path(__file__).resolve().parents[1]
+    # The trust anchor is the pre-open copy: Chroma mutates the SQLite file and
+    # the HNSW segment files when the store is opened and queried.
+    index_files = hash_tree(args.chroma_root)
+    sidecars = read_sidecars(args.chroma_root, args.snapshot, args.chunk_config)
     store_config = load_settings().store
     if args.over_fetch is not None:
         store_config = replace(store_config, over_fetch_factor=args.over_fetch)
@@ -248,17 +277,14 @@ def main() -> int:
 
     sha, dirty = git_state(repo_root)
     model, model_source = cpu_model()
-    reasons: list[str] = []
-    if args.chunk_config != "A":
-        reasons.append("rule gates Config A only; A-prime is reported")
-    if args.qa_set is None:
-        reasons.append("rule requires the QA per-item window; pass --qa-set")
-    if dirty:
-        reasons.append("git worktree is dirty")
-    if sha == "unknown":
-        reasons.append("git SHA unavailable")
-    if model == "unknown":
-        reasons.append("CPU model unavailable")
+    reasons = gate_ineligible_reasons(
+        chunk_config=args.chunk_config,
+        qa_set=args.qa_set,
+        dirty=dirty,
+        sha=sha,
+        model=model,
+        sidecars=sidecars,
+    )
 
     artifact = build_artifact(
         gate_eligible=not reasons,
@@ -304,8 +330,9 @@ def main() -> int:
         },
         index={
             "chroma_root": str(args.chroma_root),
-            "files": hash_tree(args.chroma_root),
-            "sidecars": read_sidecars(args.chroma_root, args.snapshot, args.chunk_config),
+            "hash_timing": "before_store_open",
+            "files": index_files,
+            "sidecars": sidecars,
         },
         latency=result,
     )

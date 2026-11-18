@@ -40,3 +40,35 @@ def test_artifact_schema_is_fixed() -> None:
     )
     assert set(artifact) == set(bench_latency.ARTIFACT_SECTIONS)
     assert artifact["artifact_version"] == 1
+
+
+def test_gate_eligibility_reasons() -> None:
+    good = dict(
+        chunk_config="A",
+        qa_set=Path("eval/qa_set.jsonl"),
+        dirty=False,
+        sha="abc123",
+        model="test CPU",
+        sidecars={"build.json": {"ok": True}, "identity.json": {"ok": True}},
+    )
+    assert bench_latency.gate_ineligible_reasons(**good) == []
+    assert (
+        "Config A only"
+        in bench_latency.gate_ineligible_reasons(**{**good, "chunk_config": "A-prime"})[0]
+    )
+    assert any(
+        "QA per-item window" in reason
+        for reason in bench_latency.gate_ineligible_reasons(**{**good, "qa_set": None})
+    )
+    assert "git worktree is dirty" in bench_latency.gate_ineligible_reasons(
+        **{**good, "dirty": True}
+    )
+    assert "CPU model unavailable" in bench_latency.gate_ineligible_reasons(
+        **{**good, "model": "unknown"}
+    )
+    assert any(
+        "sidecars missing" in reason
+        for reason in bench_latency.gate_ineligible_reasons(
+            **{**good, "sidecars": {"build.json": None, "identity.json": None}}
+        )
+    )
