@@ -251,6 +251,10 @@ def test_ask_with_no_evidence_abstains_instead_of_returning_empty(client: TestCl
     assert answer.citations == []
     assert answer.cited_chunk_ids == []
     assert answer.abstain_reason
+    # `answer` speaks to the user, `abstain_reason` explains the decision. Echoing one into the
+    # other made the page print the same sentence twice (#97).
+    assert answer.answer.strip()
+    assert answer.answer != answer.abstain_reason
 
 
 def test_ask_private_question_abstains(client: TestClient) -> None:
