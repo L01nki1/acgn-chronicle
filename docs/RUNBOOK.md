@@ -127,7 +127,9 @@ Unlimited raw input is still accepted but is not verified as a complete frozen s
    story is gone. But HNSW can still under-return when `ef`/`M` are small relative to the
    filtered candidate set, so the defense stays: request `top_k × ACGN_OVERFETCH`, truncate
    afterwards, and assert `returned >= min(top_k, available_after_filter)` (symptom row
-   "`top_k=5` returns 2 rows" in §3).
+   "`top_k=5` returns 2 rows" in §3). Since #94, the availability probe runs only when the
+   over-fetch returns fewer than `top_k` rows; the assert and the `where is None` behavior are
+   unchanged.
 
 **The collection must be created with `hnsw:space="cosine"`** — in 1.x via
 `create_collection(configuration={"hnsw": {"space": "cosine"}})`. The default space is still
