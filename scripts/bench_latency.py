@@ -266,11 +266,15 @@ def main() -> int:
         gate_shape={
             "lane": "local CPU",
             "index": f"full E5 Config {args.chunk_config}",
+            "chunk_config": args.chunk_config,
             "snapshot": args.snapshot,
             "collection": collection.name,
             "collection_count": count,
             "top_k": args.top_k,
             "over_fetch_factor": store.settings.over_fetch_factor,
+            "over_fetch_source": (
+                "--over-fetch" if args.over_fetch is not None else "load_settings().store"
+            ),
             "since": since,
             "until": until,
             "window_source": window_source,
