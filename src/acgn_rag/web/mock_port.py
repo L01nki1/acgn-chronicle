@@ -234,9 +234,9 @@ def _time_bounds(filters: RetrievalFilters) -> tuple[datetime | None, datetime |
 
 
 def _abstain(reason: str) -> GroundedAnswer:
-    """The refusal shape: empty citations and a non-empty reason, never a guessed answer."""
+    """The refusal shape: a user-facing sentence, an empty citation list and a specific reason."""
     return GroundedAnswer(
-        answer=reason,
+        answer="当前快照中没有足够依据回答这个问题，因此不作答。",
         citations=[],
         cited_chunk_ids=[],
         abstained=True,
