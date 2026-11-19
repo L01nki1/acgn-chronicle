@@ -206,7 +206,10 @@ line what the threshold optimizes before it freezes.
 **Labelling procedure.** `scripts/calibrate_dedup.py` writes `eval/dedup_g1b/sweep.json` and
 `label_sheet.csv` (per threshold: the 10 highest-cosine **aux** pairs plus a spread topping the
 aux rows up to 20, then primary pairs for the remaining slots — every row carries a `channel`
-column). `scripts/render_label_sheet.py` turns that CSV into `label_sheet.html`, a
+column). Re-running `--snapshot` refuses to overwrite a `label_sheet.csv` that already carries
+decisions or notes unless `--force` is passed; pass `--sweep-only` to refresh `sweep.json` alone
+without touching `label_sheet.csv`. `scripts/render_label_sheet.py` turns that CSV into
+`label_sheet.html`, a
 self-contained page (no server, no network) with the judgement rules on top, one card per
 pair, keyboard shortcuts, and **export at any time**. Scoring (`--score`) is gate evidence
 only when every threshold carries ≥20 non-skip **aux** judgements (default
@@ -219,7 +222,8 @@ reported as policy precision and never count towards the gate. Sparser sheets ex
 cannot reach the sample size — the sheet already carries every aux pair that exists. Labelling
 all of them is complete evidence, not short evidence: at `0.88` the frozen snapshot
 `20261105-d797b5f0ae8e` has **19** aux pairs in total, so requiring 20 asks for a pair that does
-not exist. The exemption is decided against the `aux_pairs` count recorded in `sweep.json`, never
+not exist. The exemption is decided against the `aux_pairs` count recorded in `sweep.json` in the
+same directory as the sheet (`<sheet_dir>/sweep.json`), never
 against the sheet alone: the sheet's aux rows for that threshold must equal the recorded
 population, so a sheet that dropped rows stays `insufficient`. The report prints
 `population_exhausted` and `aux_population` per threshold so the exemption is auditable rather

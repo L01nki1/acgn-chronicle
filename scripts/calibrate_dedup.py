@@ -205,6 +205,22 @@ def _write_sheet(rows: list[dict[str, Any]], path: Path) -> None:
         writer.writerows(rows)
 
 
+def _existing_labelled_rows(path: Path) -> int | None:
+    """Count rows in an existing sheet that already carry a decision or note.
+
+    Returns ``None`` when ``path`` exists on disk but cannot be parsed as a UTF-8 CSV, so an
+    unreadable file fails closed instead of being silently clobbered.
+    """
+    try:
+        with path.open(encoding="utf-8-sig", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+    except (OSError, UnicodeDecodeError, csv.Error):
+        return None
+    return sum(
+        1 for row in rows if (row.get("decision") or "").strip() or (row.get("note") or "").strip()
+    )
+
+
 def _aux_population(sweep_path: Path) -> dict[str, int]:
     """Aux pair count per threshold, read from the recorded sweep.
 
@@ -368,6 +384,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--snapshot", help="frozen snapshot id to sweep")
     parser.add_argument("--data-root", default=None, help="data root; default ACGN_DATA_DIR")
     parser.add_argument("--out", default="eval/dedup_g1b", help="output directory")
+    sheet_mode = parser.add_mutually_exclusive_group()
+    sheet_mode.add_argument(
+        "--sweep-only",
+        action="store_true",
+        help="refresh sweep.json only and leave any existing label_sheet.csv untouched",
+    )
+    sheet_mode.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite label_sheet.csv even if it already carries hand decisions or notes",
+    )
     parser.add_argument("--score", default=None, help="score a completed label sheet and exit")
     parser.add_argument(
         "--required-judged",
@@ -388,8 +415,24 @@ def main(argv: list[str] | None = None) -> int:
         print("--snapshot is required unless --score is used", file=sys.stderr)
         return 2
 
-    data_root = Path(args.data_root) if args.data_root else load_settings().paths.root
     out = Path(args.out)
+    sheet_path = out / "label_sheet.csv"
+    if not args.sweep_only and not args.force and sheet_path.exists():
+        existing = _existing_labelled_rows(sheet_path)
+        if existing is None or existing > 0:
+            detail = (
+                f"{existing} labelled row(s)"
+                if existing is not None
+                else "an unreadable existing sheet"
+            )
+            print(
+                f"{sheet_path}: refusing to overwrite {detail}; pass --sweep-only to refresh "
+                "sweep.json only, or --force to replace label_sheet.csv",
+                file=sys.stderr,
+            )
+            return 2
+
+    data_root = Path(args.data_root) if args.data_root else load_settings().paths.root
     items = _load(args.snapshot, data_root)
     sweep = _sweep(items)
 
@@ -412,8 +455,9 @@ def main(argv: list[str] | None = None) -> int:
                 "aux_pairs": sum(1 for pair in pairs if pair["channel"] == "aux"),
             }
         )
-        for rank, pair in enumerate(_sample(pairs, SHEET_ROWS), 1):
-            sheet.append(_sheet_row(row["threshold"], rank, pair))
+        if not args.sweep_only:
+            for rank, pair in enumerate(_sample(pairs, SHEET_ROWS), 1):
+                sheet.append(_sheet_row(row["threshold"], rank, pair))
 
     out.mkdir(parents=True, exist_ok=True)
     (out / "sweep.json").write_text(
@@ -422,15 +466,21 @@ def main(argv: list[str] | None = None) -> int:
                 "snapshot_id": args.snapshot,
                 "policy": "entity-event-72h+agglomerative-complete:char3-tf-cosine-v2",
                 "thresholds": summary,
-                "note": "cluster counts from cluster_items on the frozen corpus; hand labels pending",
+                "note": (
+                    "cluster counts and aux_pairs from cluster_items on the frozen corpus; "
+                    "hand-label judgements live in label_sheet.csv"
+                ),
             },
             indent=2,
         )
         + "\n",
         encoding="utf-8",
     )
-    _write_sheet(sheet, out / "label_sheet.csv")
-    print(f"wrote {out / 'sweep.json'} and {out / 'label_sheet.csv'} ({len(sheet)} rows)")
+    if args.sweep_only:
+        print(f"wrote {out / 'sweep.json'} (--sweep-only; {sheet_path} untouched)")
+        return 0
+    _write_sheet(sheet, sheet_path)
+    print(f"wrote {out / 'sweep.json'} and {sheet_path} ({len(sheet)} rows)")
     return 0
 
 

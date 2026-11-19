@@ -43,5 +43,5 @@
       "aux_pairs": 19
     }
   ],
-  "note": "cluster counts from cluster_items on the frozen corpus; hand labels pending"
+  "note": "cluster counts and aux_pairs from cluster_items on the frozen corpus; hand-label judgements live in label_sheet.csv"
 }

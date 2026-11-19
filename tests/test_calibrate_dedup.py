@@ -363,6 +363,72 @@ def test_score_required_judged_is_configurable(
     assert report["thresholds"]["0.86"]["insufficient"] is False
 
 
+def test_build_refuses_to_clobber_a_labelled_sheet_unless_forced_or_sweep_only(
+    data_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """D's #91 review: re-running --snapshot must not silently wipe existing hand labels."""
+    snapshot = _publish(data_root, count=8)
+    out = tmp_path / "calib"
+    out.mkdir(parents=True, exist_ok=True)
+    sheet = out / "label_sheet.csv"
+    labelled_bytes = (
+        "threshold,pair_id,channel,decision,note\n0.86,0.86-01,aux,not_duplicate,human checked\n"
+    ).encode("utf-8-sig")
+    sheet.write_bytes(labelled_bytes)
+
+    # Default rebuild refuses before clobbering the labelled sheet.
+    code = calibrate_dedup.main(
+        ["--snapshot", snapshot, "--data-root", str(data_root), "--out", str(out)]
+    )
+    assert code == 2
+    assert "refusing to overwrite" in capsys.readouterr().err
+    assert sheet.read_bytes() == labelled_bytes
+    assert not (out / "sweep.json").exists()
+
+    # --sweep-only refreshes sweep.json while preserving label_sheet.csv byte-for-byte.
+    code = calibrate_dedup.main(
+        [
+            "--snapshot",
+            snapshot,
+            "--data-root",
+            str(data_root),
+            "--out",
+            str(out),
+            "--sweep-only",
+        ]
+    )
+    assert code == 0
+    capsys.readouterr()
+    assert sheet.read_bytes() == labelled_bytes
+    sweep = json.loads((out / "sweep.json").read_text(encoding="utf-8"))
+    assert "pending" not in sweep["note"].lower()
+
+    # --force explicitly replaces the existing sheet.
+    code = calibrate_dedup.main(
+        [
+            "--snapshot",
+            snapshot,
+            "--data-root",
+            str(data_root),
+            "--out",
+            str(out),
+            "--force",
+        ]
+    )
+    assert code == 0
+    assert sheet.read_bytes() != labelled_bytes
+
+    # An unlabelled sheet (empty decision and note) may still be regenerated without --force.
+    sheet.write_text(
+        "threshold,pair_id,channel,decision,note\n0.86,0.86-01,aux,,\n",
+        encoding="utf-8-sig",
+    )
+    code = calibrate_dedup.main(
+        ["--snapshot", snapshot, "--data-root", str(data_root), "--out", str(out)]
+    )
+    assert code == 0
+
+
 def test_committed_dedup_g1b_sheet_and_sweep_wiring(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -374,6 +440,7 @@ def test_committed_dedup_g1b_sheet_and_sweep_wiring(
     assert sweep.is_file()
 
     sweep_payload = json.loads(sweep.read_text(encoding="utf-8"))
+    assert "pending" not in sweep_payload.get("note", "").lower()
     by_thresh = {f"{float(r['threshold']):.2f}": r for r in sweep_payload["thresholds"]}
     assert set(by_thresh) == set(calibrate_dedup.REQUIRED_THRESHOLDS)
     for key, entry in by_thresh.items():
