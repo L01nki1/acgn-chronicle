@@ -1,0 +1,217 @@
+{
+  "run_id": "20261119-E4-A-e5",
+  "snapshot_id": "20261105-d797b5f0ae8e",
+  "window_start": "2023-11-05",
+  "window_end": "2026-11-05",
+  "window_verified": true,
+  "chunk_config": "A",
+  "retrieval": {
+    "mode": "vector",
+    "top_k": 5,
+    "over_fetch": 5,
+    "latency_ms": {
+      "n": 30,
+      "p50": 723.493,
+      "p95": 1054.967
+    }
+  },
+  "embed": {
+    "model": "intfloat/multilingual-e5-base",
+    "backend": "torch",
+    "device": "cuda",
+    "precision": "fp32",
+    "library_versions": {
+      "sentence_transformers": "6.2.0",
+      "torch": "2.15.0+cu132",
+      "transformers": "5.21.0",
+      "numpy": "2.5.4"
+    },
+    "batch": 16
+  },
+  "build_identity": {
+    "model": "intfloat/multilingual-e5-base",
+    "backend": "torch",
+    "device": "cuda",
+    "precision": "fp32",
+    "batch_size": 16,
+    "identity_slug": "multilingual-e5-base-torch-cuda-fp32-d2fa8669",
+    "lib_sentence_transformers": "6.2.0",
+    "lib_torch": "2.15.0+cu132",
+    "lib_transformers": "5.21.0",
+    "lib_numpy": "2.5.4"
+  },
+  "chunker": {
+    "version": "composed-input-v2",
+    "header_version": "h1",
+    "config": "A",
+    "max_tokens": 512,
+    "overlap": 64,
+    "max_seq_length": 512
+  },
+  "reportable": false,
+  "non_reportable_reason": "calibration_instrument",
+  "reportable_scope": "run; per-family availability is in metrics.reporting",
+  "determinism": {
+    "torch_available": true,
+    "torch_seed": 0,
+    "use_deterministic_algorithms": true,
+    "warn_only": true,
+    "gpu_model": "Tesla T4"
+  },
+  "gpu_policy": "pr48_require_gpu",
+  "require_gpu": true,
+  "collection": "snap_full_20261105-d797b5f0ae8e_A",
+  "llm": {
+    "provider": "none",
+    "model": "none",
+    "version": "none",
+    "temperature": 0.0,
+    "seed": null
+  },
+  "llm_probe": null,
+  "abstention": {
+    "threshold": null,
+    "source": null,
+    "calibration_identity": null
+  },
+  "git_sha": "7fef7e6",
+  "qa": {
+    "path": "eval/abstain_calibration.jsonl",
+    "count": 30,
+    "inputs_fingerprint": "663840690a1f14a57aad211a37023bf9693e51638ba46f53fe264f3e366c3875",
+    "validated": true,
+    "validation": "validated",
+    "source": "cli",
+    "role": "calibration"
+  },
+  "created_at": "2026-11-19T10:48:34+00:00",
+  "metrics": {
+    "counts": {
+      "qa_total": 30,
+      "answerable": 20,
+      "unanswerable": 10,
+      "gold_unavailable": 7,
+      "gold_member_not_indexed": 0,
+      "gold_unresolved": 0,
+      "dropped": 0,
+      "deduped_count": 36121,
+      "indexed_chunks": 74245
+    },
+    "retrieval": {
+      "k": 5,
+      "hit": {
+        "all": {
+          "value": 0.0,
+          "n": 13
+        },
+        "en": {
+          "value": 0.0,
+          "n": 11
+        },
+        "zh": {
+          "value": 0.0,
+          "n": 2
+        }
+      },
+      "mrr": {
+        "all": {
+          "value": 0.0,
+          "n": 13
+        },
+        "en": {
+          "value": 0.0,
+          "n": 11
+        },
+        "zh": {
+          "value": 0.0,
+          "n": 2
+        }
+      },
+      "evidence_recall": {
+        "all": {
+          "value": 0.0,
+          "n": 13
+        },
+        "en": {
+          "value": 0.0,
+          "n": 11
+        },
+        "zh": {
+          "value": 0.0,
+          "n": 2
+        }
+      },
+      "excluded": {
+        "unanswerable": 10,
+        "gold_unavailable": 7,
+        "gold_member_not_indexed": 0,
+        "gold_unresolved": 0,
+        "missing_gold": 0,
+        "dropped": 0
+      }
+    },
+    "correctness": {
+      "counts": {
+        "fully_correct": 0,
+        "partially_correct": 0,
+        "incorrect": 0
+      },
+      "rates": {
+        "all": {
+          "value": null,
+          "n": 0
+        },
+        "en": {
+          "value": null,
+          "n": 0
+        },
+        "zh": {
+          "value": null,
+          "n": 0
+        }
+      }
+    },
+    "abstention": {
+      "threshold": null,
+      "refusal_rate": {
+        "value": null,
+        "n": 0
+      },
+      "false_refusal_rate": {
+        "value": null,
+        "n": 0
+      },
+      "calibration_in_sample": {
+        "value": null,
+        "n": 0
+      }
+    },
+    "citation": {
+      "containment_rate": {
+        "value": null,
+        "n": 0
+      },
+      "violations": 0,
+      "abstained_violations": 0
+    },
+    "reporting": {
+      "retrieval": {
+        "available": true,
+        "n": 13
+      },
+      "correctness": {
+        "available": false,
+        "n": 0
+      },
+      "abstention": {
+        "available": false,
+        "n": 0
+      },
+      "citation": {
+        "available": false,
+        "n": 0
+      }
+    },
+    "provisional": false
+  }
+}
