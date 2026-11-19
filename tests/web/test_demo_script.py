@@ -53,6 +53,7 @@ def _excerpt(*, url: str = "https://example.com/a", publisher: str = "示例媒�
     [
         _excerpt(url="example.com/a"),  # scheme-less URL: the page's `new URL()` check rejects it
         _excerpt(url="ftp://example.com/a"),
+        _excerpt(url="https://"),  # scheme without a host throws in `new URL()`
         _excerpt(publisher="   "),
     ],
 )

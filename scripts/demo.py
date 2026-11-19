@@ -52,7 +52,9 @@ def is_renderable_citation(citation: Any) -> bool:
             return False
     if citation["source_type"] not in SOURCE_TYPES:
         return False
-    return urlparse(citation["url"]).scheme in {"http", "https"}
+    parsed = urlparse(citation["url"])
+    # `new URL("https://")` throws in the page, so a scheme without a host is not renderable either.
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
 def _post(client: TestClient, path: str, body: dict[str, Any]) -> tuple[int, Any]:
