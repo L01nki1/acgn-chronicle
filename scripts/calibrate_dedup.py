@@ -42,6 +42,13 @@ from acgn_rag.core.ingest.snapshot import iter_snapshot_items
 
 #: Pairs sampled per threshold (RUNBOOK §3.3: "20 hand-checked pairs per value").
 PAIRS_PER_THRESHOLD = 20
+#: A threshold whose aux population is smaller than ``PAIRS_PER_THRESHOLD`` cannot reach the
+#: sample size, because the sheet already contains every aux pair that exists. Labelling all of
+#: them is complete evidence, not short evidence: at 0.88 the frozen snapshot has 19 aux pairs in
+#: total, so requiring 20 asks for a pair that does not exist. The exemption applies only when
+#: the sheet's aux rows for that threshold equal the population recorded in ``sweep.json``; a
+#: sheet that simply labelled fewer rows than it was given stays insufficient.
+EXHAUSTIVE_POPULATION_EXEMPT = True
 #: Rows written to the sheet per threshold: the required 20 plus 10 extra candidates, so a
 #: pair the labeller cannot judge (dead link, truncated body) can be skipped without a rerun.
 SHEET_ROWS = 30
@@ -198,6 +205,45 @@ def _write_sheet(rows: list[dict[str, Any]], path: Path) -> None:
         writer.writerows(rows)
 
 
+def _existing_labelled_rows(path: Path) -> int | None:
+    """Count rows in an existing sheet that already carry a decision or note.
+
+    Returns ``None`` when ``path`` exists on disk but cannot be parsed as a UTF-8 CSV, so an
+    unreadable file fails closed instead of being silently clobbered.
+    """
+    try:
+        with path.open(encoding="utf-8-sig", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+    except (OSError, UnicodeDecodeError, csv.Error):
+        return None
+    return sum(
+        1 for row in rows if (row.get("decision") or "").strip() or (row.get("note") or "").strip()
+    )
+
+
+def _aux_population(sweep_path: Path) -> dict[str, int]:
+    """Aux pair count per threshold, read from the recorded sweep.
+
+    ``aux_pairs`` is the subset of member pairs with ``cosine >= threshold``, which is exactly
+    the population the sheet's aux rows are drawn from. Returns ``{}`` when the sweep is absent,
+    unreadable, or predates the ``aux_pairs`` field, in which case no threshold can claim the
+    exhaustive-population exemption.
+    """
+    try:
+        payload = json.loads(sweep_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    counts: dict[str, int] = {}
+    for entry in payload.get("thresholds", []):
+        try:
+            threshold = f"{float(entry['threshold']):.2f}"
+            aux_pairs = int(entry["aux_pairs"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        counts[threshold] = aux_pairs
+    return counts
+
+
 def _score(path: Path, *, required: int = PAIRS_PER_THRESHOLD, exploratory: bool = False) -> int:
     """Score a completed sheet: aux precision per threshold, and whether it is gate evidence.
 
@@ -209,6 +255,11 @@ def _score(path: Path, *, required: int = PAIRS_PER_THRESHOLD, exploratory: bool
     conflicting decisions or channels for one pair are an error, not extra evidence.
     ``--exploratory`` or a requirement below 20 is explicitly non-gate exploration and never
     fails the gate.
+
+    A threshold whose aux population is smaller than ``required`` is exempt when the sheet
+    labelled every aux pair that exists (see ``EXHAUSTIVE_POPULATION_EXEMPT``). The exemption is
+    decided against ``sweep.json``, never against the sheet alone: the sheet's aux row count for
+    that threshold must equal the population recorded there.
     """
     with path.open(encoding="utf-8-sig", newline="") as handle:
         rows = list(csv.DictReader(handle))
@@ -269,6 +320,7 @@ def _score(path: Path, *, required: int = PAIRS_PER_THRESHOLD, exploratory: bool
         "thresholds": {},
     }
     missing = [value for value in REQUIRED_THRESHOLDS if value not in by_threshold]
+    population = _aux_population(path.parent / "sweep.json")
     insufficient: list[str] = []
     for threshold in sorted(set(REQUIRED_THRESHOLDS) | set(by_threshold)):
         bucket = by_threshold.get(threshold, {"pairs": {}, "skipped": 0})
@@ -281,7 +333,17 @@ def _score(path: Path, *, required: int = PAIRS_PER_THRESHOLD, exploratory: bool
         primary_duplicate = sum(1 for value in primary if value[0] == "duplicate")
         primary_judged = len(primary)
         primary_precision = primary_duplicate / primary_judged if primary_judged else None
-        enough = aux_judged >= required
+        # The sheet carries every aux pair that exists when the population is below the sample
+        # size; labelling all of them is complete, not short. The exemption needs the recorded
+        # population to agree with the labelled count, so a sheet that dropped rows stays short.
+        aux_population = population.get(threshold)
+        exhaustive = (
+            EXHAUSTIVE_POPULATION_EXEMPT
+            and aux_population is not None
+            and aux_population < required
+            and aux_judged == aux_population
+        )
+        enough = aux_judged >= required or exhaustive
         if not enough:
             insufficient.append(threshold)
         report["thresholds"][threshold] = {
@@ -293,6 +355,8 @@ def _score(path: Path, *, required: int = PAIRS_PER_THRESHOLD, exploratory: bool
             "primary_precision": None if primary_precision is None else round(primary_precision, 4),
             "skipped": bucket["skipped"],
             "insufficient": not enough,
+            "aux_population": aux_population,
+            "population_exhausted": exhaustive,
         }
     report["missing_thresholds"] = missing
     report["gate"] = (
@@ -320,6 +384,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--snapshot", help="frozen snapshot id to sweep")
     parser.add_argument("--data-root", default=None, help="data root; default ACGN_DATA_DIR")
     parser.add_argument("--out", default="eval/dedup_g1b", help="output directory")
+    sheet_mode = parser.add_mutually_exclusive_group()
+    sheet_mode.add_argument(
+        "--sweep-only",
+        action="store_true",
+        help="refresh sweep.json only and leave any existing label_sheet.csv untouched",
+    )
+    sheet_mode.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite label_sheet.csv even if it already carries hand decisions or notes",
+    )
     parser.add_argument("--score", default=None, help="score a completed label sheet and exit")
     parser.add_argument(
         "--required-judged",
@@ -340,8 +415,24 @@ def main(argv: list[str] | None = None) -> int:
         print("--snapshot is required unless --score is used", file=sys.stderr)
         return 2
 
-    data_root = Path(args.data_root) if args.data_root else load_settings().paths.root
     out = Path(args.out)
+    sheet_path = out / "label_sheet.csv"
+    if not args.sweep_only and not args.force and sheet_path.exists():
+        existing = _existing_labelled_rows(sheet_path)
+        if existing is None or existing > 0:
+            detail = (
+                f"{existing} labelled row(s)"
+                if existing is not None
+                else "an unreadable existing sheet"
+            )
+            print(
+                f"{sheet_path}: refusing to overwrite {detail}; pass --sweep-only to refresh "
+                "sweep.json only, or --force to replace label_sheet.csv",
+                file=sys.stderr,
+            )
+            return 2
+
+    data_root = Path(args.data_root) if args.data_root else load_settings().paths.root
     items = _load(args.snapshot, data_root)
     sweep = _sweep(items)
 
@@ -358,10 +449,15 @@ def main(argv: list[str] | None = None) -> int:
                 "collapsed": row["collapsed"],
                 "largest_cluster": row["largest_cluster"],
                 "member_pairs": len(pairs),
+                # The aux channel is the subset a threshold change moves, and the only channel
+                # the gate counts. A threshold whose aux population is smaller than the sample
+                # size is exhausted by labelling all of it (see EXHAUSTIVE_POPULATION_EXEMPT).
+                "aux_pairs": sum(1 for pair in pairs if pair["channel"] == "aux"),
             }
         )
-        for rank, pair in enumerate(_sample(pairs, SHEET_ROWS), 1):
-            sheet.append(_sheet_row(row["threshold"], rank, pair))
+        if not args.sweep_only:
+            for rank, pair in enumerate(_sample(pairs, SHEET_ROWS), 1):
+                sheet.append(_sheet_row(row["threshold"], rank, pair))
 
     out.mkdir(parents=True, exist_ok=True)
     (out / "sweep.json").write_text(
@@ -370,15 +466,21 @@ def main(argv: list[str] | None = None) -> int:
                 "snapshot_id": args.snapshot,
                 "policy": "entity-event-72h+agglomerative-complete:char3-tf-cosine-v2",
                 "thresholds": summary,
-                "note": "cluster counts from cluster_items on the frozen corpus; hand labels pending",
+                "note": (
+                    "cluster counts and aux_pairs from cluster_items on the frozen corpus; "
+                    "hand-label judgements live in label_sheet.csv"
+                ),
             },
             indent=2,
         )
         + "\n",
         encoding="utf-8",
     )
-    _write_sheet(sheet, out / "label_sheet.csv")
-    print(f"wrote {out / 'sweep.json'} and {out / 'label_sheet.csv'} ({len(sheet)} rows)")
+    if args.sweep_only:
+        print(f"wrote {out / 'sweep.json'} (--sweep-only; {sheet_path} untouched)")
+        return 0
+    _write_sheet(sheet, sheet_path)
+    print(f"wrote {out / 'sweep.json'} and {sheet_path} ({len(sheet)} rows)")
     return 0
 
 

@@ -118,8 +118,92 @@ def test_score_reports_aux_precision_per_threshold(
         "primary_precision": 1.0,
         "skipped": 1,
         "insufficient": True,
+        "aux_population": None,
+        "population_exhausted": False,
     }
     assert report["thresholds"]["0.86"]["aux_precision"] == 1.0
+
+
+def _write_sweep(directory: Path, aux_pairs: dict[str, int]) -> None:
+    """Minimal sweep.json carrying the aux population per threshold."""
+    (directory / "sweep.json").write_text(
+        json.dumps(
+            {
+                "snapshot_id": "20261105-d797b5f0ae8e",
+                "policy": "test",
+                "thresholds": [
+                    {"threshold": float(threshold), "member_pairs": 0, "aux_pairs": count}
+                    for threshold, count in aux_pairs.items()
+                ],
+                "note": "test fixture",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_exhaustive_population_below_the_sample_size_counts_as_gate_evidence(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A threshold whose aux population is smaller than 20 is complete when all of it is labelled.
+
+    The frozen snapshot has 19 aux pairs at 0.88, so no sheet can ever carry 20 there. Labelling
+    all 19 is the whole population, not a short sample, and must not fail the gate.
+    """
+    sheet = tmp_path / "sheet.csv"
+    rows = ["threshold,pair_id,channel,decision"]
+    for threshold, count in (("0.82", 20), ("0.84", 20), ("0.86", 20), ("0.88", 19)):
+        rows += [
+            f"{threshold},{threshold}-{index:02d},aux,duplicate" for index in range(1, count + 1)
+        ]
+    sheet.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    _write_sweep(tmp_path, {"0.82": 20, "0.84": 20, "0.86": 20, "0.88": 19})
+
+    assert calibrate_dedup._score(sheet) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["gate"] == "PASS"
+    assert report["thresholds"]["0.88"]["population_exhausted"] is True
+    assert report["thresholds"]["0.88"]["aux_population"] == 19
+    # The three thresholds that do reach 20 are not marked exhausted.
+    assert report["thresholds"]["0.86"]["population_exhausted"] is False
+
+
+def test_a_population_at_or_above_the_sample_size_gets_no_exemption(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """When 20 or more aux pairs exist, labelling 19 of them is still short evidence."""
+    sheet = tmp_path / "sheet.csv"
+    rows = ["threshold,pair_id,channel,decision"]
+    for threshold in ("0.82", "0.84", "0.86"):
+        rows += [f"{threshold},{threshold}-{index:02d},aux,duplicate" for index in range(1, 21)]
+    rows += [f"0.88,0.88-{index:02d},aux,duplicate" for index in range(1, 20)]
+    sheet.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    # The sweep says 0.88 has 25 aux pairs, so 19 labelled is 6 short, not exhausted.
+    _write_sweep(tmp_path, {"0.82": 20, "0.84": 20, "0.86": 20, "0.88": 25})
+
+    assert calibrate_dedup._score(sheet) == 2
+    report = json.loads(capsys.readouterr().out)
+    assert report["gate"] == "INSUFFICIENT"
+    assert report["thresholds"]["0.88"]["population_exhausted"] is False
+    assert report["thresholds"]["0.88"]["insufficient"] is True
+
+
+def test_a_missing_sweep_grants_no_exemption(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Without a recorded population the sheet cannot prove it labelled everything."""
+    sheet = tmp_path / "sheet.csv"
+    rows = ["threshold,pair_id,channel,decision"]
+    for threshold in ("0.82", "0.84", "0.86"):
+        rows += [f"{threshold},{threshold}-{index:02d},aux,duplicate" for index in range(1, 21)]
+    rows += [f"0.88,0.88-{index:02d},aux,duplicate" for index in range(1, 20)]
+    sheet.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    assert calibrate_dedup._score(sheet) == 2
+    report = json.loads(capsys.readouterr().out)
+    assert report["gate"] == "INSUFFICIENT"
+    assert report["thresholds"]["0.88"]["aux_population"] is None
+    assert report["thresholds"]["0.88"]["population_exhausted"] is False
 
 
 def test_sample_keeps_the_aux_head_and_spreads_the_rest() -> None:
@@ -277,3 +361,110 @@ def test_score_required_judged_is_configurable(
     assert report["gate"] == "NOT_GATE"
     assert report["mode_reason"].startswith("--required-judged")
     assert report["thresholds"]["0.86"]["insufficient"] is False
+
+
+def test_build_refuses_to_clobber_a_labelled_sheet_unless_forced_or_sweep_only(
+    data_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """D's #91 review: re-running --snapshot must not silently wipe existing hand labels."""
+    snapshot = _publish(data_root, count=8)
+    out = tmp_path / "calib"
+    out.mkdir(parents=True, exist_ok=True)
+    sheet = out / "label_sheet.csv"
+    labelled_bytes = (
+        "threshold,pair_id,channel,decision,note\n0.86,0.86-01,aux,not_duplicate,human checked\n"
+    ).encode("utf-8-sig")
+    sheet.write_bytes(labelled_bytes)
+
+    # Default rebuild refuses before clobbering the labelled sheet.
+    code = calibrate_dedup.main(
+        ["--snapshot", snapshot, "--data-root", str(data_root), "--out", str(out)]
+    )
+    assert code == 2
+    assert "refusing to overwrite" in capsys.readouterr().err
+    assert sheet.read_bytes() == labelled_bytes
+    assert not (out / "sweep.json").exists()
+
+    # --sweep-only refreshes sweep.json while preserving label_sheet.csv byte-for-byte.
+    code = calibrate_dedup.main(
+        [
+            "--snapshot",
+            snapshot,
+            "--data-root",
+            str(data_root),
+            "--out",
+            str(out),
+            "--sweep-only",
+        ]
+    )
+    assert code == 0
+    capsys.readouterr()
+    assert sheet.read_bytes() == labelled_bytes
+    sweep = json.loads((out / "sweep.json").read_text(encoding="utf-8"))
+    assert "pending" not in sweep["note"].lower()
+
+    # --force explicitly replaces the existing sheet.
+    code = calibrate_dedup.main(
+        [
+            "--snapshot",
+            snapshot,
+            "--data-root",
+            str(data_root),
+            "--out",
+            str(out),
+            "--force",
+        ]
+    )
+    assert code == 0
+    assert sheet.read_bytes() != labelled_bytes
+
+    # An unlabelled sheet (empty decision and note) may still be regenerated without --force.
+    sheet.write_text(
+        "threshold,pair_id,channel,decision,note\n0.86,0.86-01,aux,,\n",
+        encoding="utf-8-sig",
+    )
+    code = calibrate_dedup.main(
+        ["--snapshot", snapshot, "--data-root", str(data_root), "--out", str(out)]
+    )
+    assert code == 0
+
+
+def test_committed_dedup_g1b_sheet_and_sweep_wiring(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Exercise the real committed eval/dedup_g1b/ artifacts together (E #91 review)."""
+    repo_root = Path(__file__).resolve().parents[1]
+    sheet = repo_root / "eval" / "dedup_g1b" / "label_sheet.csv"
+    sweep = repo_root / "eval" / "dedup_g1b" / "sweep.json"
+    assert sheet.is_file()
+    assert sweep.is_file()
+
+    sweep_payload = json.loads(sweep.read_text(encoding="utf-8"))
+    assert "pending" not in sweep_payload.get("note", "").lower()
+    by_thresh = {f"{float(r['threshold']):.2f}": r for r in sweep_payload["thresholds"]}
+    assert set(by_thresh) == set(calibrate_dedup.REQUIRED_THRESHOLDS)
+    for key, entry in by_thresh.items():
+        assert isinstance(entry.get("aux_pairs"), int), f"{key} missing aux_pairs in sweep.json"
+        assert 0 <= entry["aux_pairs"] <= entry["member_pairs"]
+
+    rc = calibrate_dedup._score(sheet)
+    report = json.loads(capsys.readouterr().out)
+    assert report["missing_thresholds"] == []
+    for key in ("0.82", "0.84", "0.86"):
+        assert report["thresholds"][key]["aux_population"] == by_thresh[key]["aux_pairs"]
+        assert report["thresholds"][key]["judged_aux"] >= calibrate_dedup.PAIRS_PER_THRESHOLD
+        assert report["thresholds"][key]["insufficient"] is False
+
+    row_088 = report["thresholds"]["0.88"]
+    assert row_088["aux_population"] == by_thresh["0.88"]["aux_pairs"] == 19
+    assert row_088["judged_aux"] == 19
+    if calibrate_dedup.EXHAUSTIVE_POPULATION_EXEMPT:
+        assert rc == 0
+        assert report["gate"] == "PASS"
+        assert row_088["population_exhausted"] is True
+        assert row_088["insufficient"] is False
+    else:
+        assert rc == 2
+        assert report["gate"] == "INSUFFICIENT"
+        assert row_088["population_exhausted"] is False
+        assert row_088["insufficient"] is True
