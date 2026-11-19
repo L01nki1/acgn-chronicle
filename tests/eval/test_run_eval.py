@@ -393,6 +393,30 @@ def test_nonreportable_result_returns_one() -> None:
     assert run_eval._nonreportable_exit(result) == 1
 
 
+def test_calibration_role_does_not_mask_operational_failures() -> None:
+    from acgn_rag.core.eval.runner import _reportability_reason
+
+    kwargs = {
+        "evidence_resolver": object(),
+        "window_verified": True,
+        "build_identity": {"device": "cuda"},
+        "require_gpu": True,
+        "qa_validated": True,
+        "has_reportable_metrics": True,
+        "qa_role": "calibration",
+    }
+    assert _reportability_reason(**kwargs) == "calibration_instrument"
+    assert (
+        _reportability_reason(**{**kwargs, "has_reportable_metrics": False})
+        == "no_reportable_metrics"
+    )
+    assert _reportability_reason(**{**kwargs, "evidence_resolver": None}) == "no_evidence_resolver"
+    assert _reportability_reason(**{**kwargs, "window_verified": False}) == "window_unverified"
+    assert (
+        _reportability_reason(**{**kwargs, "build_identity": {"device": "cpu"}}) == "non_gpu_device"
+    )
+
+
 def test_calibration_decision_input_returns_zero() -> None:
     result = SimpleNamespace(
         meta={"reportable": False, "non_reportable_reason": "calibration_instrument"}

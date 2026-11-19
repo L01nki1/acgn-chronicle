@@ -581,10 +581,6 @@ def _reportability_reason(
     """Return why a run is not reportable, or None when it is reportable."""
     if not qa_validated:
         return "qa_validation_bypassed"
-    if qa_role == "calibration":
-        # The calibration instrument is decision input, never gate evidence: it is not the
-        # frozen 32-item QA set, so its metrics cannot be reported as QA-set results.
-        return "calibration_instrument"
     if evidence_resolver is None:
         return "no_evidence_resolver"
     if not window_verified:
@@ -593,6 +589,12 @@ def _reportability_reason(
         return "non_gpu_device"
     if not has_reportable_metrics:
         return "no_reportable_metrics"
+    if qa_role == "calibration":
+        # The calibration instrument is decision input, never gate evidence: it is not the
+        # frozen 32-item QA set, so its metrics cannot be reported as QA-set results. This
+        # check comes last so a broken calibration run reports its real failure instead of
+        # borrowing the role's non-reportable status.
+        return "calibration_instrument"
     return None
 
 
