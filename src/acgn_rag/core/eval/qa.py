@@ -36,7 +36,10 @@ TYPE_QUOTAS: dict[str, tuple[int, int | None]] = {
 }
 MIN_TOTAL = 30
 MIN_UNANSWERABLE = 5
-MIN_ZH = 8
+# The project's primary language is English: the corpus is largely Japanese at the source
+# (nijimen/ANN write in ja and en), so Chinese is a localisation courtesy, not a target
+# scenario. Four items keep zh coverage measurable without making a zh query the main lane.
+MIN_ZH = 4
 OVERLAP_COUNT = 10
 CALIBRATION_SIZE = {"answerable": 20, "unanswerable": 10}
 REQUIRED_FIELDS = (
