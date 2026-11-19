@@ -16,13 +16,17 @@ Both are `reportable=true`, `qa.role=report`, with the A′ calibration artifact
 | `meta.llm_probe` | `status=200`, `model_present=true`, `model_count=1` |
 | `ACGN_ANSWER_MAX_TOKENS` | 8192 (2048 produced `finish_reason=length` with empty content) |
 
-## Retrieval (identical to the 11/17 A′ archive)
+## Retrieval (headline rates match the 11/17 A′ archive)
 
 | Metric | Value |
 |---|---|
 | hit@5 | 0.347826 (n=23) |
 | MRR@5 | 0.264493 |
 | evidence recall | 0.326087 |
+
+The headline rates are identical to the 11/17 A′ archive. The row-level lists are not:
+the same URL set appears on 4/30 items, and no row has identical `retrieved_urls` /
+`retrieved_chunk_ids` (D's #114 review).
 
 ## Generation
 
@@ -71,6 +75,14 @@ So this is not a hallucination and not a citation violation — the retrieval fo
 exhibition hours. Either the item's label is too strict (the corpus answers the question),
 or the question is read as asking for the 進撃の巨人 zone specifically rather than the
 exhibition. D's call; ④ is judged on groundedness/refusal, and this answer is grounded.
+
+## Known retrieval degradation
+
+17 of 30 rows return duplicate URLs in `retrieved_urls` (A: 12/30). One document's chunks can
+occupy several of the five slots, so `top_k=5` is sometimes effectively ~3 distinct pages. This
+is a query-side assembly question (collapse sibling chunks vs return whole documents), recorded
+by D in the #114 review; it is not a live-run defect and does not change the citations or the
+threshold.
 
 ## Notes
 
