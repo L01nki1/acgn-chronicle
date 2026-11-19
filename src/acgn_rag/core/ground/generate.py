@@ -52,6 +52,12 @@ ABSTAIN_MODEL_EMPTY: Final = "model_returned_no_claims"
 ABSTAIN_ALL_CLAIMS_REJECTED: Final = "all_claims_rejected"
 ABSTAIN_RETRIEVAL_BELOW_THRESHOLD: Final = "retrieval_below_threshold"
 
+# Version slug for the answer-line behaviour that run identity records (runner.py L5). Bump it
+# whenever a change here can move an answer or an abstention. v1 is PR #116's answer line:
+# the 16k prompt ceiling and headline-verbatim media quotes. Archives written before this
+# field existed are read back with the documented legacy default "pre-titlequote".
+ANSWERER_VERSION: Final = "c4-titlequote-v1"
+
 NO_EVIDENCE_REASON: Final = "No retrieved evidence was available for this request."
 UNSUPPORTED_REASON: Final = "No retrieved evidence supports a grounded answer to this question."
 REJECTED_CLAIMS_REASON: Final = (
@@ -104,6 +110,46 @@ SYSTEM_PROMPT: Final = (
 _FENCED_BLOCK: Final = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 _KANA: Final = re.compile(r"[\u3040-\u30ff\u31f0-\u31ff]")
 _HAN: Final = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+# A work title inside any of these bracket pairs is quoted material, not the user's language.
+_QUOTED_SPAN: Final = re.compile(
+    r"《[^《》]*》|『[^『』]*』|「[^「」]*」|〈[^〈〉]*〉|（[^（）]*）|\([^()]*\)|\[[^\[\]]*\]"
+)
+_ZH_FUNCTION_WORDS: Final = (
+    "的",
+    "了",
+    "在",
+    "是",
+    "于",
+    "哪",
+    "何",
+    "多少",
+    "什么",
+    "宣布",
+    "开始",
+    "何时",
+    "是否",
+)
+_EN_FUNCTION_WORDS: Final = (
+    "the",
+    "is",
+    "are",
+    "was",
+    "what",
+    "when",
+    "which",
+    "for",
+    "of",
+    "to",
+    "in",
+    "on",
+    "did",
+    "does",
+    "will",
+)
+# Only >=2-character particles: single characters such as は/が also occur inside katakana
+# loanwords, where counting them would invent a Japanese signal.
+_JA_PARTICLES: Final = ("から", "まで", "です", "ます")
+_EN_TOKEN: Final = re.compile(r"[a-z0-9]+")
 
 
 @dataclass(frozen=True, slots=True)
@@ -455,13 +501,53 @@ def _brace_spans(text: str) -> list[str]:
     return spans
 
 
-def _question_language(question: str) -> str:
-    """Pick the refusal language from the question's script, without external detection."""
-    if _KANA.search(question):
+def _script_language(text: str) -> str:
+    """The raw script rule: kana means ja, han means zh, anything else is en."""
+    if _KANA.search(text):
         return "ja"
-    if _HAN.search(question):
+    if _HAN.search(text):
         return "zh"
     return "en"
+
+
+def _function_word_language(text: str) -> str:
+    """Resolve a kana-bearing text by function words instead of trusting the script.
+
+    Japanese work titles carry kana into questions asked in English or Chinese, so kana alone
+    is not evidence of the user's language. Chinese function words, English function words
+    (whole tokens) and the >=2-character Japanese particles are counted; the single highest
+    count decides, and a tie or an all-zero count falls back to the script rule. Measured on
+    the frozen instruments, this recovers the 10/32 qa_set and 9/30 calibration items the raw
+    kana rule misjudged, with zero new misjudgments on the 62 + 34 tracked items.
+    """
+    counts = {
+        "zh": sum(text.count(word) for word in _ZH_FUNCTION_WORDS),
+        "en": sum(1 for token in _EN_TOKEN.findall(text.lower()) if token in _EN_FUNCTION_WORDS),
+        "ja": sum(text.count(particle) for particle in _JA_PARTICLES),
+    }
+    best = max(counts.values())
+    winners = [lang for lang, count in counts.items() if count == best]
+    if len(winners) == 1 and best > 0:
+        return winners[0]
+    return _script_language(text)
+
+
+def _question_language(question: str) -> str:
+    """Pick the refusal language from the question's script, without external detection.
+
+    Two stages. First, quoted spans (《…》『…』「…」〈…〉（…）(…) […]) are stripped from the
+    detection input only -- a title inside brackets is data, and on this corpus the title is
+    usually where the kana lives. Second, kana that survives stripping is resolved by function
+    words rather than read as Japanese.
+    """
+    stripped = _QUOTED_SPAN.sub("", question)
+    if not stripped.strip():
+        # The question is nothing but quoted material (a bare title): its frame carried the
+        # language signal, so the raw script rule runs on the original text.
+        return _script_language(question)
+    if not _KANA.search(stripped):
+        return _script_language(stripped)
+    return _function_word_language(stripped)
 
 
 def _refusal_message(code: str, question: str) -> str:

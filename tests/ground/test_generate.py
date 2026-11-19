@@ -23,6 +23,7 @@ from acgn_rag.core.ground.generate import (
     NO_EVIDENCE_REASON,
     UNSUPPORTED_REASON,
     GroundedAnswerer,
+    _refusal_message,
     build_grounding_prompt,
     generate_grounded_answer,
     generate_grounded_answer_run,
@@ -567,3 +568,123 @@ def test_malformed_first_object_does_not_hide_the_valid_one() -> None:
     answer = generate_grounded_answer(_query(), [_chunk(1)], FakeAnswerClient(raw))
 
     assert answer.answer == "Fact one. [1]"
+
+
+# --- refusal-language detection (L4a) -------------------------------------------------
+
+# The exact frozen-set items the raw kana rule misjudged (10/32 qa_set + 9/30 calibration): a
+# Japanese work title carries kana into a question asked in English or Chinese, and the old
+# rule answered those refusals in Japanese. Every row asserts the language its declared `lang`
+# actually is, through the observable refusal message.
+_MISJUDGED_QUESTIONS = [
+    (
+        "A-003",
+        "en",
+        "When does the second season of Let This Grieving Soul Retire! (嘆きの亡霊は引退したい) premiere?",
+    ),
+    ("A-004", "zh", "TV 动画《運命の巻戻士》宣布决定于何时播出？"),
+    (
+        "A-006",
+        "zh",
+        "《魔法つかいプリキュア！！～MIRAI DAYS～》宣布从哪一天开始在 ABC 电视台·朝日电视台系列深夜档播出？",
+    ),
+    ("A-008", "en", "When does MAPPA's Dorohedoro (ドロヘドロ) anime begin worldwide streaming?"),
+    (
+        "B-001",
+        "en",
+        "Which studio produced the short anime for Kenshi Yonezu's 2026 NHK soccer theme 「烏」?",
+    ),
+    ("B-005", "zh", "《らんま1/2》第3期在日本电视台播出后由哪个平台独家配信？"),
+    (
+        "B-007",
+        "en",
+        "Which edition of the Academy Awards nominated Toei Animation's Magic Candies (あめだま) for Best Animated Short?",
+    ),
+    (
+        "D-004",
+        "zh",
+        "《進撃の巨人》The Final Season 在 MAPPA EXPO 展区每天的具体开放时间是几点到几点？",
+    ),
+    (
+        "D-007",
+        "zh",
+        "『ざんねんないきもの事典』×《ドラゴンクエストモンスターズ４》的官方联动企划『ざんねんなまもの事典』定于哪一天开始公开？",
+    ),
+    (
+        "D-008",
+        "en",
+        "Which venue hosted the first stop of The Powerpuff Girls POP UP STORE ガールズの休日, which opened on May 2, 2025?",
+    ),
+    (
+        "A-901",
+        "zh",
+        "改编自朝日新闻出版《科学漫画生存》系列的 TV 动画《科学×冒険サバイバル！》在哪个电视台播出？",
+    ),
+    ("A-903", "zh", "にじさんじ 宣布出展的「Anime x Game Festival Korea 2026」于哪一天开幕？"),
+    (
+        "B-901",
+        "en",
+        "What did Toei Animation announce for Galaxy Express 999 (銀河鉄道999) in July 2026?",
+    ),
+    (
+        "B-902",
+        "en",
+        "What is the title of the newly announced sequel to Expelled from Paradise (楽園追放)?",
+    ),
+    (
+        "B-905",
+        "en",
+        "What did MAPPA unveil for the Chainsaw Man Assassin Arc (チェンソーマン 刺客篇)?",
+    ),
+    (
+        "B-910",
+        "en",
+        "Which game engine does the announced Resident Evil Code: Veronica remake (バイオハザード RE:ベロニカ) use?",
+    ),
+    (
+        "B-913",
+        "zh",
+        "TV动画《光が死んだ夏》×ヴィレッジヴァンガード的联动限定商品何时开始线上订购？",
+    ),
+    ("D-908", "en", "What is the exact total episode count of らんま1/2 season 3?"),
+    ("D-909", "zh", "《サクラ大戦》30 周年纪念珠宝是否会在日本以外的市场发售？"),
+]
+
+# Mirror of the no-evidence refusal text per language; the test asserts the observable message
+# rather than the private detector.
+_NO_EVIDENCE_BY_LANG = {
+    "en": NO_EVIDENCE_REASON,
+    "zh": "本次请求没有可用的检索证据。",
+    "ja": "このリクエストには検索で得られた根拠がありません。",
+}
+
+# The four items whose kana survives the quoted-span strip (the title is not inside any
+# bracket); they pin the second-stage function-word fallback.
+_BARE_KANA_IDS = ("D-008", "A-903", "B-913", "D-908")
+
+
+@pytest.mark.parametrize(("qa_id", "lang", "question"), _MISJUDGED_QUESTIONS)
+def test_refusal_language_matches_declared_lang(qa_id: str, lang: str, question: str) -> None:
+    assert _refusal_message(ABSTAIN_NO_EVIDENCE, question) == _NO_EVIDENCE_BY_LANG[lang], qa_id
+
+
+@pytest.mark.parametrize("qa_id", _BARE_KANA_IDS)
+def test_bare_kana_title_is_resolved_by_function_words(qa_id: str) -> None:
+    row = next(row for row in _MISJUDGED_QUESTIONS if row[0] == qa_id)
+
+    assert _refusal_message(ABSTAIN_NO_EVIDENCE, row[2]) == _NO_EVIDENCE_BY_LANG[row[1]], qa_id
+
+
+def test_refusal_language_falls_back_on_a_bare_title() -> None:
+    # A question that is nothing but quoted material loses its frame; the raw script rule runs
+    # on the original text, so a bare Japanese title still answers in Japanese.
+    assert _refusal_message(ABSTAIN_NO_EVIDENCE, "プリキュア") == _NO_EVIDENCE_BY_LANG["ja"]
+
+
+def test_refusal_language_keeps_genuine_japanese_questions_japanese() -> None:
+    # ja input is not a target scenario (no ja QA items), but the defensive ja refusal texts
+    # stay reachable for a real Japanese question.
+    assert (
+        _refusal_message(ABSTAIN_NO_EVIDENCE, "このゲームはいつ発売されますか？")
+        == _NO_EVIDENCE_BY_LANG["ja"]
+    )

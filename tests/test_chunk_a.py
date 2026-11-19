@@ -257,8 +257,8 @@ def test_split_sentences_ja_ideographic_stops() -> None:
 
 
 def test_split_sentences_zh_marks() -> None:
-    assert split_sentences("新版上线了！销量增长200%。更多内容即将推出。") == [  # noqa: RUF001
-        "新版上线了！",  # noqa: RUF001
+    assert split_sentences("新版上线了！销量增长200%。更多内容即将推出。") == [
+        "新版上线了！",
         "销量增长200%。",
         "更多内容即将推出。",
     ]
