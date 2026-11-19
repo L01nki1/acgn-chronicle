@@ -73,8 +73,9 @@ uv run python scripts/demo.py --json     # the same transcript as JSON
 
 It drives the real ASGI app through an HTTP test client with the fixed mock backend, so the printed
 payloads are the wire shapes a browser receives. Expect one citation per result card with publisher,
-`source_type`, date, URL and `chunk_id`; a citation without a URL is dropped whole; an empty result and
-an explicit refusal print as different states.
+`source_type`, date, URL and `chunk_id`; a citation the page cannot attribute (a blank field, a
+non-HTTP(S) URL) is dropped whole, and the transcript counts what the page would draw; an empty
+result and an explicit refusal print as different states.
 
 ### Open the page
 
@@ -95,9 +96,11 @@ curl -sS -X POST http://127.0.0.1:8000/ask -H 'Content-Type: application/json' \
   -d '{"text":"第二季什么时候开播？","top_k":3,"snapshot_id":"20261030-abcdef012345"}'
 ```
 
-Against a real snapshot and index the same routes are served by the harness in
-`scripts/smoke_e2e.py`; building that index and running the evaluation is `scripts/build_index.py` and
-`scripts/run_eval.py`, both documented in `docs/RUNBOOK.md` §1–§3.
+The commands above serve the **mock** backend. `scripts/smoke_e2e.py` is an in-process smoke test,
+not a route server: it builds an isolated index with a hash encoder, calls `/ask` through
+`TestClient` with a stub answer client, and exits with a report. To build a real index and produce
+live evaluation evidence, use `scripts/build_index.py` and `scripts/run_eval.py --answerer live`,
+documented in `docs/RUNBOOK.md` §1–§3 and §3.8.
 
 CI installs `dev`, `store` and `llm` with `uv sync --frozen --extra dev --extra store --extra llm`,
 so the Chroma tests run on all three platforms. It does not install the `embed` extra or torch;

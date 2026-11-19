@@ -21,6 +21,7 @@ import argparse
 import json
 import sys
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi.testclient import TestClient
 
@@ -30,11 +31,55 @@ from acgn_rag.web.api import create_app
 DEFAULT_QUESTION = "第二季什么时候开播？"
 #: Mirrors `contract.mjs`: a rendered quote never exceeds this many Unicode code points.
 MAX_QUOTE_CODEPOINTS = 200
+#: Mirrors `contract.mjs`: the fields a citation must carry before it may become a card.
+ATTRIBUTION_FIELDS = ("source_type", "publisher", "title", "url", "published_at", "chunk_id")
+#: Mirrors `contract.mjs`: only these source types are part of the contract.
+SOURCE_TYPES = frozenset({"official", "media", "metadata"})
+
+
+def is_renderable_citation(citation: Any) -> bool:
+    """Apply the page's attribution rule (`contract.mjs:isRenderableCitation`) to a payload.
+
+    The transcript must count what the page would draw, not what the wire happens to carry: a
+    citation with a blank field or a non-HTTP(S) URL is dropped by the client, so counting it here
+    would let the demo report cards a reviewer never sees.
+    """
+    if not isinstance(citation, dict):
+        return False
+    for field in ATTRIBUTION_FIELDS:
+        value = citation.get(field)
+        if not isinstance(value, str) or not value.strip():
+            return False
+    if citation["source_type"] not in SOURCE_TYPES:
+        return False
+    return urlparse(citation["url"]).scheme in {"http", "https"}
 
 
 def _post(client: TestClient, path: str, body: dict[str, Any]) -> tuple[int, Any]:
     response = client.post(path, json=body)
     return response.status_code, response.json()
+
+
+def split_renderable_excerpts(excerpts: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """Return the cards the page would draw and how many excerpts it would withhold."""
+    rendered = []
+    dropped = 0
+    for excerpt in excerpts:
+        citation = excerpt.get("citation")
+        if not is_renderable_citation(citation):
+            dropped += 1
+            continue
+        rendered.append(
+            {
+                "chunk_id": excerpt["chunk_id"],
+                "source_type": citation["source_type"],
+                "publisher": citation["publisher"],
+                "published_at": citation.get("published_at"),
+                "url": citation["url"],
+                "quote_codepoints": len(excerpt["quote"]),
+            }
+        )
+    return rendered, dropped
 
 
 def transcript(question: str = DEFAULT_QUESTION, top_k: int = 3) -> dict[str, Any]:
@@ -52,23 +97,10 @@ def transcript(question: str = DEFAULT_QUESTION, top_k: int = 3) -> dict[str, An
     retrieve_status, excerpts = _post(client, "/retrieve", query)
     ask_status, answer = _post(client, "/ask", query)
 
-    rendered = []
-    dropped_without_url = 0
-    for excerpt in excerpts:
-        citation = excerpt.get("citation") or {}
-        if not citation.get("url"):
-            dropped_without_url += 1
-            continue
-        rendered.append(
-            {
-                "chunk_id": excerpt["chunk_id"],
-                "source_type": citation["source_type"],
-                "publisher": citation["publisher"],
-                "published_at": citation.get("published_at"),
-                "url": citation["url"],
-                "quote_codepoints": len(excerpt["quote"]),
-            }
-        )
+    rendered, dropped_unattributable = split_renderable_excerpts(excerpts)
+
+    citations = answer.get("citations") or []
+    renderable_citations = [c for c in citations if is_renderable_citation(c)]
 
     return {
         "mode": "mock",
@@ -78,7 +110,7 @@ def transcript(question: str = DEFAULT_QUESTION, top_k: int = 3) -> dict[str, An
             "status": retrieve_status,
             "excerpts": len(excerpts),
             "rendered": rendered,
-            "dropped_without_url": dropped_without_url,
+            "dropped_unattributable": dropped_unattributable,
             "quote_budget_ok": all(
                 item["quote_codepoints"] <= MAX_QUOTE_CODEPOINTS for item in rendered
             ),
@@ -88,7 +120,8 @@ def transcript(question: str = DEFAULT_QUESTION, top_k: int = 3) -> dict[str, An
             "abstained": answer.get("abstained"),
             "abstain_reason": answer.get("abstain_reason"),
             "answer": answer.get("answer"),
-            "citation_count": len(answer.get("citations") or []),
+            "citation_count": len(renderable_citations),
+            "citations_dropped_unattributable": len(citations) - len(renderable_citations),
             "cited_chunk_ids": answer.get("cited_chunk_ids") or [],
         },
     }
@@ -101,15 +134,18 @@ def _print_transcript(report: dict[str, Any]) -> None:
     print(f"question   {report['question']}")
     print(
         f"retrieve   HTTP {retrieve['status']}, {retrieve['excerpts']} excerpts, "
-        f"{len(retrieve['rendered'])} renderable, {retrieve['dropped_without_url']} without a URL"
+        f"{len(retrieve['rendered'])} renderable, "
+        f"{retrieve['dropped_unattributable']} without attribution"
     )
     for item in retrieve["rendered"]:
         print(
             f"  [{item['source_type']}] {item['publisher']} · {item['published_at']}"
-            f" · {item['quote_codepoints']} codepoints · {item['url']}"
+            f" · {item['chunk_id']} · {item['quote_codepoints']} codepoints · {item['url']}"
         )
     state = "refused" if ask["abstained"] else "answered"
     print(f"ask        HTTP {ask['status']}, {state}, {ask['citation_count']} citations")
+    if ask["citations_dropped_unattributable"]:
+        print(f"  dropped  {ask['citations_dropped_unattributable']} citations without attribution")
     if ask["abstained"]:
         print(f"  reason   {ask['abstain_reason']}")
     else:
