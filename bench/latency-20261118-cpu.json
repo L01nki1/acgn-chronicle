@@ -1,0 +1,197 @@
+{
+  "artifact_version": 1,
+  "gate_eligible": true,
+  "gate_ineligible_reasons": [],
+  "gate_shape": {
+    "lane": "local CPU",
+    "index": "full E5 Config A",
+    "chunk_config": "A",
+    "snapshot": "20261105-d797b5f0ae8e",
+    "collection": "snap_full_20261105-d797b5f0ae8e_A",
+    "collection_count": 74245,
+    "top_k": 5,
+    "over_fetch_factor": 5,
+    "over_fetch_source": "load_settings().store",
+    "since": "2023-10-28",
+    "until": "2026-10-28",
+    "window_source": "qa_set (widest per-item window): eval/qa_set.jsonl",
+    "qa_items": 32,
+    "where": {
+      "$and": [
+        {
+          "published_ts": {
+            "$gte": 1698451200.0
+          }
+        },
+        {
+          "published_ts": {
+            "$lt": 1793232000.0
+          }
+        }
+      ]
+    },
+    "query_vector": "one stored embedding (encode time excluded)",
+    "query_vector_chunk_id": "doc_000004013ddb2f21f674e2d47afadcd83fae4df3a8cb3095fd8c7ff85e8b4b08::A::1",
+    "warmup_calls": 5,
+    "measured_calls": 30,
+    "percentile_method": "nearest-rank: ceil(p/100 * n)-th smallest"
+  },
+  "environment": {
+    "python": "3.13.2 (main, Feb  4 2025, 14:51:09) [Clang 16.0.0 (clang-1600.0.26.6)]",
+    "executable": "/Users/sl/Documents/26-27-SEM-A/CS5481-Data-Engineering /project/acgn-chronicle/.venv/bin/python",
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "cpu_model": "Apple M4 Max",
+    "cpu_model_source": "sysctl",
+    "chromadb": "1.5.9",
+    "sqlite": "3.53.4"
+  },
+  "code": {
+    "git_sha": "0a3b4111a922a1398780b458c29367820c0827a3",
+    "git_dirty": false,
+    "chroma_store_sha256": "39240200e533389508fae72ad873e0a16544257e208655db480b28b3e5e1c459"
+  },
+  "index": {
+    "chroma_root": "data/e5-a-index/chroma",
+    "hash_timing": "before_store_open",
+    "files": [
+      {
+        "path": "8acabca4-6a09-4bf9-b3af-7564c2bf9679/data_level0.bin",
+        "bytes": 238474940,
+        "sha256": "8f1ac8c06a0764c6535b354a01fca9967fbc8cec11af224ae9e89b3a837697df"
+      },
+      {
+        "path": "8acabca4-6a09-4bf9-b3af-7564c2bf9679/header.bin",
+        "bytes": 100,
+        "sha256": "8856476fcb1d60c8a8996d69761367006254d59ae3b0e0b44eb9d3f531113cad"
+      },
+      {
+        "path": "8acabca4-6a09-4bf9-b3af-7564c2bf9679/index_metadata.pickle",
+        "bytes": 12483758,
+        "sha256": "97c1eb92d59b37585fb775f5180489f84b85f21e5d027ea90bdc1f01354364f0"
+      },
+      {
+        "path": "8acabca4-6a09-4bf9-b3af-7564c2bf9679/length.bin",
+        "bytes": 296980,
+        "sha256": "7aacaf94aec179defda6313fff14d78e06bba04d20e5873010a0f8e4ff3a8f28"
+      },
+      {
+        "path": "8acabca4-6a09-4bf9-b3af-7564c2bf9679/link_lists.bin",
+        "bytes": 635348,
+        "sha256": "8e451bc35e09d9f31821f035f79c01b0b30e27d2a0e5ff8bfca9eaa8c6e5d347"
+      },
+      {
+        "path": "chroma.sqlite3",
+        "bytes": 835096576,
+        "sha256": "de0fba9ab581c9d6866e36af79f47c36edeec5325ea441bba6a38eea45f57614"
+      }
+    ],
+    "sidecars": {
+      "directory": "data/e5-a-index/20261105-d797b5f0ae8e/A",
+      "build.json": {
+        "snapshot_id": "20261105-d797b5f0ae8e",
+        "config": "A",
+        "label": "A",
+        "collection": "snap_full_20261105-d797b5f0ae8e_A",
+        "mode": "upsert",
+        "docs": 36121,
+        "chunks": 74245,
+        "cache_hits": 0,
+        "cache_misses": 74245,
+        "encodes": 74245,
+        "stored": 74245,
+        "max_seq_length": 512,
+        "chunker": {
+          "version": "composed-input-v2",
+          "header_version": "h1",
+          "config": "A",
+          "max_tokens": 512,
+          "overlap": 64,
+          "max_seq_length": 512
+        },
+        "passage_prefix": "passage: ",
+        "identity": {
+          "model": "intfloat/multilingual-e5-base",
+          "backend": "torch",
+          "device": "cuda",
+          "precision": "fp32",
+          "batch_size": 16,
+          "identity_slug": "multilingual-e5-base-torch-cuda-fp32-d2fa8669",
+          "lib_sentence_transformers": "6.2.0",
+          "lib_torch": "2.15.0+cu132",
+          "lib_transformers": "5.21.0",
+          "lib_numpy": "2.5.4"
+        },
+        "timestamp": "2026-11-10T08:02:38+00:00",
+        "seconds": 3407.563
+      },
+      "identity.json": {
+        "snapshot_id": "20261105-d797b5f0ae8e",
+        "config": "A",
+        "label": "A",
+        "collection": "snap_full_20261105-d797b5f0ae8e_A",
+        "identity": {
+          "model": "intfloat/multilingual-e5-base",
+          "backend": "torch",
+          "device": "cuda",
+          "precision": "fp32",
+          "batch_size": 16,
+          "identity_slug": "multilingual-e5-base-torch-cuda-fp32-d2fa8669",
+          "lib_sentence_transformers": "6.2.0",
+          "lib_torch": "2.15.0+cu132",
+          "lib_transformers": "5.21.0",
+          "lib_numpy": "2.5.4"
+        },
+        "chunker": {
+          "version": "composed-input-v2",
+          "header_version": "h1",
+          "config": "A",
+          "max_tokens": 512,
+          "overlap": 64,
+          "max_seq_length": 512
+        }
+      }
+    }
+  },
+  "latency": {
+    "summary": {
+      "n": 30,
+      "p50": 218.901,
+      "p95": 249.586,
+      "mean": 223.282,
+      "min": 216.355,
+      "max": 255.438
+    },
+    "raw_ms": [
+      249.585667,
+      255.437875,
+      243.035334,
+      244.68525,
+      231.232041,
+      218.943416,
+      222.95975,
+      224.725458,
+      219.698583,
+      217.516958,
+      220.880084,
+      216.355417,
+      217.695666,
+      218.155084,
+      220.371917,
+      220.879917,
+      216.909833,
+      218.062459,
+      217.019875,
+      217.575542,
+      218.515834,
+      219.657791,
+      218.605583,
+      217.495959,
+      221.311959,
+      217.05175,
+      218.901208,
+      217.5485,
+      217.474917,
+      220.157875
+    ]
+  }
+}

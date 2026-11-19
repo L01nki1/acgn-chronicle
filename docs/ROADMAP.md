@@ -133,10 +133,53 @@ for the real evaluation archive are tracked in [#80](https://github.com/L01nki1/
 |---|---|---|
 | ① Data prep + ≥2 chunking strategies | A vs A' (optionally A₀) differ, and the difference is explained without confounded variables; **each reported config's retrieval quality is measured on the same QA set and snapshot** | chunk-count table + **per-config retrieval metrics (hit@k / MRR / evidence recall)** + config comparison + snapshot binding |
 | ② Knowledge base storage | vector database stores chunk embeddings; collections rebuild independently; metadata filters work | one successful build for each collection + filter tests |
-| ③ Retrieval mechanism | question is embedded; relevant chunks are retrieved by semantic similarity; filter combinations work | retrieval logs / tests; p95 under 500 ms locally |
+| ③ Retrieval mechanism | question is embedded; relevant chunks are retrieved by semantic similarity; filter combinations work | retrieval logs / tests; **p95 under 500 ms on the local CPU lane, Config A only** (see the measurement rule below) |
 | ④ Grounded generation | `cited_chunk_ids ⊆ retrieved`; answer is generated only from retrieved chunks; unsupported questions refuse instead of guessing; clipping tests green | answer payloads + citation audit + abstention test cases **+ at least one archived real-LLM run, with a second rerun for the tier-2 spread (EVAL_PROTOCOL §8)** |
 | ⑤ Evaluation | ≥30 QA items (course minimum is 20); the run archive includes `snapshot_id`, `window`, `run_id` and metrics; three metrics reported; reruns on the same snapshot stay within the documented spread | `eval/runs/<run_id>/meta.json` + QA pack + repeat-run evidence |
 | Delivery | 6-page body drafted; contribution statement with **all** signatures on its own page — a separate page after the 6-page body and before the appended slides, not counted in the 6-page limit (course instruction 5: without it the submission is desk rejected); slides attached at the end of the report; individual contributions and ratios (%) stated; 15-minute demo rehearsed; source-code bundle contains no `data/` (`PROJECT.md` invariant 6) | final report bundle + signature page (checked daily from 11/20, R5) |
+
+#### ③ Retrieval latency — how it is measured
+
+The `500 ms` number was written when every build and every evaluation was expected to run on a
+developer machine. The GPU lane moved evaluation to Colab, and the target was never updated, so it
+has been read as if it applied to the T4 and to the local CPU lane at the same time. It does not.
+The two lanes run the same query path but measure different things: the local CPU number measures
+the implementation, and the T4 number measures the implementation plus the host. No cross-lane
+ratio is asserted here; the T4 number is reported from an archived run rather than fixed in this
+rule.
+
+- **The gate number is the local CPU lane, Config A only:** p95 `< 500 ms`, measured with the full
+  E5 Config A index, `top_k=5`, the QA per-item window filter, one stored embedding as the query
+  vector (which excludes encode time by construction), and at least 30 timed calls after warm-up.
+  The lane and the encoder backend are part of the identity, not a footnote; the Chroma/SQLite
+  store stack is recorded in the artifact below, not in the encoder identity. Config A′ is
+  reported, not gated.
+- **The gate number has an artifact.** The local CPU number is not an evaluation run, so it has no
+  run id; it instead traces to a benchmark JSON artifact (`bench/latency-<date>-cpu.json`) produced
+  by `scripts/bench_latency.py` (#103). The artifact records the gate shape (lane, index, snapshot,
+  collection/count, `top_k`, over-fetch, where clause, query-vector mode, warm-up and measured call
+  counts, percentile method), the environment (CPU model, OS, Python, Chroma, SQLite, numpy), the
+  code identity (git SHA and `chroma_store.py` SHA-256) and the index identity (Chroma root,
+  `chroma.sqlite3` size and SHA-256), plus `n/p50/p95/mean/min/max` and raw samples. This artifact
+  class is exempt from the run-id rule that applies to evaluation runs, but it still binds the
+  number to a code SHA and an index.
+- **The GPU lane is reported, not gated.** A Colab T4 p50/p95 is recorded in the run archive
+  (`meta.json` → `retrieval.latency_ms`) and reported in the experiment section, because it is the
+  lane the evaluation runs on and the number a reader would expect. It is not held to 500 ms. E's
+  post-#96 T4 re-run under the #94 checklist remains the deciding measurement; this rule records
+  its reporting status, not its value.
+- **Why the split is not a loophole.** The two lanes run the same query path, so the local number
+  measures the implementation and the T4 number measures the host. Gating the implementation and
+  reporting the host-backed number is the only split where neither number is doing the other's job;
+  the lane is fixed by what it measures, not by which number clears the bound.
+- **Boundary with the 2026-11-05 GPU-first row.** That row makes the GPU lane canonical and records
+  that CPU-build reportability is a proposed boundary still pending agreement (F, #48 review
+  2026-11-09). This subsection is an implementation-latency measurement on the local CPU lane; it
+  does not reopen GPU-first, does not make CPU-produced retrieval metrics reportable, and does not
+  make the two lanes' metrics comparable.
+- **Percentile source.** For T4 runs, `meta.json` → `retrieval.latency_ms = {n, p50, p95}`,
+  nearest-rank; `metrics.json` carries no latency block. Any T4 latency figure in the report must
+  trace to a run id and that field. Local CPU figures trace to the benchmark JSON above instead.
 
 #### ① Chunking comparison — how it is measured
 
