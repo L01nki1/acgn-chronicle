@@ -40,7 +40,12 @@ ANSWER_MAX_TOKENS: Final = 2048
 
 # Top-k full chunk texts are concatenated into one prompt; an unbounded prompt is a real
 # failure mode. Exceeding this ceiling raises instead of truncating the evidence silently.
-PROMPT_EVIDENCE_MAX_CHARS: Final = 12_000
+#
+# 12_000 was too tight for this corpus: the index's own chunk lengths reach 2393 chars at the
+# maximum and p90 is 1537, so five long chunks plus the system prompt overflow the old ceiling
+# (a live calibration run measured 12_413 and lost the whole batch). 16_000 keeps every observed
+# top-5 within budget while staying far below the answer model's context window.
+PROMPT_EVIDENCE_MAX_CHARS: Final = 16_000
 
 ABSTAIN_NO_EVIDENCE: Final = "no_retrieved_evidence"
 ABSTAIN_MODEL_EMPTY: Final = "model_returned_no_claims"

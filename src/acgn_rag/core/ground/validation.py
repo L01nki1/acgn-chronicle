@@ -103,11 +103,25 @@ def allowed_media_quote(
     claim_text: str,
     chunks: Sequence[RetrievedChunk],
 ) -> str | None:
-    """Return an in-budget verbatim media quotation, without optional enclosing quotes."""
+    """Return an in-budget verbatim media quotation, without optional enclosing quotes.
+
+    A claim counts as a quotation when it is a verbatim run of either the chunk's body or its
+    headline. The prompt shows the model both (the `title` field and the `text` field of every
+    numbered evidence block), so accepting only the body rejected claims the model could read
+    straight off the page: on this corpus a news headline such as "Cardfight!! Vanguard
+    Announces New TV Anime for 2027" *is* the answer, and it appears only in the title. The C4
+    rule forbids paraphrasing commentary, not quoting a headline, so the headline is a valid
+    source for the same verbatim requirement.
+    """
     claim_text = _strip_optional_quotes(claim_text)
     if not claim_text or len(claim_text) > MAX_QUOTE_CHARS:
         return None
-    return claim_text if any(_is_verbatim(claim_text, chunk.text) for chunk in chunks) else None
+    for chunk in chunks:
+        if _is_verbatim(claim_text, chunk.text):
+            return claim_text
+        if _is_verbatim(claim_text, chunk.citation.title):
+            return claim_text
+    return None
 
 
 def source_exposure_exceeds_budget(
