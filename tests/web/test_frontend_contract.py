@@ -102,7 +102,7 @@ def test_narrow_viewports_reveal_results_and_hide_contract_notes() -> None:
     assert "dom.contractNotes.open = false" in source
     assert "revealResults();" in source
     assert "let userIntent = false;" in source
-    assert "if (!userIntent ||" in source
+    assert "reapplying || !userIntent" in source
 
 
 def test_the_language_toggle_is_wired_to_the_dictionaries() -> None:
@@ -122,6 +122,43 @@ def test_the_language_toggle_is_wired_to_the_dictionaries() -> None:
     assert "data-i18n=" in index_source
     assert 'data-lang="zh"' in index_source
     assert 'data-lang="en"' in index_source
+
+    # The document marker is `data-ui-lang`; `[data-lang]` selectors are scoped to the buttons,
+    # otherwise <html> joins the selector and swallows the toggle buttons' accessible names.
+    strings = I18N_FILE.read_text(encoding="utf-8")
+    assert 'querySelectorAll("button[data-lang]")' in strings
+    assert "dataset.uiLang" in strings
+
+
+def test_a_language_switch_preserves_the_active_view_and_form_state() -> None:
+    """Switching language must not resurrect a stale response over an error panel (#109).
+
+    B's Chromium review: after HTTP 410, switching to English removed the error and its
+    recovery actions and restored five cards from the previous snapshot while the selector
+    still pointed at the retired one; the dirty-form marker and the form note were cleared
+    too. The switch must re-render whatever is active (response, error, refreshed panel),
+    keep the stale marker and the keyed form note, restore the scroll position, and never
+    let `revealResults()` fight that restoration.
+    """
+    source = APP_FILE.read_text(encoding="utf-8")
+    assert 'state.lastView = { kind: "response"' in source
+    assert 'state.lastView = { kind: "error", error, request }' in source
+    assert 'state.lastView = { kind: "refreshed" }' in source
+    assert 'view?.kind === "error"' in source
+    assert "renderApiError(view.error, view.request)" in source
+    assert "renderRefreshed()" in source
+    assert "const wasStale = state.stale;" in source
+    assert "const scrollY = window.scrollY;" in source
+    assert "window.scrollTo({ top: scrollY })" in source
+    # revealResults() must not scroll during the re-render pass
+    assert "let reapplying = false;" in source
+    assert "if (reapplying || !userIntent" in source
+    # the form note survives: keyed notes are re-translated, raw ones pass through
+    assert "function setFormNoteKey(" in source
+    assert "if (note?.key)" in source
+    # FormError messages thrown from the dictionary are re-translated on switch
+    assert 'new FormError(t("form.error.noSource"), "form.error.noSource")' in source
+    assert "if (error.key)" in source
 
 
 @pytest.mark.skipif(

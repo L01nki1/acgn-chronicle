@@ -30,9 +30,12 @@ class ApiError extends Error {
 }
 
 class FormError extends Error {
-  constructor(message) {
+  constructor(message, key = null, vars = null) {
     super(message);
     this.name = "FormError";
+    // When the message came from the dictionary, a language switch can re-translate it.
+    this.key = key;
+    this.vars = vars;
   }
 }
 
@@ -62,7 +65,8 @@ const state = {
   current: null,
   lastRequest: null,
   lastRender: null,
-  lastResponse: null,
+  lastView: null,
+  formNote: null,
   stale: false,
   // One cache per endpoint: the contract cache tuple does not include the route, so sharing one
   // map between /retrieve and /ask would mix two response shapes under the same key.
@@ -102,7 +106,15 @@ function selectedSourceTypes() {
 }
 
 function setFormNote(message, isError = false) {
+  state.formNote = { text: message, key: null, vars: null, isError };
   dom.formNote.textContent = message;
+  dom.formNote.classList.toggle("form-note-error", isError);
+}
+
+/** Keyed variant: the note is re-translated when the visitor switches language. */
+function setFormNoteKey(key, vars = null, isError = false) {
+  state.formNote = { text: t(key, vars), key, vars, isError };
+  dom.formNote.textContent = state.formNote.text;
   dom.formNote.classList.toggle("form-note-error", isError);
 }
 
@@ -119,13 +131,16 @@ function setResultStatus(message) {
 // The page runs one query on load, but a visitor who just arrived did not ask for it; scrolling
 // them into the middle of the page would be a worse first impression than the missing feedback.
 let userIntent = false;
+// A language switch re-renders the active view in place; revealResults() must not fight the
+// scroll restoration during that pass.
+let reapplying = false;
 
 /**
  * On a narrow viewport the results sit far below the form, so a submit used to look like nothing
  * happened. Bring the result region into view; desktop and the initial load are left alone.
  */
 function revealResults() {
-  if (!userIntent || !window.matchMedia("(max-width: 860px)").matches) {
+  if (reapplying || !userIntent || !window.matchMedia("(max-width: 860px)").matches) {
     return;
   }
   dom.resultState.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -143,15 +158,16 @@ function markFormChanged() {
   dom.resultMeta.textContent = `${dom.resultMeta.textContent} · ${t("form.staleSuffix")}`;
 }
 
-function updateModeCopy() {
+function updateModeControls() {
   const mode = currentMode();
   dom.submit.textContent = mode === "ask" ? t("form.modeAsk") : t("form.modeRetrieve");
   dom.resultsTitle.textContent = mode === "ask" ? t("answer.title") : t("form.modeRetrieve");
-  if (mode === "ask") {
-    setFormNote(t("form.noteAsk"));
-  } else {
-    setFormNote(t("form.noteRetrieve"));
-  }
+}
+
+function updateModeCopy() {
+  const mode = currentMode();
+  updateModeControls();
+  setFormNoteKey(mode === "ask" ? "form.noteAsk" : "form.noteRetrieve");
 }
 
 function filtersSummary(filters) {
@@ -208,10 +224,10 @@ async function requestJson(path, options = {}) {
 function buildRequest() {
   const text = dom.question.value.trim();
   if (!text) {
-    throw new FormError(t("form.error.empty"));
+    throw new FormError(t("form.error.empty"), "form.error.empty");
   }
   if (!state.current) {
-    throw new FormError(t("form.error.noSnapshot"));
+    throw new FormError(t("form.error.noSnapshot"), "form.error.noSnapshot");
   }
 
   const filters = {};
@@ -219,7 +235,7 @@ function buildRequest() {
   // No checkbox is not "no filter": omitting source_types widens the request to everything, the
   // opposite of the user's "I selected nothing". Rejecting it keeps the form's meaning honest.
   if (sourceTypes.length === 0) {
-    throw new FormError(t("form.error.noSource"));
+    throw new FormError(t("form.error.noSource"), "form.error.noSource");
   }
   filters.source_types = sourceTypes;
   if (dom.since.value) {
@@ -229,12 +245,12 @@ function buildRequest() {
     filters.until = dom.until.value;
   }
   if (dom.since.value && dom.until.value && dom.since.value > dom.until.value) {
-    throw new FormError(t("form.error.dateRange"));
+    throw new FormError(t("form.error.dateRange"), "form.error.dateRange");
   }
   if (dom.mediaId.value.trim()) {
     const mediaId = Number(dom.mediaId.value);
     if (!Number.isInteger(mediaId) || mediaId < 1) {
-      throw new FormError(t("form.error.mediaId"));
+      throw new FormError(t("form.error.mediaId"), "form.error.mediaId");
     }
     filters.media_ids = [mediaId];
   }
@@ -301,7 +317,7 @@ async function runQuery() {
     // are. Dropping them silently left the new question in the box next to the old response;
     // queue the newest intent and run it when the current request settles instead.
     queryQueue.queue(runQuery);
-    setFormNote(t("note.queued"));
+    setFormNoteKey("note.queued");
     return;
   }
 
@@ -312,18 +328,22 @@ async function runQuery() {
       request = buildRequest();
     } catch (error) {
       if (error instanceof FormError) {
-        setFormNote(error.message, true);
+        if (error.key) {
+          setFormNoteKey(error.key, error.vars, true);
+        } else {
+          setFormNote(error.message, true);
+        }
         return;
       }
       throw error;
     }
 
     state.lastRequest = request;
-    setFormNote(t("note.requesting"));
+    setFormNoteKey("note.requesting");
     const cache = state.cache[request.mode];
     if (cache.has(request.key)) {
       renderResponse(request.mode, cache.get(request.key), request, true);
-      setFormNote(t("note.cacheHit"));
+      setFormNoteKey("note.cacheHit");
       return;
     }
     const path = request.mode === "ask" ? "/ask" : "/retrieve";
@@ -333,10 +353,10 @@ async function runQuery() {
     });
     cache.set(request.key, payload);
     renderResponse(request.mode, payload, request, false);
-    setFormNote(t("note.done"));
+    setFormNoteKey("note.done");
   } catch (error) {
     renderApiError(error, request);
-    setFormNote(t("note.failed"), true);
+    setFormNoteKey("note.failed", null, true);
   } finally {
     setBusy(false);
     const next = queryQueue.finish();
@@ -356,7 +376,7 @@ function renderResponse(mode, payload, request, fromCache) {
   state.lastRender = true;
   state.stale = false;
   // Kept so a language switch can re-render the same response without refetching.
-  state.lastResponse = { mode, payload, request, fromCache };
+  state.lastView = { kind: "response", mode, payload, request, fromCache };
 
   if (mode === "retrieve") {
     renderRetrieve(payload, request, stateName);
@@ -744,9 +764,27 @@ function renderApiError(error, request = state.lastRequest) {
     );
   }
   dom.resultMeta.textContent = t("err.meta", { status: status || t("err.networkWord") });
+  // The error panel with its recovery actions is the active view: a language switch must
+  // re-render it, not bring back the response from before the failure.
+  state.lastView = { kind: "error", error, request };
   replace(dom.resultState, panel);
   setResultStatus(t("err.status", { status: status || t("err.networkWord") }));
   revealResults();
+}
+
+function renderRefreshed() {
+  replace(
+    dom.resultState,
+    element("section", { className: "state-panel placeholder-panel" }, [
+      element("h3", { text: t("refreshed.title") }),
+      element("p", { text: t("refreshed.body") }),
+      element("p", {
+        className: "state-detail",
+        text: t("refreshed.current", { id: state.current ?? "—" }),
+      }),
+    ]),
+  );
+  state.lastView = { kind: "refreshed" };
 }
 
 async function handleAction(action, request) {
@@ -754,18 +792,8 @@ async function handleAction(action, request) {
   if (action === "refresh") {
     try {
       await loadInventory();
-      replace(
-        dom.resultState,
-        element("section", { className: "state-panel placeholder-panel" }, [
-          element("h3", { text: t("refreshed.title") }),
-          element("p", { text: t("refreshed.body") }),
-          element("p", {
-            className: "state-detail",
-            text: t("refreshed.current", { id: state.current ?? "—" }),
-          }),
-        ]),
-      );
-      setFormNote(t("note.snapshotRefreshed"));
+      renderRefreshed();
+      setFormNoteKey("note.snapshotRefreshed");
     } catch (error) {
       renderApiError(error);
     }
@@ -801,30 +829,64 @@ function updateQuestionCount() {
 
 /**
  * Re-render everything the current language owns: static chrome, the document metadata and the
- * last response (re-rendered from the stored payload — never refetched).
+ * active view. The active view is whatever the visitor is looking at — a response, an error
+ * panel with its recovery actions, or the refreshed-snapshot panel — re-rendered from the
+ * stored view state, never refetched. The stale-form marker, the form note and the scroll
+ * position survive the switch, so the page still answers for the request it displayed.
  */
 function reapplyLanguage() {
-  applyStatic();
-  applyDocumentI18n();
-  syncToggle();
-  updateModeCopy();
-  updateQuestionCount();
-  if (state.inventory) {
-    renderSnapshotOptions(state.inventory);
+  const view = state.lastView;
+  const wasStale = state.stale;
+  const hadRender = state.lastRender;
+  const note = state.formNote;
+  const scrollY = window.scrollY;
+  reapplying = true;
+  try {
+    applyStatic();
+    applyDocumentI18n();
+    syncToggle();
+    updateModeControls();
+    updateQuestionCount();
+    if (state.inventory) {
+      renderSnapshotOptions(state.inventory);
+    }
+    syncSnapshotDisplay();
+
+    if (view?.kind === "error") {
+      renderApiError(view.error, view.request);
+    } else if (view?.kind === "refreshed") {
+      renderRefreshed();
+    } else if (view?.kind === "response") {
+      renderResponse(view.mode, view.payload, view.request, view.fromCache);
+    } else {
+      dom.resultMeta.textContent = t("results.metaWaiting");
+      replace(
+        dom.resultState,
+        element("div", { className: "state-panel placeholder-panel" }, [
+          element("p", { text: t("results.placeholder") }),
+        ]),
+      );
+    }
+
+    // A keyed note is re-translated; a raw message (server text, for example) passes through.
+    if (note?.key) {
+      setFormNoteKey(note.key, note.vars, note.isError);
+    } else if (note) {
+      setFormNote(note.text, note.isError);
+    }
+
+    // A dirty form stays marked: whatever is on screen still answers the previous request.
+    if (hadRender && wasStale) {
+      state.stale = true;
+      dom.resultMeta.textContent = `${dom.resultMeta.textContent} · ${t("form.staleSuffix")}`;
+    }
+
+    if (view) {
+      window.scrollTo({ top: scrollY });
+    }
+  } finally {
+    reapplying = false;
   }
-  syncSnapshotDisplay();
-  const last = state.lastResponse;
-  if (last) {
-    renderResponse(last.mode, last.payload, last.request, last.fromCache);
-    return;
-  }
-  dom.resultMeta.textContent = t("results.metaWaiting");
-  replace(
-    dom.resultState,
-    element("div", { className: "state-panel placeholder-panel" }, [
-      element("p", { text: t("results.placeholder") }),
-    ]),
-  );
 }
 
 function bindEvents() {
@@ -851,7 +913,7 @@ function bindEvents() {
     state.current = dom.snapshotSelect.value;
     syncSnapshotDisplay();
     markFormChanged();
-    setFormNote(t("note.snapshotChanged"));
+    setFormNoteKey("note.snapshotChanged");
   });
   document.querySelectorAll("[data-example]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -874,7 +936,7 @@ async function init() {
     await runQuery();
   } catch (error) {
     renderApiError(error);
-    setFormNote(t("init.failed"), true);
+    setFormNoteKey("init.failed", null, true);
   }
 }
 

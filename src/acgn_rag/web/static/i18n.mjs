@@ -372,15 +372,17 @@ export function applyDocumentI18n() {
 export function syncToggle() {
   const lang = getLang();
   document.documentElement.lang = lang === "en" ? "en" : "zh-CN";
-  document.documentElement.dataset.lang = lang;
-  for (const button of document.querySelectorAll("[data-lang]")) {
+  // `data-ui-lang`, not `data-lang`: the toggle buttons are selected by `[data-lang]`, and an
+  // attribute with the same name on <html> would join that selector and swallow their names.
+  document.documentElement.dataset.uiLang = lang;
+  for (const button of document.querySelectorAll("button[data-lang]")) {
     button.setAttribute("aria-pressed", String(button.dataset.lang === lang));
   }
 }
 
 export function bindLangToggle() {
   syncToggle();
-  for (const button of document.querySelectorAll("[data-lang]")) {
+  for (const button of document.querySelectorAll("button[data-lang]")) {
     button.addEventListener("click", () => setLang(button.dataset.lang));
   }
 }
