@@ -22,6 +22,7 @@ import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -175,6 +176,53 @@ def _llm_metadata(config: LLMConfig, answerer_mode: str) -> dict[str, object]:
         "temperature": float(getattr(config, "temperature", 0.0)),
         "seed": None,
     }
+
+
+def _probe_answer_models(config: LLMConfig, *, http_client: Any = None) -> dict[str, Any]:
+    """Record whether the configured answer model is actually served by the provider.
+
+    This is the independent identity record `meta.llm` cannot give: the archive's model fields
+    are built from settings. The probe never stores the list of models or the API key.
+    """
+    base = str(getattr(config, "answer_base_url", "") or "").rstrip("/")
+    model = str(getattr(config, "answer_model", "") or "")
+    probe: dict[str, Any] = {
+        "endpoint": f"{base}/models" if base else None,
+        "checked_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "model": model or None,
+        "status": None,
+        "model_present": None,
+        "model_count": None,
+        "error": None,
+    }
+    if not base or not model:
+        probe["error"] = "missing answer base url or model"
+        return probe
+    import httpx
+
+    client = http_client or httpx.Client(timeout=10.0)
+    try:
+        response = client.get(
+            f"{base}/models",
+            headers={"Authorization": f"Bearer {config.answer_api_key}"},
+        )
+        probe["status"] = response.status_code
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:  # the probe records failures, it does not raise
+        probe["error"] = f"{type(exc).__name__}: {exc}"
+        return probe
+    finally:
+        if http_client is None:
+            client.close()
+    data = payload.get("data") if isinstance(payload, Mapping) else None
+    if not isinstance(data, list):
+        probe["error"] = "response has no data list"
+        return probe
+    ids = [str(item.get("id")) for item in data if isinstance(item, Mapping)]
+    probe["model_count"] = len(ids)
+    probe["model_present"] = model in ids
+    return probe
 
 
 def _llm_metadata_problems(metadata: Mapping[str, object]) -> list[str]:
@@ -535,6 +583,13 @@ def main(argv: list[str] | None = None) -> int:
     except (ImportError, ValueError) as exc:
         print(f"ANSWERER CONFIG: {exc}", file=sys.stderr)
         return 2
+    llm_probe = None
+    if args.answerer == "live":
+        llm_probe = _probe_answer_models(settings.llm)
+        print(
+            f"LLM PROBE: status={llm_probe['status']} model_present={llm_probe['model_present']}",
+            file=sys.stderr,
+        )
     try:
         window_start, window_end, window_verified = resolve_window(
             settings.paths.snapshots / args.snapshot,
@@ -629,6 +684,7 @@ def main(argv: list[str] | None = None) -> int:
         qa_validated=qa_validated,
         qa_source="cli",
         qa_role=args.qa_role,
+        llm_probe=llm_probe,
         abstention=abstention,
     )
     if args.preflight_only:
@@ -654,6 +710,11 @@ def main(argv: list[str] | None = None) -> int:
                 expect_qa_fingerprint=args.expect_qa_fingerprint,
             )
         )
+        if llm_probe is not None and llm_probe.get("model_present") is False:
+            problems.append(
+                f"answer model {llm_probe.get('model')} is not present at "
+                f"{llm_probe.get('endpoint')}"
+            )
         if problems:
             print("PREFLIGHT FAILED:", file=sys.stderr)
             for problem in problems:

@@ -393,6 +393,72 @@ def test_nonreportable_result_returns_one() -> None:
     assert run_eval._nonreportable_exit(result) == 1
 
 
+def test_calibration_decision_input_returns_zero() -> None:
+    result = SimpleNamespace(
+        meta={"reportable": False, "non_reportable_reason": "calibration_instrument"}
+    )
+
+    assert run_eval._nonreportable_exit(result) == 0
+
+
+class _FakeModelsClient:
+    def __init__(
+        self,
+        payload: object = None,
+        *,
+        status_code: int = 200,
+        error: Exception | None = None,
+    ) -> None:
+        self.payload = payload
+        self.status_code = status_code
+        self.error = error
+        self.calls: list[tuple[str, dict[str, str]]] = []
+        self.closed = False
+
+    def get(self, url: str, headers: dict[str, str] | None = None) -> SimpleNamespace:
+        self.calls.append((url, dict(headers or {})))
+        if self.error is not None:
+            raise self.error
+        return SimpleNamespace(
+            status_code=self.status_code,
+            json=lambda: self.payload,
+            raise_for_status=lambda: None,
+        )
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_probe_records_model_presence_without_secrets() -> None:
+    client = _FakeModelsClient({"data": [{"id": "other"}, {"id": "answer-model"}]})
+
+    probe = run_eval._probe_answer_models(_config(), http_client=client)
+
+    assert probe["status"] == 200
+    assert probe["model_present"] is True
+    assert probe["model_count"] == 2
+    assert "key" not in json.dumps(probe)
+    assert client.calls == [
+        (
+            "https://answer.example/v1/models",
+            {"Authorization": "Bearer key"},
+        )
+    ]
+
+
+def test_probe_records_absence_and_transport_error() -> None:
+    absent = run_eval._probe_answer_models(
+        _config(), http_client=_FakeModelsClient({"data": [{"id": "other"}]})
+    )
+    assert absent["model_present"] is False
+
+    failed = run_eval._probe_answer_models(
+        _config(), http_client=_FakeModelsClient(error=RuntimeError("boom"))
+    )
+    assert failed["status"] is None
+    assert "boom" in str(failed["error"])
+
+
 def test_reportable_result_returns_zero() -> None:
     result = SimpleNamespace(meta={"reportable": True})
 

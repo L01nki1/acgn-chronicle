@@ -157,6 +157,7 @@ class RunSpec:
     qa_validated: bool = False
     qa_source: Literal["cli", "caller", "runner"] = "caller"
     qa_role: Literal["report", "calibration"] = "report"
+    llm_probe: Mapping[str, Any] | None = None
     abstention: Mapping[str, Any] | None = None
 
 
@@ -1140,6 +1141,7 @@ def run(
         "require_gpu": spec.require_gpu,
         "collection": spec.collection,
         "llm": dict(spec.llm),
+        "llm_probe": dict(spec.llm_probe) if spec.llm_probe else None,
         "abstention": _abstention_metadata(spec),
         "git_sha": spec.git_sha,
         "qa": {

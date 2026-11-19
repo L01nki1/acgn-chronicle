@@ -314,6 +314,21 @@ def test_calibration_role_is_decision_input_not_reportable(tmp_path: Path) -> No
     assert meta["non_reportable_reason"] == "calibration_instrument"
 
 
+def test_run_records_llm_probe(tmp_path: Path) -> None:
+    spec = _spec(tmp_path, llm_probe={"model": "answer-model", "model_present": True})
+    result = run(
+        spec,
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        answerer=NullAnswerer(),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["doc::A::1"] for url in urls},
+    )
+
+    meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
+    assert meta["llm_probe"] == {"model": "answer-model", "model_present": True}
+
+
 def test_null_answerer_marks_not_run(tmp_path: Path) -> None:
     result = run(
         _spec(tmp_path),
