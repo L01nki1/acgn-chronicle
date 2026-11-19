@@ -13,6 +13,7 @@ import pytest
 from acgn_rag.core.eval import qa
 from acgn_rag.core.eval.runner import (
     CHUNKER_FIELDS,
+    LEGACY_IDENTITY_DEFAULTS,
     VECTOR_IDENTITY_KEYS,
     NullAnswerer,
     RunSpec,
@@ -30,7 +31,9 @@ from acgn_rag.core.eval.runner import (
     validate_run_spec,
     verify_build_identity,
 )
+from acgn_rag.core.ground.generate import ANSWERER_VERSION
 from acgn_rag.core.ports import GroundedAnswer
+from acgn_rag.core.retrieve.vector import normalize_query_text
 from acgn_rag.core.store.chroma_store import ScoredPayload
 from acgn_rag.core.store.payload import ChunkPayload, iso_to_epoch
 
@@ -76,6 +79,17 @@ class FakeStore:
 
 class FakeEmbedder:
     def encode_queries(self, texts: Any) -> list[list[float]]:
+        return [[0.1, 0.2] for _ in texts]
+
+
+class RecordingEmbedder:
+    """FakeEmbedder that keeps the query texts it was asked to encode."""
+
+    def __init__(self) -> None:
+        self.texts: list[str] = []
+
+    def encode_queries(self, texts: Any) -> list[list[float]]:
+        self.texts.extend(texts)
         return [[0.1, 0.2] for _ in texts]
 
 
@@ -1415,6 +1429,85 @@ def test_compare_tier1_runs_identical_archives(tmp_path: Path) -> None:
     assert result["item_mismatches"] == []
 
 
+def test_compare_tier1_runs_flags_query_transform_drift(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right", nfkc_queries=True)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is False
+    assert result["comparable"] is False
+    assert result["reason"] == "identity mismatch"
+    assert result["identity_mismatches"][0]["field"] == "query_transform"
+    assert result["identity_mismatches"][0]["left"] == "none"
+    assert result["identity_mismatches"][0]["right"] == "nfkc"
+
+
+def test_compare_tier1_runs_flags_official_bonus_drift(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right", official_score_weight=1.08)
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == "identity mismatch"
+    assert result["identity_mismatches"][0]["field"] == "official_score_weight"
+
+
+def test_compare_tier1_runs_flags_answerer_version_drift(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    meta_path = right / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["answerer_version"] = "pre-titlequote"
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == "identity mismatch"
+    assert result["identity_mismatches"][0]["field"] == "answerer_version"
+
+
+def test_compare_tier1_runs_legacy_archives_stay_comparable(tmp_path: Path) -> None:
+    # Archives written before the answer-line identity fields existed must still compare:
+    # the documented defaults reproduce what those runs actually executed, and every defaulted
+    # field is surfaced as a warning rather than silently widening what "identical" means.
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    for archive in (left, right):
+        meta_path = archive / "meta.json"
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        for name in LEGACY_IDENTITY_DEFAULTS:
+            del meta[name]
+        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["identical"] is True
+    assert result["comparable"] is True
+    assert {warning["field"] for warning in result["warnings"]} == set(LEGACY_IDENTITY_DEFAULTS)
+    assert all("legacy default" in warning["note"] for warning in result["warnings"])
+
+
+def test_compare_tier1_runs_rejects_legacy_answer_line_vs_current(tmp_path: Path) -> None:
+    left = _tier1_archive(tmp_path, "left")
+    right = _tier1_archive(tmp_path, "right")
+    meta_path = right / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    for name in LEGACY_IDENTITY_DEFAULTS:
+        del meta[name]
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+
+    result = compare_tier1_runs(left, right)
+
+    assert result["comparable"] is False
+    assert result["reason"] == "identity mismatch"
+    fields = {mismatch["field"] for mismatch in result["identity_mismatches"]}
+    assert fields == {"answerer_version"}
+    assert any(warning["field"] == "answerer_version" for warning in result["warnings"])
+
+
 def test_compare_tier1_runs_reports_metric_drift(tmp_path: Path) -> None:
     left = _tier1_archive(tmp_path, "left")
     right = _tier1_archive(tmp_path, "right")
@@ -2023,6 +2116,9 @@ def _abstention_block(spec: RunSpec) -> dict[str, Any]:
             top_k=spec.top_k,
             over_fetch=spec.over_fetch,
             build_identity=spec.build_identity,
+            query_transform="none",
+            official_score_weight=1.0,
+            answerer_version=ANSWERER_VERSION,
         ),
     }
 
@@ -2049,6 +2145,43 @@ def test_meta_abstention_defaults_to_null_triple(tmp_path: Path) -> None:
         "source": None,
         "calibration_identity": None,
     }
+
+
+def test_meta_records_the_answer_line_identity(tmp_path: Path) -> None:
+    result = run(
+        _spec(tmp_path),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["c1"] for url in urls},
+    )
+
+    assert result.meta["query_transform"] == "none"
+    assert result.meta["official_score_weight"] == 1.0
+    assert result.meta["answerer_version"] == ANSWERER_VERSION
+
+
+def test_nfkc_queries_lane_transforms_retrieval_and_identity(tmp_path: Path) -> None:
+    embedder = RecordingEmbedder()
+    question = "ＭＨＷ 什么时候发售？"
+
+    result = run(
+        _spec(tmp_path, nfkc_queries=True),
+        store=FakeStore([_hit()]),
+        embedder=embedder,
+        qa_items=[{**_qa_item(), "question": question}],
+        evidence_resolver=lambda urls: {url: ["c1"] for url in urls},
+    )
+
+    # The store sees the normalized text; the record and the answerer keep the original.
+    assert embedder.texts == [normalize_query_text(question)]
+    answers = [
+        json.loads(line)
+        for line in (result.out_dir / "answers.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert answers[0]["question"] == question
+    assert "query_translation" not in answers[0]
+    assert result.meta["query_transform"] == "nfkc"
 
 
 def test_meta_abstention_records_a_matching_identity(tmp_path: Path) -> None:
@@ -2115,6 +2248,9 @@ def test_recorded_threshold_must_match_answerer(tmp_path: Path) -> None:
         ),
         (lambda i: i["embed"].__setitem__("batch", 64), "embed.batch"),
         (lambda i: i.__setitem__("encoder_identity_slug", "other"), "encoder_identity_slug"),
+        (lambda i: i.__setitem__("query_transform", "nfkc"), "query_transform"),
+        (lambda i: i.__setitem__("official_score_weight", 1.08), "official_score_weight"),
+        (lambda i: i.__setitem__("answerer_version", "other"), "answerer_version"),
     ],
 )
 def test_abstention_identity_mismatch_rejected(tmp_path: Path, mutate: Any, field: str) -> None:
@@ -2131,6 +2267,40 @@ def test_abstention_bool_threshold_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="finite number"):
         validate_run_spec(_spec(tmp_path, abstention=block))
+
+
+def test_legacy_calibration_identity_without_answer_fields_is_refused(tmp_path: Path) -> None:
+    # A pre-#116 calibration artifact predates the answer-line identity fields; the legacy
+    # defaults fill them for validation, but the filled answerer_version cannot match the
+    # current answer line. The old threshold is refused until the answer line is recalibrated.
+    block = _abstention_block(_spec(tmp_path))
+    for name in LEGACY_IDENTITY_DEFAULTS:
+        del block["calibration_identity"][name]
+
+    with pytest.raises(ValueError, match="answerer_version"):
+        validate_run_spec(_spec(tmp_path, abstention=block))
+
+
+def test_legacy_calibration_identity_with_current_answer_version_passes(tmp_path: Path) -> None:
+    # An artifact written after the identity fields existed but calibrated without the query
+    # lanes: the missing retrieval-side fields fill with the defaults that run actually used.
+    block = _abstention_block(_spec(tmp_path))
+    del block["calibration_identity"]["query_transform"]
+    del block["calibration_identity"]["official_score_weight"]
+
+    result = run(
+        _spec(tmp_path, abstention=block),
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        answerer=_ThresholdAnswerer(0.42),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["c1"] for url in urls},
+    )
+
+    recorded = result.meta["abstention"]["calibration_identity"]
+    assert recorded["query_transform"] == "none"
+    assert recorded["official_score_weight"] == 1.0
+    assert recorded["answerer_version"] == ANSWERER_VERSION
 
 
 def test_abstention_string_threshold_rejected(tmp_path: Path) -> None:

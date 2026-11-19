@@ -16,6 +16,7 @@ from acgn_rag.core.ground.calibration import (  # noqa: E402
     CalibrationSample,
     choose_threshold,
 )
+from acgn_rag.core.ground.generate import ANSWERER_VERSION  # noqa: E402
 
 
 def _result():
@@ -55,6 +56,11 @@ def _identity() -> dict[str, object]:
             "batch": 32,
         },
         "encoder_identity_slug": "fake-torch-cuda-fp32-12345678",
+        # The calibration lane runs the historical single-pool search with no query transform,
+        # under the answer line this tree ships with.
+        "query_transform": "none",
+        "official_score_weight": 1.0,
+        "answerer_version": ANSWERER_VERSION,
     }
 
 

@@ -41,6 +41,7 @@ from acgn_rag.core.eval.runner import (
     verify_build_identity,
 )
 from acgn_rag.core.ground.calibration import CalibrationSample, choose_threshold
+from acgn_rag.core.ground.generate import ANSWERER_VERSION
 from acgn_rag.core.ports import RetrievalFilters, RetrievalQuery
 from acgn_rag.core.retrieve.vector import search
 from acgn_rag.core.store import ChromaStore
@@ -252,6 +253,11 @@ def main(argv: list[str] | None = None) -> int:
         top_k=args.top_k,
         over_fetch=settings.store.over_fetch_factor,
         build_identity=build_identity,
+        # The calibration lane runs the historical single-pool search with no query transform,
+        # under the answer line this script's own import ships with.
+        query_transform="none",
+        official_score_weight=1.0,
+        answerer_version=ANSWERER_VERSION,
     )
     run_id = args.run_id or _run_id(args.config, str(build_identity["identity_slug"]))
     if not _RUN_ID.fullmatch(run_id):

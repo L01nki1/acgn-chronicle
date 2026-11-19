@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from acgn_rag.core.eval import metrics, qa
+from acgn_rag.core.ground.generate import ANSWERER_VERSION
 from acgn_rag.core.ports import (
     GroundedAnswer,
     RetrievalFilters,
@@ -32,6 +33,7 @@ from acgn_rag.core.ports import (
     RetrievedChunk,
 )
 from acgn_rag.core.retrieve.official_first import search_with_official_bonus
+from acgn_rag.core.retrieve.vector import normalize_query_text
 from acgn_rag.core.store.build_state import assert_no_incomplete_build
 
 CONFIG_TOKENS = {"A'": "A-prime"}
@@ -48,6 +50,9 @@ ABSTENTION_IDENTITY_KEYS = (
     "retrieval",
     "embed",
     "encoder_identity_slug",
+    "query_transform",
+    "official_score_weight",
+    "answerer_version",
 )
 ABSTENTION_RETRIEVAL_KEYS = ("mode", "top_k", "over_fetch")
 ABSTENTION_EMBED_KEYS = ("model", "backend", "device", "precision", "library_versions", "batch")
@@ -85,6 +90,9 @@ REQUIRED_TIER1_IDENTITY = (
     "qa_inputs_fingerprint",
     "qa_validated",
     "reportable",
+    "query_transform",
+    "official_score_weight",
+    "answerer_version",
 )
 _TIER1_STRING_IDENTITY = (
     "snapshot_id",
@@ -95,8 +103,20 @@ _TIER1_STRING_IDENTITY = (
     "retrieval_mode",
     "identity_slug",
     "qa_inputs_fingerprint",
+    "query_transform",
+    "answerer_version",
 )
 _TIER1_BOOL_IDENTITY = ("window_verified", "qa_validated", "reportable")
+# Identity fields archives written before the answer-line knobs existed carry none of. Reading
+# fills these defaults, which reproduce what those runs actually executed -- single-pool search,
+# no query transform, the pre-#116 answer line -- so old-vs-old comparisons stay identical.
+# Every defaulted field is surfaced as a warning by `compare_tier1_runs`, so the approximation
+# stays visible instead of silently widening what "identical" means.
+LEGACY_IDENTITY_DEFAULTS = {
+    "query_transform": "none",
+    "official_score_weight": 1.0,
+    "answerer_version": "pre-titlequote",
+}
 # Answer-row fields the Tier-1 comparison reads. They must be present in both archives:
 # two absent values are not evidence that the retrieval outputs matched.
 _TIER1_ANSWER_FIELDS = ("question", "retrieved_chunk_ids", "retrieved_urls", "abstained")
@@ -164,6 +184,10 @@ class RunSpec:
     #: is what the store sees. The original question still goes to the answerer, so a bad
     #: translation can move a result but can never reach the prompt as evidence.
     translate_langs: tuple[str, ...] = ()
+    #: Optional NFKC + whitespace input lane (REBUILD_PLAN L3). Applied to the retrieval text
+    #: before the translation lane sees it; recorded as ``query_transform`` in the identity.
+    #: Default off until the frozen-set comparison run passes.
+    nfkc_queries: bool = False
     #: Multiplier on an official chunk's score before the single ranking (§1b). 1.0 keeps the
     #: historical single-pool behaviour, so an on/off comparison is one constant.
     official_score_weight: float = 1.0
@@ -323,12 +347,17 @@ def run_identity(
     top_k: int,
     over_fetch: int,
     build_identity: Mapping[str, Any],
+    query_transform: str,
+    official_score_weight: float,
+    answerer_version: str,
 ) -> dict[str, Any]:
     """The canonical identity a threshold must be calibrated at.
 
     Both the applying run and the calibration artifact use this shape, so equality is a field
     comparison, not a re-derivation. `chunker` is restricted to the six protocol fields; a
-    build sidecar's extra fields cannot silently enter the identity.
+    build sidecar's extra fields cannot silently enter the identity. The answer-line fields
+    bind a threshold to the query transforms and answer rules it was calibrated under, so a
+    pre-#116 calibration artifact cannot silently serve a run with the new answer line.
     """
     missing = [name for name in CHUNKER_FIELDS if name not in chunker]
     if missing:
@@ -336,6 +365,19 @@ def run_identity(
     slug = str(build_identity.get("identity_slug") or "").strip()
     if not slug:
         raise ValueError("run identity: build_identity['identity_slug'] is required")
+    if not isinstance(query_transform, str) or not query_transform.strip():
+        raise ValueError("run identity: query_transform must be a non-empty string")
+    if (
+        isinstance(official_score_weight, bool)
+        or not isinstance(official_score_weight, (int, float))
+        or not math.isfinite(float(official_score_weight))
+        or official_score_weight <= 0
+    ):
+        raise ValueError(
+            "run identity: official_score_weight must be a finite number greater than zero"
+        )
+    if not isinstance(answerer_version, str) or not answerer_version.strip():
+        raise ValueError("run identity: answerer_version must be a non-empty string")
     return {
         "snapshot_id": str(snapshot_id),
         "chunk_config": str(config),
@@ -343,7 +385,20 @@ def run_identity(
         "retrieval": {"mode": "vector", "top_k": int(top_k), "over_fetch": int(over_fetch)},
         "embed": _embed_metadata(build_identity),
         "encoder_identity_slug": slug,
+        "query_transform": str(query_transform),
+        "official_score_weight": float(official_score_weight),
+        "answerer_version": str(answerer_version),
     }
+
+
+def _query_transform_slug(spec: RunSpec) -> str:
+    """Deterministic identity slug for the query-side transforms a run applied."""
+    parts: list[str] = []
+    if spec.nfkc_queries:
+        parts.append("nfkc")
+    if spec.translate_langs:
+        parts.append("translate-" + ",".join(sorted(spec.translate_langs)))
+    return "+".join(parts) if parts else "none"
 
 
 def _exact_keys(value: Any, expected: Sequence[str], label: str) -> None:
@@ -399,6 +454,16 @@ def _validate_abstention(
                 f"meta.abstention.source names {marker!r}; that is the dedup sweep, "
                 "not abstention calibration"
             )
+    if isinstance(calibration, Mapping):
+        # Calibration artifacts written before the answer-line identity fields existed carry
+        # none of them; fill the documented defaults so the artifact still validates. The
+        # defaults reproduce the single-pool, untransformed, pre-#116 answer line that artifact
+        # was calibrated under. A run whose own identity differs on any of the three is still
+        # refused below, which is what forces recalibration after an answer-line change.
+        calibration = dict(calibration)
+        for name, default in LEGACY_IDENTITY_DEFAULTS.items():
+            if name not in calibration:
+                calibration[name] = default
     _exact_keys(calibration, ABSTENTION_IDENTITY_KEYS, "meta.abstention.calibration_identity")
     _exact_keys(
         calibration["chunker"],
@@ -419,12 +484,29 @@ def _validate_abstention(
         raise ValueError(
             "meta.abstention.calibration_identity.embed.library_versions must be an object"
         )
-    for name in ("snapshot_id", "chunk_config", "encoder_identity_slug"):
+    for name in (
+        "snapshot_id",
+        "chunk_config",
+        "encoder_identity_slug",
+        "query_transform",
+        "answerer_version",
+    ):
         value = calibration[name]
         if not isinstance(value, str) or not value.strip():
             raise ValueError(
                 f"meta.abstention.calibration_identity.{name} must be a non-empty string"
             )
+    weight = calibration["official_score_weight"]
+    if (
+        isinstance(weight, bool)
+        or not isinstance(weight, (int, float))
+        or not math.isfinite(float(weight))
+        or weight <= 0
+    ):
+        raise ValueError(
+            "meta.abstention.calibration_identity.official_score_weight must be a finite "
+            "number greater than zero"
+        )
     embed = calibration["embed"]
     for name in ("model", "backend", "device", "precision"):
         value = embed[name]
@@ -454,6 +536,9 @@ def _validate_abstention(
                 diffs.append(f"{name}.{part}")
     if calibration["encoder_identity_slug"] != identity.get("encoder_identity_slug"):
         diffs.append("encoder_identity_slug")
+    for name in ("query_transform", "official_score_weight", "answerer_version"):
+        if calibration[name] != identity.get(name):
+            diffs.append(name)
     if diffs:
         raise ValueError(
             "meta.abstention.calibration_identity does not match this run: " + ", ".join(diffs)
@@ -471,6 +556,9 @@ def _validate_abstention(
                 "library_versions": dict(calibration["embed"]["library_versions"]),
             },
             "encoder_identity_slug": calibration["encoder_identity_slug"],
+            "query_transform": calibration["query_transform"],
+            "official_score_weight": calibration["official_score_weight"],
+            "answerer_version": calibration["answerer_version"],
         },
     }
 
@@ -483,6 +571,9 @@ def _spec_identity(spec: RunSpec) -> dict[str, Any]:
         top_k=spec.top_k,
         over_fetch=spec.over_fetch,
         build_identity=spec.build_identity,
+        query_transform=_query_transform_slug(spec),
+        official_score_weight=spec.official_score_weight,
+        answerer_version=ANSWERER_VERSION,
     )
 
 
@@ -554,6 +645,12 @@ def validate_abstention_metadata(meta: Mapping[str, Any]) -> list[str]:
         "retrieval": {name: retrieval.get(name) for name in ABSTENTION_RETRIEVAL_KEYS},
         "embed": meta.get("embed") or {},
         "encoder_identity_slug": build_identity.get("identity_slug"),
+        # Archives from before the answer-line fields existed lack them on both the block and
+        # the run meta; the legacy defaults on both sides keep their post-hoc validation green.
+        **{
+            name: meta.get(name) if meta.get(name) is not None else default
+            for name, default in LEGACY_IDENTITY_DEFAULTS.items()
+        },
     }
     try:
         _validate_abstention(block, identity)
@@ -1072,11 +1169,14 @@ def run(
         window = item["window"]
         question = str(item["question"])
         # The translation lane changes only what the store is asked. The answerer keeps the
-        # original question, so the answer is still about what the user actually asked.
+        # original question, so the answer is still about what the user actually asked. The
+        # NFKC lane runs first, so a translation never has to re-derive the normalized form.
         retrieval_text = question
+        if spec.nfkc_queries:
+            retrieval_text = normalize_query_text(retrieval_text)
         translation: dict[str, Any] | None = None
         if query_translator is not None and str(item.get("lang", "")) in spec.translate_langs:
-            translated = query_translator(question)
+            translated = query_translator(retrieval_text)
             translation = {
                 "lang": str(item.get("lang", "")),
                 "english": None,
@@ -1199,6 +1299,9 @@ def run(
         "gpu_policy": "pr48_require_gpu" if spec.require_gpu else "not_enforced",
         "require_gpu": spec.require_gpu,
         "collection": spec.collection,
+        "query_transform": _query_transform_slug(spec),
+        "official_score_weight": spec.official_score_weight,
+        "answerer_version": ANSWERER_VERSION,
         "llm": dict(spec.llm),
         "llm_probe": dict(spec.llm_probe) if spec.llm_probe else None,
         "abstention": _abstention_metadata(spec),
@@ -1285,7 +1388,7 @@ def _archive_identity(meta: Mapping[str, Any]) -> dict[str, Any]:
     build_identity = build_identity if isinstance(build_identity, dict) else {}
     qa_block = meta.get("qa")
     qa_block = qa_block if isinstance(qa_block, dict) else {}
-    return {
+    identity = {
         "snapshot_id": meta.get("snapshot_id"),
         "window_start": meta.get("window_start"),
         "window_end": meta.get("window_end"),
@@ -1300,7 +1403,19 @@ def _archive_identity(meta: Mapping[str, Any]) -> dict[str, Any]:
         "qa_inputs_fingerprint": qa_block.get("inputs_fingerprint"),
         "qa_validated": qa_block.get("validated"),
         "reportable": meta.get("reportable"),
+        "query_transform": meta.get("query_transform"),
+        "official_score_weight": meta.get("official_score_weight"),
+        "answerer_version": meta.get("answerer_version"),
     }
+    for name, default in LEGACY_IDENTITY_DEFAULTS.items():
+        if identity[name] is None:
+            identity[name] = default
+    return identity
+
+
+def _legacy_identity_fields(meta: Mapping[str, Any]) -> list[str]:
+    """Identity fields absent from an archive and therefore filled with legacy defaults."""
+    return sorted(name for name in LEGACY_IDENTITY_DEFAULTS if meta.get(name) is None)
 
 
 def _missing_tier1_identity(identity: Mapping[str, Any]) -> list[str]:
@@ -1319,6 +1434,14 @@ def _missing_tier1_identity(identity: Mapping[str, Any]) -> list[str]:
                 invalid.append(name)
         elif name in ("top_k", "over_fetch"):
             if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+                invalid.append(name)
+        elif name == "official_score_weight":
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                or value <= 0
+            ):
                 invalid.append(name)
         elif name == "chunker":
             if not isinstance(value, dict) or not value:
@@ -1443,6 +1566,15 @@ def compare_tier1_runs(left: Path | str, right: Path | str) -> dict[str, Any]:
                 "right": right_meta.get("git_sha"),
             }
         )
+    for side, side_meta in (("left", left_meta), ("right", right_meta)):
+        for name in _legacy_identity_fields(side_meta):
+            warnings.append(
+                {
+                    "field": name,
+                    "note": f"{name} absent from the {side} archive; legacy default "
+                    f"{LEGACY_IDENTITY_DEFAULTS[name]!r} applied",
+                }
+            )
 
     left_identity = _archive_identity(left_meta)
     right_identity = _archive_identity(right_meta)

@@ -490,6 +490,15 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--nfkc-queries",
+        action="store_true",
+        help=(
+            "NFKC-normalize and collapse whitespace in the retrieval text before encoding "
+            "(REBUILD_PLAN L3). Recorded as query_transform in the run identity. Default off: "
+            "the frozen-set comparison run for this lane has not been executed yet."
+        ),
+    )
+    parser.add_argument(
         "--run-id",
         default=None,
         help="override the generated identity-scoped run id",
@@ -726,6 +735,7 @@ def main(argv: list[str] | None = None) -> int:
         abstention=abstention,
         translate_langs=translate_langs,
         official_score_weight=args.official_bonus,
+        nfkc_queries=args.nfkc_queries,
     )
     if args.preflight_only:
         problems: list[str] = []

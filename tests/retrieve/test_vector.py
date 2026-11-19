@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 
 from acgn_rag.core.ports import RetrievalFilters, RetrievalQuery
-from acgn_rag.core.retrieve.vector import build_where, search, to_retrieved
+from acgn_rag.core.retrieve.vector import build_where, normalize_query_text, search, to_retrieved
 from acgn_rag.core.store.chroma_store import ScoredPayload
 from acgn_rag.core.store.payload import ChunkPayload, iso_to_epoch
 
@@ -360,3 +360,16 @@ def test_search_rejects_blank_query_before_embedding() -> None:
     assert chunks == []
     assert store.calls == []
     assert embedder.texts == []
+
+
+def test_normalize_query_text_nfkc_and_whitespace() -> None:
+    # Full-width Latin and half-width katakana normalize to the forms an English index stores.
+    assert normalize_query_text("ＭＨＷ ﾓﾝﾊﾝ") == "MHW モンハン"
+    assert normalize_query_text("  a \n b\u00a0 c ") == "a b c"
+    # Han characters and already-normalized text pass through unchanged.
+    assert normalize_query_text("怪物猎人：荒野 的 发售日") == "怪物猎人:荒野 的 发售日"
+    assert normalize_query_text("Monster Hunter Wilds") == "Monster Hunter Wilds"
+
+
+def test_normalize_query_text_collapses_to_empty_on_whitespace() -> None:
+    assert normalize_query_text("   ") == ""
