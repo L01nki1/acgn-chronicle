@@ -35,6 +35,26 @@ def _config(**overrides: object) -> LLMConfig:
     return LLMConfig(**values)  # type: ignore[arg-type]
 
 
+def test_calibration_set_helper_accepts_the_real_instrument() -> None:
+    items = run_eval.load_jsonl(ROOT / "eval" / "abstain_calibration.jsonl")
+    reference = run_eval.load_jsonl(ROOT / "eval" / "qa_set.jsonl")
+
+    assert run_eval._calibration_set_problems(items, reference) == []
+
+
+def test_calibration_set_helper_rejects_wrong_shape_and_overlap() -> None:
+    items = run_eval.load_jsonl(ROOT / "eval" / "abstain_calibration.jsonl")
+    reference = run_eval.load_jsonl(ROOT / "eval" / "qa_set.jsonl")
+
+    short = run_eval._calibration_set_problems(items[:-1], reference)
+    assert any("29" in problem for problem in short)
+
+    leaked = [dict(item) for item in items]
+    leaked[0] = {**leaked[0], "qa_id": reference[0]["qa_id"]}
+    overlap = run_eval._calibration_set_problems(leaked, reference)
+    assert any("shares qa_id" in problem for problem in overlap)
+
+
 def test_null_answerer_is_the_default() -> None:
     assert isinstance(run_eval._build_answerer("null", _config()), NullAnswerer)
 
@@ -371,6 +391,96 @@ def test_nonreportable_result_returns_one() -> None:
     result = SimpleNamespace(meta={"reportable": False, "non_reportable_reason": "non_gpu_device"})
 
     assert run_eval._nonreportable_exit(result) == 1
+
+
+def test_calibration_role_does_not_mask_operational_failures() -> None:
+    from acgn_rag.core.eval.runner import _reportability_reason
+
+    kwargs = {
+        "evidence_resolver": object(),
+        "window_verified": True,
+        "build_identity": {"device": "cuda"},
+        "require_gpu": True,
+        "qa_validated": True,
+        "has_reportable_metrics": True,
+        "qa_role": "calibration",
+    }
+    assert _reportability_reason(**kwargs) == "calibration_instrument"
+    assert (
+        _reportability_reason(**{**kwargs, "has_reportable_metrics": False})
+        == "no_reportable_metrics"
+    )
+    assert _reportability_reason(**{**kwargs, "evidence_resolver": None}) == "no_evidence_resolver"
+    assert _reportability_reason(**{**kwargs, "window_verified": False}) == "window_unverified"
+    assert (
+        _reportability_reason(**{**kwargs, "build_identity": {"device": "cpu"}}) == "non_gpu_device"
+    )
+
+
+def test_calibration_decision_input_returns_zero() -> None:
+    result = SimpleNamespace(
+        meta={"reportable": False, "non_reportable_reason": "calibration_instrument"}
+    )
+
+    assert run_eval._nonreportable_exit(result) == 0
+
+
+class _FakeModelsClient:
+    def __init__(
+        self,
+        payload: object = None,
+        *,
+        status_code: int = 200,
+        error: Exception | None = None,
+    ) -> None:
+        self.payload = payload
+        self.status_code = status_code
+        self.error = error
+        self.calls: list[tuple[str, dict[str, str]]] = []
+        self.closed = False
+
+    def get(self, url: str, headers: dict[str, str] | None = None) -> SimpleNamespace:
+        self.calls.append((url, dict(headers or {})))
+        if self.error is not None:
+            raise self.error
+        return SimpleNamespace(
+            status_code=self.status_code,
+            json=lambda: self.payload,
+            raise_for_status=lambda: None,
+        )
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_probe_records_model_presence_without_secrets() -> None:
+    client = _FakeModelsClient({"data": [{"id": "other"}, {"id": "answer-model"}]})
+
+    probe = run_eval._probe_answer_models(_config(), http_client=client)
+
+    assert probe["status"] == 200
+    assert probe["model_present"] is True
+    assert probe["model_count"] == 2
+    assert "key" not in json.dumps(probe)
+    assert client.calls == [
+        (
+            "https://answer.example/v1/models",
+            {"Authorization": "Bearer key"},
+        )
+    ]
+
+
+def test_probe_records_absence_and_transport_error() -> None:
+    absent = run_eval._probe_answer_models(
+        _config(), http_client=_FakeModelsClient({"data": [{"id": "other"}]})
+    )
+    assert absent["model_present"] is False
+
+    failed = run_eval._probe_answer_models(
+        _config(), http_client=_FakeModelsClient(error=RuntimeError("boom"))
+    )
+    assert failed["status"] is None
+    assert "boom" in str(failed["error"])
 
 
 def test_reportable_result_returns_zero() -> None:

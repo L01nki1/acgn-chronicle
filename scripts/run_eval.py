@@ -20,9 +20,11 @@ import json
 import math
 import subprocess
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -176,6 +178,53 @@ def _llm_metadata(config: LLMConfig, answerer_mode: str) -> dict[str, object]:
     }
 
 
+def _probe_answer_models(config: LLMConfig, *, http_client: Any = None) -> dict[str, Any]:
+    """Record whether the configured answer model is actually served by the provider.
+
+    This is the independent identity record `meta.llm` cannot give: the archive's model fields
+    are built from settings. The probe never stores the list of models or the API key.
+    """
+    base = str(getattr(config, "answer_base_url", "") or "").rstrip("/")
+    model = str(getattr(config, "answer_model", "") or "")
+    probe: dict[str, Any] = {
+        "endpoint": f"{base}/models" if base else None,
+        "checked_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "model": model or None,
+        "status": None,
+        "model_present": None,
+        "model_count": None,
+        "error": None,
+    }
+    if not base or not model:
+        probe["error"] = "missing answer base url or model"
+        return probe
+    import httpx
+
+    client = http_client or httpx.Client(timeout=10.0)
+    try:
+        response = client.get(
+            f"{base}/models",
+            headers={"Authorization": f"Bearer {config.answer_api_key}"},
+        )
+        probe["status"] = response.status_code
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:  # the probe records failures, it does not raise
+        probe["error"] = f"{type(exc).__name__}: {exc}"
+        return probe
+    finally:
+        if http_client is None:
+            client.close()
+    data = payload.get("data") if isinstance(payload, Mapping) else None
+    if not isinstance(data, list):
+        probe["error"] = "response has no data list"
+        return probe
+    ids = [str(item.get("id")) for item in data if isinstance(item, Mapping)]
+    probe["model_count"] = len(ids)
+    probe["model_present"] = model in ids
+    return probe
+
+
 def _llm_metadata_problems(metadata: Mapping[str, object]) -> list[str]:
     """Validate the archived LLM identity; shared by preflight and post-run validation."""
     problems: list[str] = []
@@ -296,6 +345,46 @@ def _preflight_device_problems(
     return problems
 
 
+def _calibration_set_problems(
+    items: Sequence[Mapping[str, Any]], reference: Sequence[Mapping[str, Any]]
+) -> list[str]:
+    """Validate the 30-item abstention instrument without the 32-item QA quota rules.
+
+    The instrument is a different set with a different purpose: it has to keep the
+    pre-registered 20 answerable / 10 unanswerable shape and stay disjoint from the QA set,
+    so a threshold selected on it cannot leak into the reported QA numbers.
+    """
+    problems: list[str] = []
+    if len(items) != 30:
+        problems.append(f"calibration set has {len(items)} items, need exactly 30")
+    answerable = sum(1 for item in items if item.get("answerable") is True)
+    unanswerable = sum(1 for item in items if item.get("answerable") is False)
+    if answerable != 20:
+        problems.append(f"calibration set has {answerable} answerable items, need exactly 20")
+    if unanswerable != 10:
+        problems.append(f"calibration set has {unanswerable} unanswerable items, need exactly 10")
+    ids = [str(item.get("qa_id") or "") for item in items]
+    if any(not value for value in ids):
+        problems.append("calibration set has an item without qa_id")
+    if len(set(ids)) != len(ids):
+        problems.append("calibration set has duplicate qa_id values")
+    shared = sorted({value for value in ids} & {str(item.get("qa_id") or "") for item in reference})
+    if shared:
+        problems.append("calibration set shares qa_id with the QA set: " + ", ".join(shared[:5]))
+    for item in items:
+        if not str(item.get("question") or "").strip():
+            problems.append(f"{item.get('qa_id')}: empty question")
+        if item.get("answerable") is not True:
+            continue
+        if not str(item.get("gold_answer") or "").strip():
+            problems.append(f"{item.get('qa_id')}: answerable item without gold_answer")
+        evidence = item.get("gold_evidence")
+        urls = evidence.get("urls") if isinstance(evidence, Mapping) else None
+        if not urls:
+            problems.append(f"{item.get('qa_id')}: answerable item without gold_evidence.urls")
+    return problems
+
+
 def _preflight_expectation_problems(
     *,
     counts: Mapping[str, object],
@@ -359,6 +448,14 @@ def _nonreportable_exit(result: RunResult) -> int:
     if result.meta.get("reportable", False):
         return 0
     reason = result.meta.get("non_reportable_reason") or "unknown"
+    if reason == "calibration_instrument":
+        # Decision input: the archive is complete and readable, it just cannot be cited as
+        # QA-set evidence. Exiting 0 keeps a baseline sweep from looking like a failed run.
+        print(
+            "DECISION INPUT: calibration instrument; not gate-reportable",
+            file=sys.stderr,
+        )
+        return 0
     suffix = " (PR #48 GPU-first policy, pending)" if reason == "non_gpu_device" else ""
     print(f"NOT REPORTABLE: {reason}{suffix}", file=sys.stderr)
     return 1
@@ -398,6 +495,20 @@ def main(argv: list[str] | None = None) -> int:
         help="development only: run against a draft QA set that fails the protocol quotas",
     )
     parser.add_argument(
+        "--qa-role",
+        choices=("report", "calibration"),
+        default="report",
+        help=(
+            "report: the frozen QA set, gate-reportable (default); calibration: the 30-item "
+            "abstention instrument, decision input only and never gate-reportable"
+        ),
+    )
+    parser.add_argument(
+        "--qa-reference",
+        default="eval/qa_set.jsonl",
+        help="QA set the calibration instrument must stay disjoint from (calibration role only)",
+    )
+    parser.add_argument(
         "--require-gpu",
         action="store_true",
         help="enforce the PR #48 GPU-first policy; CPU runs are then non-reportable",
@@ -426,14 +537,34 @@ def main(argv: list[str] | None = None) -> int:
         print(f"EMPTY: {qa_path}", file=sys.stderr)
         return 2
 
-    if not args.allow_invalid_qa:
-        problems = validate(items)
+    if args.qa_role == "calibration":
+        if args.allow_invalid_qa:
+            print(
+                "--qa-role calibration cannot be combined with --allow-invalid-qa",
+                file=sys.stderr,
+            )
+            return 1
+        reference_path = Path(args.qa_reference)
+        if not reference_path.exists():
+            print(f"NOT FOUND: {reference_path}", file=sys.stderr)
+            return 2
+        problems = _calibration_set_problems(items, load_jsonl(reference_path))
         if problems:
-            print(f"INVALID QA SET ({len(problems)} problem(s)):", file=sys.stderr)
+            print(f"INVALID CALIBRATION SET ({len(problems)} problem(s)):", file=sys.stderr)
             for problem in problems:
                 print(f"  - {problem}", file=sys.stderr)
-            print("Use --allow-invalid-qa only for development runs.", file=sys.stderr)
             return 1
+        qa_validated = True
+    else:
+        if not args.allow_invalid_qa:
+            problems = validate(items)
+            if problems:
+                print(f"INVALID QA SET ({len(problems)} problem(s)):", file=sys.stderr)
+                for problem in problems:
+                    print(f"  - {problem}", file=sys.stderr)
+                print("Use --allow-invalid-qa only for development runs.", file=sys.stderr)
+                return 1
+        qa_validated = not args.allow_invalid_qa
 
     settings = load_settings()
     try:
@@ -452,6 +583,13 @@ def main(argv: list[str] | None = None) -> int:
     except (ImportError, ValueError) as exc:
         print(f"ANSWERER CONFIG: {exc}", file=sys.stderr)
         return 2
+    llm_probe = None
+    if args.answerer == "live":
+        llm_probe = _probe_answer_models(settings.llm)
+        print(
+            f"LLM PROBE: status={llm_probe['status']} model_present={llm_probe['model_present']}",
+            file=sys.stderr,
+        )
     try:
         window_start, window_end, window_verified = resolve_window(
             settings.paths.snapshots / args.snapshot,
@@ -543,8 +681,10 @@ def main(argv: list[str] | None = None) -> int:
         llm=llm_metadata,
         determinism=determinism,
         require_gpu=args.require_gpu,
-        qa_validated=not args.allow_invalid_qa,
+        qa_validated=qa_validated,
         qa_source="cli",
+        qa_role=args.qa_role,
+        llm_probe=llm_probe,
         abstention=abstention,
     )
     if args.preflight_only:
@@ -570,6 +710,11 @@ def main(argv: list[str] | None = None) -> int:
                 expect_qa_fingerprint=args.expect_qa_fingerprint,
             )
         )
+        if llm_probe is not None and llm_probe.get("model_present") is False:
+            problems.append(
+                f"answer model {llm_probe.get('model')} is not present at "
+                f"{llm_probe.get('endpoint')}"
+            )
         if problems:
             print("PREFLIGHT FAILED:", file=sys.stderr)
             for problem in problems:

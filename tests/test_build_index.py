@@ -549,9 +549,15 @@ def test_fresh_keeps_a_different_snapshot_with_the_same_legacy_prefix(
     before_build = (data_root / "index" / snapshot_b / "A0" / "build.json").read_bytes()
     before_identity = (data_root / "index" / snapshot_b / "A0" / "identity.json").read_bytes()
     subset_a = _write_docs(tmp_path / "snapshot-a-subset.jsonl", _rows()[:1])
+    # The store contract does not protect a live reader against concurrent deletion, and
+    # production --fresh runs in its own process. Close the reader, rebuild, then reopen:
+    # this asserts what survived on disk instead of testing Chroma's in-process System cache.
+    store.client.close()
     assert (
         _run(["--snapshot", snapshot_a, "--input", str(subset_a), "--config", "A0", "--fresh"]) == 0
     )
+    store = _store_at(data_root)
+    store.bind(snapshot_b, "A0")
 
     assert store.count() == len(before_ids)
     assert _collection_ids(store, snapshot_b, "A0") == before_ids
