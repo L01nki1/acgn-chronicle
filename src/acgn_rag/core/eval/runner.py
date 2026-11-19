@@ -156,6 +156,7 @@ class RunSpec:
     require_gpu: bool = False
     qa_validated: bool = False
     qa_source: Literal["cli", "caller", "runner"] = "caller"
+    qa_role: Literal["report", "calibration"] = "report"
     abstention: Mapping[str, Any] | None = None
 
 
@@ -574,10 +575,15 @@ def _reportability_reason(
     require_gpu: bool,
     qa_validated: bool,
     has_reportable_metrics: bool,
+    qa_role: str = "report",
 ) -> str | None:
     """Return why a run is not reportable, or None when it is reportable."""
     if not qa_validated:
         return "qa_validation_bypassed"
+    if qa_role == "calibration":
+        # The calibration instrument is decision input, never gate evidence: it is not the
+        # frozen 32-item QA set, so its metrics cannot be reported as QA-set results.
+        return "calibration_instrument"
     if evidence_resolver is None:
         return "no_evidence_resolver"
     if not window_verified:
@@ -859,6 +865,8 @@ def _validate_spec(spec: RunSpec) -> None:
         raise ValueError(f"run spec is missing {', '.join(missing)}")
     _validate_chunker(spec.chunker, spec.config, source="run spec")
     _validate_abstention(spec.abstention, _spec_identity(spec))
+    if spec.qa_role not in ("report", "calibration"):
+        raise ValueError("run spec qa_role must be 'report' or 'calibration'")
 
 
 def validate_run_spec(spec: RunSpec) -> None:
@@ -1106,6 +1114,7 @@ def run(
         require_gpu=spec.require_gpu,
         qa_validated=effective_qa_validated,
         has_reportable_metrics=has_reportable_metrics,
+        qa_role=spec.qa_role,
     )
     meta = {
         "run_id": run_id,
@@ -1140,6 +1149,7 @@ def run(
             "validated": effective_qa_validated,
             "validation": "validated" if effective_qa_validated else "bypassed",
             "source": effective_qa_source,
+            "role": spec.qa_role,
         },
         "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "metrics": metrics_payload,

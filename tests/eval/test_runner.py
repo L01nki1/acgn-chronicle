@@ -296,6 +296,24 @@ def test_run_writes_complete_archive(tmp_path: Path) -> None:
     assert result.metrics["counts"]["indexed_chunks"] == 9120
 
 
+def test_calibration_role_is_decision_input_not_reportable(tmp_path: Path) -> None:
+    spec = _spec(tmp_path, qa_role="calibration")
+    result = run(
+        spec,
+        store=FakeStore([_hit()]),
+        embedder=FakeEmbedder(),
+        answerer=NullAnswerer(),
+        qa_items=[_qa_item()],
+        evidence_resolver=lambda urls: {url: ["doc::A::1"] for url in urls},
+    )
+
+    meta = json.loads((result.out_dir / "meta.json").read_text(encoding="utf-8"))
+    assert meta["qa"]["role"] == "calibration"
+    assert meta["qa"]["validated"] is True
+    assert meta["reportable"] is False
+    assert meta["non_reportable_reason"] == "calibration_instrument"
+
+
 def test_null_answerer_marks_not_run(tmp_path: Path) -> None:
     result = run(
         _spec(tmp_path),

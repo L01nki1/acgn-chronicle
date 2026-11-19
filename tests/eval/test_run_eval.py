@@ -35,6 +35,26 @@ def _config(**overrides: object) -> LLMConfig:
     return LLMConfig(**values)  # type: ignore[arg-type]
 
 
+def test_calibration_set_helper_accepts_the_real_instrument() -> None:
+    items = run_eval.load_jsonl(ROOT / "eval" / "abstain_calibration.jsonl")
+    reference = run_eval.load_jsonl(ROOT / "eval" / "qa_set.jsonl")
+
+    assert run_eval._calibration_set_problems(items, reference) == []
+
+
+def test_calibration_set_helper_rejects_wrong_shape_and_overlap() -> None:
+    items = run_eval.load_jsonl(ROOT / "eval" / "abstain_calibration.jsonl")
+    reference = run_eval.load_jsonl(ROOT / "eval" / "qa_set.jsonl")
+
+    short = run_eval._calibration_set_problems(items[:-1], reference)
+    assert any("29" in problem for problem in short)
+
+    leaked = [dict(item) for item in items]
+    leaked[0] = {**leaked[0], "qa_id": reference[0]["qa_id"]}
+    overlap = run_eval._calibration_set_problems(leaked, reference)
+    assert any("shares qa_id" in problem for problem in overlap)
+
+
 def test_null_answerer_is_the_default() -> None:
     assert isinstance(run_eval._build_answerer("null", _config()), NullAnswerer)
 
