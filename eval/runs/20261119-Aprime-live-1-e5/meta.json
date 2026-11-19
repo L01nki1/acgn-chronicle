@@ -1,0 +1,255 @@
+{
+  "run_id": "20261119-Aprime-live-1-e5",
+  "snapshot_id": "20261105-d797b5f0ae8e",
+  "window_start": "2023-11-05",
+  "window_end": "2026-11-05",
+  "window_verified": true,
+  "chunk_config": "A'",
+  "retrieval": {
+    "mode": "vector",
+    "top_k": 5,
+    "over_fetch": 5,
+    "latency_ms": {
+      "n": 32,
+      "p50": 980.501,
+      "p95": 1502.599
+    }
+  },
+  "embed": {
+    "model": "intfloat/multilingual-e5-base",
+    "backend": "torch",
+    "device": "cuda",
+    "precision": "fp32",
+    "library_versions": {
+      "sentence_transformers": "6.2.0",
+      "torch": "2.15.0+cu132",
+      "transformers": "5.21.0",
+      "numpy": "2.5.4"
+    },
+    "batch": 16
+  },
+  "build_identity": {
+    "model": "intfloat/multilingual-e5-base",
+    "backend": "torch",
+    "device": "cuda",
+    "precision": "fp32",
+    "batch_size": 16,
+    "identity_slug": "multilingual-e5-base-torch-cuda-fp32-d2fa8669",
+    "lib_sentence_transformers": "6.2.0",
+    "lib_torch": "2.15.0+cu132",
+    "lib_transformers": "5.21.0",
+    "lib_numpy": "2.5.4"
+  },
+  "chunker": {
+    "version": "composed-input-v2",
+    "header_version": "h1",
+    "config": "A'",
+    "max_tokens": 256,
+    "overlap": 0,
+    "max_seq_length": 512
+  },
+  "reportable": true,
+  "non_reportable_reason": null,
+  "reportable_scope": "run; per-family availability is in metrics.reporting",
+  "determinism": {
+    "torch_available": true,
+    "torch_seed": 0,
+    "use_deterministic_algorithms": true,
+    "warn_only": true,
+    "gpu_model": "Tesla T4"
+  },
+  "gpu_policy": "pr48_require_gpu",
+  "require_gpu": true,
+  "collection": "snap_full_20261105-d797b5f0ae8e_A-prime",
+  "llm": {
+    "provider": "https://cs-project-ai.rkd.icu/v1",
+    "model": "group/deepseek-flash",
+    "version": "deepseek-flash",
+    "temperature": 0.0,
+    "seed": null
+  },
+  "llm_probe": {
+    "endpoint": "https://cs-project-ai.rkd.icu/v1/models",
+    "checked_at": "2026-11-19T11:05:43+00:00",
+    "model": "group/deepseek-flash",
+    "status": 200,
+    "model_present": true,
+    "model_count": 1,
+    "error": null
+  },
+  "abstention": {
+    "threshold": 0.8579685091972351,
+    "source": "/content/acgn-chronicle/eval/runs/20261119-cal-Aprime-e5/calibration.json",
+    "calibration_identity": {
+      "snapshot_id": "20261105-d797b5f0ae8e",
+      "chunk_config": "A'",
+      "chunker": {
+        "version": "composed-input-v2",
+        "header_version": "h1",
+        "config": "A'",
+        "max_tokens": 256,
+        "overlap": 0,
+        "max_seq_length": 512
+      },
+      "retrieval": {
+        "mode": "vector",
+        "top_k": 5,
+        "over_fetch": 5
+      },
+      "embed": {
+        "model": "intfloat/multilingual-e5-base",
+        "backend": "torch",
+        "device": "cuda",
+        "precision": "fp32",
+        "library_versions": {
+          "sentence_transformers": "6.2.0",
+          "torch": "2.15.0+cu132",
+          "transformers": "5.21.0",
+          "numpy": "2.5.4"
+        },
+        "batch": 16
+      },
+      "encoder_identity_slug": "multilingual-e5-base-torch-cuda-fp32-d2fa8669"
+    }
+  },
+  "git_sha": "7fef7e6",
+  "qa": {
+    "path": "eval/qa_set.jsonl",
+    "count": 32,
+    "inputs_fingerprint": "dd0bbe1a302df6d527491af5b95b1b1c1311b6c8551667f0d7851c63a1c03acc",
+    "validated": true,
+    "validation": "validated",
+    "source": "cli",
+    "role": "report"
+  },
+  "created_at": "2026-11-19T11:09:06+00:00",
+  "metrics": {
+    "counts": {
+      "qa_total": 32,
+      "answerable": 26,
+      "unanswerable": 6,
+      "gold_unavailable": 3,
+      "gold_member_not_indexed": 0,
+      "gold_unresolved": 0,
+      "dropped": 0,
+      "deduped_count": 36121,
+      "indexed_chunks": 108899
+    },
+    "retrieval": {
+      "k": 5,
+      "hit": {
+        "all": {
+          "value": 0.34782608695652173,
+          "n": 23
+        },
+        "en": {
+          "value": 0.2,
+          "n": 15
+        },
+        "zh": {
+          "value": 0.625,
+          "n": 8
+        }
+      },
+      "mrr": {
+        "all": {
+          "value": 0.2644927536231884,
+          "n": 23
+        },
+        "en": {
+          "value": 0.12222222222222222,
+          "n": 15
+        },
+        "zh": {
+          "value": 0.53125,
+          "n": 8
+        }
+      },
+      "evidence_recall": {
+        "all": {
+          "value": 0.32608695652173914,
+          "n": 23
+        },
+        "en": {
+          "value": 0.2,
+          "n": 15
+        },
+        "zh": {
+          "value": 0.5625,
+          "n": 8
+        }
+      },
+      "excluded": {
+        "unanswerable": 6,
+        "gold_unavailable": 3,
+        "gold_member_not_indexed": 0,
+        "gold_unresolved": 0,
+        "missing_gold": 0,
+        "dropped": 0
+      }
+    },
+    "correctness": {
+      "counts": {
+        "fully_correct": 0,
+        "partially_correct": 0,
+        "incorrect": 0
+      },
+      "rates": {
+        "all": {
+          "value": null,
+          "n": 0
+        },
+        "en": {
+          "value": null,
+          "n": 0
+        },
+        "zh": {
+          "value": null,
+          "n": 0
+        }
+      }
+    },
+    "abstention": {
+      "threshold": null,
+      "refusal_rate": {
+        "value": 0.8333333333333334,
+        "n": 6
+      },
+      "false_refusal_rate": {
+        "value": 0.4782608695652174,
+        "n": 23
+      },
+      "calibration_in_sample": {
+        "value": null,
+        "n": 0
+      }
+    },
+    "citation": {
+      "containment_rate": {
+        "value": 1.0,
+        "n": 13
+      },
+      "violations": 0,
+      "abstained_violations": 0
+    },
+    "reporting": {
+      "retrieval": {
+        "available": true,
+        "n": 23
+      },
+      "correctness": {
+        "available": false,
+        "n": 0
+      },
+      "abstention": {
+        "available": true,
+        "n": 29
+      },
+      "citation": {
+        "available": true,
+        "n": 13
+      }
+    },
+    "provisional": false
+  }
+}
