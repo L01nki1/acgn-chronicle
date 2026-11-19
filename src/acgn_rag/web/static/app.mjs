@@ -7,6 +7,14 @@ import {
   viewState,
 } from "./contract.mjs";
 import { createQueryQueue } from "./queue.mjs";
+import {
+  applyDocumentI18n,
+  applyStatic,
+  bindLangToggle,
+  seedContentValue,
+  syncToggle,
+  t,
+} from "./i18n.mjs";
 
 const ACTIVE_CONFIG = "A";
 const STRENGTH = { official: 3, media: 2, metadata: 1 };
@@ -22,9 +30,12 @@ class ApiError extends Error {
 }
 
 class FormError extends Error {
-  constructor(message) {
+  constructor(message, key = null, vars = null) {
     super(message);
     this.name = "FormError";
+    // When the message came from the dictionary, a language switch can re-translate it.
+    this.key = key;
+    this.vars = vars;
   }
 }
 
@@ -36,8 +47,11 @@ const dom = {
   snapshotSelect: document.querySelector("#snapshot-select"),
   snapshotId: document.querySelector("#snapshot-id"),
   resultState: document.querySelector("#result-state"),
+  resultStatus: document.querySelector("#result-status"),
   resultMeta: document.querySelector("#result-meta"),
   resultsTitle: document.querySelector("#results-title"),
+  contractNotes: document.querySelector("#contract-notes"),
+  questionCount: document.querySelector("#question-count"),
   since: document.querySelector("#since"),
   until: document.querySelector("#until"),
   mediaId: document.querySelector("#media-id"),
@@ -51,6 +65,8 @@ const state = {
   current: null,
   lastRequest: null,
   lastRender: null,
+  lastView: null,
+  formNote: null,
   stale: false,
   // One cache per endpoint: the contract cache tuple does not include the route, so sharing one
   // map between /retrieve and /ask would mix two response shapes under the same key.
@@ -90,13 +106,44 @@ function selectedSourceTypes() {
 }
 
 function setFormNote(message, isError = false) {
+  state.formNote = { text: message, key: null, vars: null, isError };
   dom.formNote.textContent = message;
+  dom.formNote.classList.toggle("form-note-error", isError);
+}
+
+/** Keyed variant: the note is re-translated when the visitor switches language. */
+function setFormNoteKey(key, vars = null, isError = false) {
+  state.formNote = { text: t(key, vars), key, vars, isError };
+  dom.formNote.textContent = state.formNote.text;
   dom.formNote.classList.toggle("form-note-error", isError);
 }
 
 function setBusy(isBusy) {
   dom.submit.disabled = isBusy;
   dom.resultState.setAttribute("aria-busy", String(isBusy));
+}
+
+/** Announce the outcome in one short sentence instead of re-reading the whole panel. */
+function setResultStatus(message) {
+  dom.resultStatus.textContent = message;
+}
+
+// The page runs one query on load, but a visitor who just arrived did not ask for it; scrolling
+// them into the middle of the page would be a worse first impression than the missing feedback.
+let userIntent = false;
+// A language switch re-renders the active view in place; revealResults() must not fight the
+// scroll restoration during that pass.
+let reapplying = false;
+
+/**
+ * On a narrow viewport the results sit far below the form, so a submit used to look like nothing
+ * happened. Bring the result region into view; desktop and the initial load are left alone.
+ */
+function revealResults() {
+  if (reapplying || !userIntent || !window.matchMedia("(max-width: 860px)").matches) {
+    return;
+  }
+  dom.resultState.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 /**
@@ -108,37 +155,45 @@ function markFormChanged() {
     return;
   }
   state.stale = true;
-  dom.resultMeta.textContent = `${dom.resultMeta.textContent} · 表单已修改，结果对应上一次请求`;
+  dom.resultMeta.textContent = `${dom.resultMeta.textContent} · ${t("form.staleSuffix")}`;
+}
+
+function updateModeControls() {
+  const mode = currentMode();
+  dom.submit.textContent = mode === "ask" ? t("form.modeAsk") : t("form.modeRetrieve");
+  dom.resultsTitle.textContent = mode === "ask" ? t("answer.title") : t("form.modeRetrieve");
 }
 
 function updateModeCopy() {
   const mode = currentMode();
-  dom.submit.textContent = mode === "ask" ? "带引用问答" : "检索片段";
-  dom.resultsTitle.textContent = mode === "ask" ? "带引用回答" : "检索结果";
-  if (mode === "ask") {
-    setFormNote("拒答会显示原因与空引用；空结果不会被说成拒答。");
-  } else {
-    setFormNote("结果绑定到下方快照；空结果与拒答是两种状态。");
-  }
+  updateModeControls();
+  setFormNoteKey(mode === "ask" ? "form.noteAsk" : "form.noteRetrieve");
 }
 
 function filtersSummary(filters) {
   if (!filters) {
-    return "无筛选";
+    return t("filter.none");
   }
   const parts = [];
   if (filters.source_types?.length) {
     parts.push(
-      `来源 ${filters.source_types.map((value) => sourceTypeLabel(value)).join(" / ")}`,
+      t("filter.sources", {
+        list: filters.source_types.map((value) => sourceTypeLabel(value)).join(" / "),
+      }),
     );
   }
   if (filters.since || filters.until) {
-    parts.push(`日期 ${filters.since || "不限"} → ${filters.until || "不限"}`);
+    parts.push(
+      t("filter.dates", {
+        since: filters.since || t("filter.unlimited"),
+        until: filters.until || t("filter.unlimited"),
+      }),
+    );
   }
   if (filters.media_ids?.length) {
-    parts.push(`作品 ID ${filters.media_ids.join(", ")}`);
+    parts.push(t("filter.mediaIds", { list: filters.media_ids.join(", ") }));
   }
-  return parts.length > 0 ? parts.join("；") : "无筛选";
+  return parts.length > 0 ? parts.join(t("filter.join")) : t("filter.none");
 }
 
 async function requestJson(path, options = {}) {
@@ -149,7 +204,7 @@ async function requestJson(path, options = {}) {
       ...options,
     });
   } catch (error) {
-    throw new ApiError(0, `无法连接本地服务：${error.message}`);
+    throw new ApiError(0, t("error.network", { message: error.message }));
   }
 
   const raw = await response.text();
@@ -169,27 +224,33 @@ async function requestJson(path, options = {}) {
 function buildRequest() {
   const text = dom.question.value.trim();
   if (!text) {
-    throw new FormError("请输入问题或检索词。");
+    throw new FormError(t("form.error.empty"), "form.error.empty");
   }
   if (!state.current) {
-    throw new FormError("还没有选择快照；请先刷新快照列表。");
+    throw new FormError(t("form.error.noSnapshot"), "form.error.noSnapshot");
   }
 
   const filters = {};
   const sourceTypes = selectedSourceTypes();
-  if (sourceTypes.length > 0) {
-    filters.source_types = sourceTypes;
+  // No checkbox is not "no filter": omitting source_types widens the request to everything, the
+  // opposite of the user's "I selected nothing". Rejecting it keeps the form's meaning honest.
+  if (sourceTypes.length === 0) {
+    throw new FormError(t("form.error.noSource"), "form.error.noSource");
   }
+  filters.source_types = sourceTypes;
   if (dom.since.value) {
     filters.since = dom.since.value;
   }
   if (dom.until.value) {
     filters.until = dom.until.value;
   }
+  if (dom.since.value && dom.until.value && dom.since.value > dom.until.value) {
+    throw new FormError(t("form.error.dateRange"), "form.error.dateRange");
+  }
   if (dom.mediaId.value.trim()) {
     const mediaId = Number(dom.mediaId.value);
     if (!Number.isInteger(mediaId) || mediaId < 1) {
-      throw new FormError("作品 ID 必须是正整数。");
+      throw new FormError(t("form.error.mediaId"), "form.error.mediaId");
     }
     filters.media_ids = [mediaId];
   }
@@ -222,7 +283,7 @@ function renderSnapshotOptions(inventory) {
   const ids = [...new Set([inventory.current, ...(inventory.retained ?? [])])].filter(Boolean);
   replace(dom.snapshotSelect);
   for (const id of ids) {
-    const suffix = id === inventory.current ? "当前" : "保留";
+    const suffix = id === inventory.current ? t("snapshot.optionCurrent") : t("snapshot.optionRetained");
     dom.snapshotSelect.append(
       element("option", {
         text: `${id} · ${suffix}`,
@@ -235,7 +296,9 @@ function renderSnapshotOptions(inventory) {
 }
 
 function syncSnapshotDisplay() {
-  dom.snapshotId.textContent = state.current ? `绑定 ${state.current}` : "未选择快照";
+  dom.snapshotId.textContent = state.current
+    ? t("snapshot.bound", { id: state.current })
+    : t("snapshot.none");
 }
 
 async function loadInventory() {
@@ -254,7 +317,7 @@ async function runQuery() {
     // are. Dropping them silently left the new question in the box next to the old response;
     // queue the newest intent and run it when the current request settles instead.
     queryQueue.queue(runQuery);
-    setFormNote("上一个请求尚未完成；这次操作已排队，完成后自动运行。");
+    setFormNoteKey("note.queued");
     return;
   }
 
@@ -265,18 +328,22 @@ async function runQuery() {
       request = buildRequest();
     } catch (error) {
       if (error instanceof FormError) {
-        setFormNote(error.message, true);
+        if (error.key) {
+          setFormNoteKey(error.key, error.vars, true);
+        } else {
+          setFormNote(error.message, true);
+        }
         return;
       }
       throw error;
     }
 
     state.lastRequest = request;
-    setFormNote("正在请求 mock 快照…");
+    setFormNoteKey("note.requesting");
     const cache = state.cache[request.mode];
     if (cache.has(request.key)) {
       renderResponse(request.mode, cache.get(request.key), request, true);
-      setFormNote("缓存命中；缓存键包含快照与筛选条件。");
+      setFormNoteKey("note.cacheHit");
       return;
     }
     const path = request.mode === "ask" ? "/ask" : "/retrieve";
@@ -286,10 +353,10 @@ async function runQuery() {
     });
     cache.set(request.key, payload);
     renderResponse(request.mode, payload, request, false);
-    setFormNote("请求完成。");
+    setFormNoteKey("note.done");
   } catch (error) {
     renderApiError(error, request);
-    setFormNote("请求失败：原因见结果区。", true);
+    setFormNoteKey("note.failed", null, true);
   } finally {
     setBusy(false);
     const next = queryQueue.finish();
@@ -302,28 +369,33 @@ async function runQuery() {
 function renderResponse(mode, payload, request, fromCache) {
   const stateName = viewState(mode, payload);
   dom.resultMeta.textContent = [
-    mode === "ask" ? "带引用问答" : "片段检索",
-    `快照 ${request.body.snapshot_id}`,
-    fromCache ? "缓存命中" : "本次响应",
+    mode === "ask" ? t("form.modeAsk") : t("form.modeRetrieve"),
+    t("meta.snapshot", { id: request.body.snapshot_id }),
+    fromCache ? t("meta.fromCache") : t("meta.fresh"),
   ].join(" · ");
   state.lastRender = true;
   state.stale = false;
+  // Kept so a language switch can re-render the same response without refetching.
+  state.lastView = { kind: "response", mode, payload, request, fromCache };
 
   if (mode === "retrieve") {
     renderRetrieve(payload, request, stateName);
+    revealResults();
     return;
   }
   if (stateName === "ask-abstained") {
     renderRefusal(payload);
+    revealResults();
     return;
   }
   renderAnswer(payload, request);
+  revealResults();
 }
 
 function renderRetrieve(payload, request, stateName) {
   const { items, hiddenCount } = selectRenderableExcerpts(payload);
   if (stateName === "retrieve-empty") {
-    renderEmpty(request, "当前筛选条件下没有检索到片段。");
+    renderEmpty(request, t("retrieve.empty"));
     return;
   }
   if (items.length === 0) {
@@ -335,7 +407,7 @@ function renderRetrieve(payload, request, stateName) {
   container.append(
     element("p", {
       className: "compliance-note",
-      text: `${items.length} 条片段通过引用检查；每条引文最多 ${MAX_QUOTE_CODEPOINTS} 个字符。`,
+      text: t("retrieve.compliance", { n: items.length, max: MAX_QUOTE_CODEPOINTS }),
     }),
   );
   items.forEach((excerpt) => {
@@ -345,6 +417,7 @@ function renderRetrieve(payload, request, stateName) {
     container.append(renderHiddenNotice(hiddenCount));
   }
   replace(dom.resultState, container);
+  setResultStatus(t("retrieve.shown", { n: items.length }));
 }
 
 function renderExcerptCard(excerpt) {
@@ -378,14 +451,13 @@ function renderExcerptCard(excerpt) {
 
   const meta = element("div", { className: "result-meta" }, [
     element("span", { text: `score ${Number(excerpt.score).toFixed(3)}` }),
-    element("span", { text: "仅本次响应内排序" }),
     element("span", {
-      text: `字符 ${quoteLength} / ${MAX_QUOTE_CODEPOINTS}`,
+      text: t("card.chars", { n: quoteLength, max: MAX_QUOTE_CODEPOINTS }),
     }),
     element("span", { text: citation.chunk_id }),
   ]);
   if (excerpt.wasClipped) {
-    meta.append(element("span", { className: "clip-flag", text: "客户端二次裁剪" }));
+    meta.append(element("span", { className: "clip-flag", text: t("card.clipped") }));
   }
 
   return element("article", { className: `result-card ${sourceClass}` }, [
@@ -402,20 +474,21 @@ function renderCitationUrl(citation) {
   // anchor can carry the original URL. `noopener` keeps the opened page out of `window.opener`.
   const link = element("a", {
     className: "citation-url-value",
-    text: citation.url,
+    text: t("citation.open"),
     attrs: {
       href: citation.url,
       target: "_blank",
       rel: "noopener noreferrer",
-      title: "在新窗口打开原文",
+      title: t("citation.openTitle", { url: citation.url }),
     },
   });
   link.append(
     element("span", { className: "jump-mark", attrs: { "aria-hidden": "true" }, text: " ↗" }),
   );
   return element("div", { className: "citation-url" }, [
-    element("span", { className: "citation-url-label", text: "来源" }),
+    element("span", { className: "citation-url-label", text: t("citation.source") }),
     link,
+    element("span", { className: "citation-url-raw", text: citation.url }),
   ]);
 }
 
@@ -426,18 +499,18 @@ function renderAnswer(payload, request) {
 
   const container = element("div");
   const meta = element("div", { className: "answer-meta" }, [
-    element("span", { text: `快照 ${request.body.snapshot_id}` }),
-    element("span", { text: `cited_chunk_ids ${payload.cited_chunk_ids?.length ?? 0} 条` }),
-    element("span", { text: "回答只展示，不在客户端补全引文" }),
+    element("span", { text: t("meta.snapshot", { id: request.body.snapshot_id }) }),
+    element("span", { text: t("answer.citedCount", { n: payload.cited_chunk_ids?.length ?? 0 }) }),
+    element("span", { text: t("answer.displayOnly") }),
   ]);
   container.append(
-    element("section", { className: "answer-panel", attrs: { "aria-label": "带引用回答" } }, [
-      element("h3", { text: "带引用回答" }),
+    element("section", { className: "answer-panel", attrs: { "aria-label": t("answer.title") } }, [
+      element("h3", { text: t("answer.title") }),
       element("p", { className: "answer-text", text: payload.answer ?? "" }),
       meta,
       element("p", {
         className: "answer-caveat",
-        text: "当前回答来自本地 mock 数据；服务端负责 cited_chunk_ids ⊆ retrieved，客户端只检查引用能否展示。",
+        text: t("answer.caveat"),
       }),
     ]),
   );
@@ -446,7 +519,7 @@ function renderAnswer(payload, request) {
     container.append(
       element("p", {
         className: "compliance-note",
-        text: `${visible.length} 条引用带 URL 与来源字段，按契约展示；点击来源可在新窗口打开原文。`,
+        text: t("answer.compliance", { n: visible.length }),
       }),
     );
     visible.forEach((citation) => {
@@ -456,7 +529,7 @@ function renderAnswer(payload, request) {
     container.append(
       element("p", {
         className: "compliance-note",
-        text: "本次回答没有附带引用；引用为空时页面不渲染任何来源卡片。",
+        text: t("answer.noCitations"),
       }),
     );
   } else {
@@ -466,6 +539,11 @@ function renderAnswer(payload, request) {
     container.append(renderHiddenNotice(hiddenCount));
   }
   replace(dom.resultState, container);
+  setResultStatus(
+    visible.length > 0
+      ? t("answer.shown", { n: visible.length })
+      : t("answer.noVisible"),
+  );
 }
 
 function renderCitationCard(citation) {
@@ -495,7 +573,7 @@ function renderCitationCard(citation) {
     element("h3", { text: citation.title }),
     element("div", { className: "result-meta" }, [
       element("span", { text: citation.chunk_id }),
-      element("span", { text: "引用来自本次回答的检索证据" }),
+      element("span", { text: t("card.fromEvidence") }),
     ]),
     renderCitationUrl(citation),
   ]);
@@ -503,8 +581,12 @@ function renderCitationCard(citation) {
 
 function renderEmpty(request, detail) {
   const filters = request.body.filters;
-  const clearFilters = element("button", { text: "改用无筛选检索", attrs: { type: "button" } });
+  const clearFilters = element("button", {
+    text: t("empty.action"),
+    attrs: { type: "button" },
+  });
   clearFilters.addEventListener("click", () => {
+    userIntent = true;
     dom.sourceInputs.forEach((input) => {
       input.checked = true;
     });
@@ -517,59 +599,58 @@ function renderEmpty(request, detail) {
   replace(
     dom.resultState,
     element("section", { className: "state-panel empty-panel" }, [
-      element("h3", { text: "没有检索到片段" }),
+      element("h3", { text: t("empty.title") }),
       element("p", { text: detail }),
-      element("p", {
-        text: "空结果表示当前筛选下没有证据，不是系统拒答。页面会保持这两种状态的区别。",
-      }),
-      element("p", { className: "state-detail", text: `筛选：${filtersSummary(filters)}` }),
-      element("p", { className: "state-detail", text: `快照：${request.body.snapshot_id}` }),
+      element("p", { text: t("empty.body") }),
+      element("p", { className: "state-detail", text: t("empty.filters", { summary: filtersSummary(filters) }) }),
+      element("p", { className: "state-detail", text: t("empty.snapshot", { id: request.body.snapshot_id }) }),
       element("div", { className: "state-actions" }, [clearFilters]),
     ]),
   );
+  setResultStatus(t("empty.status"));
 }
 
 function renderRefusal(payload) {
   const reason =
     typeof payload.abstain_reason === "string" && payload.abstain_reason.trim()
       ? payload.abstain_reason
-      : "服务端没有提供拒答原因。";
+      : t("refuse.noReason");
   const answer =
     typeof payload.answer === "string" && payload.answer.trim() ? payload.answer : reason;
+  // `answer` and `abstain_reason` may legitimately be the same string; printing both reads like a
+  // rendering bug. Show the sentence once and keep the reason only when it adds information.
+  const reasonAddsDetail = answer !== reason;
 
-  replace(
-    dom.resultState,
-    element("section", { className: "state-panel refusal-panel" }, [
-      element("h3", { text: "系统拒绝回答" }),
-      element("p", { text: answer }),
-      element("p", {
-        text: "拒答不是空结果：它表示知识库没有足够依据，因此没有引用可展示。",
-      }),
-      element("p", { className: "state-detail", text: `原因：${reason}` }),
-      element("p", { className: "state-detail", text: "引用数量：0；cited_chunk_ids：0" }),
-    ]),
-  );
+  const rows = [
+    element("h3", { text: t("refuse.title") }),
+    element("p", { text: answer }),
+    element("p", { text: t("refuse.body") }),
+  ];
+  if (reasonAddsDetail) {
+    rows.push(element("p", { className: "state-detail", text: t("refuse.reason", { reason }) }));
+  }
+  rows.push(element("p", { className: "state-detail", text: t("refuse.counts") }));
+
+  replace(dom.resultState, element("section", { className: "state-panel refusal-panel" }, rows));
+  setResultStatus(t("refuse.status"));
 }
 
 function renderComplianceOnly(hiddenCount) {
   replace(
     dom.resultState,
     element("section", { className: "state-panel empty-panel" }, [
-      element("h3", { text: "结果因缺少来源信息而未渲染" }),
-      element("p", {
-        text: `${hiddenCount} 条结果缺少 URL 或必需来源字段；按“无 URL，不渲染”整条隐藏。`,
-      }),
-      element("p", {
-        text: "页面不会灰显、不会把缺失字段补成占位符，也不会为了好看而展示不可追溯的内容。",
-      }),
+      element("h3", { text: t("hidden.title") }),
+      element("p", { text: t("hidden.body", { n: hiddenCount }) }),
+      element("p", { text: t("hidden.principle") }),
     ]),
   );
+  setResultStatus(t("hidden.status", { n: hiddenCount }));
 }
 
 function renderHiddenNotice(count) {
   return element("p", {
     className: "compliance-note",
-    text: `${count} 条结果缺少 URL 或必需来源字段，已按“无 URL，不渲染”整体隐藏。`,
+    text: t("hidden.notice", { n: count }),
   });
 }
 
@@ -581,81 +662,79 @@ function renderApiError(error, request = state.lastRequest) {
 
   if (status === 400) {
     panel.append(
-      element("h3", { text: "请求格式有误" }),
-      element("p", { text: "服务端拒绝了请求体；请修正输入后重新提交。" }),
+      element("h3", { text: t("err.400.title") }),
+      element("p", { text: t("err.400.body") }),
       element("p", { className: "state-detail", text: detail }),
     );
   } else if (status === 404) {
     panel.append(
-      element("h3", { text: "快照不存在" }),
-      element("p", { text: "这个 id 从未被本机服务知道；页面不会自动猜测另一个快照。" }),
+      element("h3", { text: t("err.404.title") }),
+      element("p", { text: t("err.404.body") }),
       element("p", { className: "state-detail", text: detail }),
     );
     actions.push(
       element("button", {
-        text: "刷新快照列表",
+        text: t("action.refresh"),
         attrs: { type: "button", "data-action": "refresh" },
       }),
     );
   } else if (status === 410) {
     panel.append(
-      element("h3", { text: "快照已退役" }),
-      element("p", {
-        text: "该快照超出保留范围。页面不会自动切到当前快照；要用新快照，必须由你显式重跑。",
-      }),
+      element("h3", { text: t("err.410.title") }),
+      element("p", { text: t("err.410.body") }),
       element("p", { className: "state-detail", text: detail }),
     );
     actions.push(
       element("button", {
-        text: "刷新快照列表",
+        text: t("action.refresh"),
         attrs: { type: "button", "data-action": "refresh" },
       }),
       element("button", {
-        text: "改用当前快照显式重跑",
+        text: t("action.rerunCurrent"),
         attrs: { type: "button", "data-action": "rerun-current" },
       }),
     );
   } else if (status === 422) {
     panel.append(
-      element("h3", { text: "筛选条件无效" }),
-      element("p", { text: "服务端返回 422；请检查日期范围或筛选组合后重试。" }),
+      element("h3", { text: t("err.422.title") }),
+      element("p", { text: t("err.422.body") }),
       element("p", { className: "state-detail", text: detail }),
     );
     actions.push(
       element("button", {
-        text: "清空日期筛选",
+        text: t("action.clearDates"),
         attrs: { type: "button", "data-action": "clear-dates" },
       }),
     );
   } else if (status === 503) {
     panel.append(
-      element("h3", { text: "服务暂不可用" }),
-      element("p", { text: "本机还没有可服务的完整快照，或正在安全切换。" }),
+      element("h3", { text: t("err.503.title") }),
+      element("p", { text: t("err.503.body") }),
       element("p", { className: "state-detail", text: detail }),
     );
     if (error.retryAfter) {
       panel.append(
         element("p", {
           className: "state-detail",
-          text: `Retry-After：${error.retryAfter} 秒`,
+          text: t("err.retryAfter", { n: error.retryAfter }),
         }),
       );
     }
     actions.push(
       element("button", {
-        text: "重试",
+        text: t("action.retry"),
         attrs: { type: "button", "data-action": "retry" },
       }),
     );
   } else {
     panel.append(
-      element("h3", { text: "请求失败" }),
-      element("p", { text: "无法完成这次请求；结果区没有展示任何不可追溯的内容。" }),
-      element("p", { className: "state-detail", text: detail || "未知错误" }),
+      element("h3", { text: t("err.500.title") }),
+      element("p", { text: t("err.500.body") }),
+      element("p", { className: "state-detail", text: detail || t("err.unknown") }),
     );
     actions.push(
       element("button", {
-        text: "重试",
+        text: t("action.retry"),
         attrs: { type: "button", "data-action": "retry" },
       }),
     );
@@ -677,30 +756,44 @@ function renderApiError(error, request = state.lastRequest) {
     panel.append(
       element("p", {
         className: "state-detail",
-        text: `请求快照：${request.body.snapshot_id} · 筛选：${filtersSummary(request.body.filters)}`,
+        text: t("err.requestDetail", {
+          id: request.body.snapshot_id,
+          filters: filtersSummary(request.body.filters),
+        }),
       }),
     );
   }
-  dom.resultMeta.textContent = `请求失败 · HTTP ${status || "network"}`;
+  dom.resultMeta.textContent = t("err.meta", { status: status || t("err.networkWord") });
+  // The error panel with its recovery actions is the active view: a language switch must
+  // re-render it, not bring back the response from before the failure.
+  state.lastView = { kind: "error", error, request };
   replace(dom.resultState, panel);
+  setResultStatus(t("err.status", { status: status || t("err.networkWord") }));
+  revealResults();
+}
+
+function renderRefreshed() {
+  replace(
+    dom.resultState,
+    element("section", { className: "state-panel placeholder-panel" }, [
+      element("h3", { text: t("refreshed.title") }),
+      element("p", { text: t("refreshed.body") }),
+      element("p", {
+        className: "state-detail",
+        text: t("refreshed.current", { id: state.current ?? "—" }),
+      }),
+    ]),
+  );
+  state.lastView = { kind: "refreshed" };
 }
 
 async function handleAction(action, request) {
+  userIntent = true;
   if (action === "refresh") {
     try {
       await loadInventory();
-      replace(
-        dom.resultState,
-        element("section", { className: "state-panel placeholder-panel" }, [
-          element("h3", { text: "快照列表已刷新" }),
-          element("p", { text: "选择快照后，再显式重跑；页面不会自动改写原请求。" }),
-          element("p", {
-            className: "state-detail",
-            text: `当前快照：${state.current ?? "未知"}`,
-          }),
-        ]),
-      );
-      setFormNote("快照列表已刷新；请确认选择后重跑。");
+      renderRefreshed();
+      setFormNoteKey("note.snapshotRefreshed");
     } catch (error) {
       renderApiError(error);
     }
@@ -728,9 +821,87 @@ async function handleAction(action, request) {
   }
 }
 
+function updateQuestionCount() {
+  const used = [...dom.question.value].length;
+  const limit = Number(dom.question.maxLength) || 500;
+  dom.questionCount.textContent = `${used} / ${limit}`;
+}
+
+/**
+ * Re-render everything the current language owns: static chrome, the document metadata and the
+ * active view. The active view is whatever the visitor is looking at — a response, an error
+ * panel with its recovery actions, or the refreshed-snapshot panel — re-rendered from the
+ * stored view state, never refetched. The stale-form marker, the form note and the scroll
+ * position survive the switch, so the page still answers for the request it displayed.
+ */
+function reapplyLanguage() {
+  const view = state.lastView;
+  const wasStale = state.stale;
+  const hadRender = state.lastRender;
+  const note = state.formNote;
+  const scrollY = window.scrollY;
+  reapplying = true;
+  try {
+    applyStatic();
+    applyDocumentI18n();
+    syncToggle();
+    updateModeControls();
+    updateQuestionCount();
+    if (state.inventory) {
+      renderSnapshotOptions(state.inventory);
+    }
+    syncSnapshotDisplay();
+
+    if (view?.kind === "error") {
+      renderApiError(view.error, view.request);
+    } else if (view?.kind === "refreshed") {
+      renderRefreshed();
+    } else if (view?.kind === "response") {
+      renderResponse(view.mode, view.payload, view.request, view.fromCache);
+    } else {
+      dom.resultMeta.textContent = t("results.metaWaiting");
+      replace(
+        dom.resultState,
+        element("div", { className: "state-panel placeholder-panel" }, [
+          element("p", { text: t("results.placeholder") }),
+        ]),
+      );
+    }
+
+    // A keyed note is re-translated; a raw message (server text, for example) passes through.
+    if (note?.key) {
+      setFormNoteKey(note.key, note.vars, note.isError);
+    } else if (note) {
+      setFormNote(note.text, note.isError);
+    }
+
+    // A dirty form stays marked: whatever is on screen still answers the previous request.
+    if (hadRender && wasStale) {
+      state.stale = true;
+      dom.resultMeta.textContent = `${dom.resultMeta.textContent} · ${t("form.staleSuffix")}`;
+    }
+
+    if (view) {
+      window.scrollTo({ top: scrollY });
+    }
+  } finally {
+    reapplying = false;
+  }
+}
+
 function bindEvents() {
+  bindLangToggle();
+  document.addEventListener("acgn:langchange", reapplyLanguage);
+  updateQuestionCount();
+  dom.question.addEventListener("input", updateQuestionCount);
+  // The contract notes are context, not something the query needs; on a phone they pushed the
+  // form's submit button off the first screen.
+  if (window.matchMedia("(max-width: 860px)").matches) {
+    dom.contractNotes.open = false;
+  }
   dom.form.addEventListener("submit", (event) => {
     event.preventDefault();
+    userIntent = true;
     runQuery();
   });
   dom.form.addEventListener("input", markFormChanged);
@@ -742,10 +913,11 @@ function bindEvents() {
     state.current = dom.snapshotSelect.value;
     syncSnapshotDisplay();
     markFormChanged();
-    setFormNote("已切换快照；重新提交后才会得到该快照的结果。");
+    setFormNoteKey("note.snapshotChanged");
   });
   document.querySelectorAll("[data-example]").forEach((button) => {
     button.addEventListener("click", () => {
+      userIntent = true;
       dom.question.value = button.dataset.example ?? "";
       dom.question.focus();
       runQuery();
@@ -755,13 +927,16 @@ function bindEvents() {
 
 async function init() {
   bindEvents();
+  applyStatic();
+  seedContentValue();
+  applyDocumentI18n();
   updateModeCopy();
   try {
     await loadInventory();
     await runQuery();
   } catch (error) {
     renderApiError(error);
-    setFormNote("无法读取快照列表；请确认本地服务已启动。", true);
+    setFormNoteKey("init.failed", null, true);
   }
 }
 

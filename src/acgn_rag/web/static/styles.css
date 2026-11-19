@@ -10,7 +10,8 @@
   --official: #a83a25;
   --media: #2d5b6d;
   --metadata: #7a6224;
-  --font-display: "Songti SC", "Noto Serif SC", "Source Han Serif SC", Georgia, serif;
+  --font-display: "Songti SC", "Noto Serif SC", "Source Han Serif SC", "STSong", "SimSun",
+    Georgia, serif;
   --font-ui: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", "Segoe UI",
     sans-serif;
   --step-1: 13px;
@@ -18,6 +19,13 @@
   --step-3: 20px;
   --step-4: clamp(28px, 4vw, 44px);
   --step-5: clamp(42px, 7vw, 76px);
+  --shadow-soft: 0 1px 2px rgba(28, 26, 22, 0.05), 0 12px 32px -24px rgba(28, 26, 22, 0.5);
+}
+
+/* English UI: lead the display stack with a Latin serif; the CJK serifs stay as fallbacks for
+   corpus quotes and titles, which remain in their source language by design. */
+html[lang="en"] {
+  --font-display: Georgia, "Times New Roman", "Songti SC", "Noto Serif SC", serif;
 }
 
 *,
@@ -45,7 +53,9 @@ h2,
 h3 {
   font-family: var(--font-display);
   font-weight: 600;
-  letter-spacing: -0.025em;
+  /* The CJK pages carry most of the text; negative tracking that flatters Latin headlines makes
+     Chinese glyphs touch. Keep it at zero here. */
+  letter-spacing: 0;
   margin: 0;
 }
 
@@ -130,6 +140,38 @@ textarea {
   padding: 6px 12px;
   font-size: var(--step-1);
   white-space: nowrap;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lang-toggle {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.lang-toggle button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 12px;
+  font-size: var(--step-1);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.lang-toggle button[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.lang-toggle button:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: -3px;
 }
 
 .mock-banner {
@@ -218,6 +260,7 @@ textarea {
   padding: 10px 8px;
   background: var(--surface-strong);
   font-size: var(--step-1);
+  transition: background-color 120ms ease, color 120ms ease;
 }
 
 .mode-switch input:checked + span {
@@ -232,6 +275,7 @@ textarea {
 
 .filters {
   background: var(--surface);
+  border: 1px solid var(--line);
   padding: 14px 14px 16px;
 }
 
@@ -308,6 +352,7 @@ textarea {
   font-size: 17px;
   font-weight: 600;
   cursor: pointer;
+  transition: background-color 120ms ease;
 }
 
 #submit-button:hover {
@@ -342,9 +387,16 @@ textarea {
 }
 
 .examples h2,
-.contract-notes h2 {
+.contract-notes summary {
   font-size: var(--step-3);
   margin-bottom: 12px;
+}
+
+.contract-notes summary {
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-weight: 600;
+  list-style-position: inside;
 }
 
 .example-list {
@@ -361,6 +413,7 @@ textarea {
   font-size: var(--step-1);
   text-align: left;
   cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
 }
 
 .example-list button:hover {
@@ -405,6 +458,8 @@ textarea {
   align-items: center;
   gap: 8px 12px;
   background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-soft);
   padding: 14px 18px;
   margin-bottom: 30px;
 }
@@ -465,6 +520,8 @@ textarea {
 .state-panel {
   padding: 26px;
   background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-soft);
 }
 
 .placeholder-panel {
@@ -517,6 +574,7 @@ textarea {
   color: var(--paper);
   font-size: var(--step-1);
   cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
 }
 
 .error-panel .state-actions button {
@@ -527,6 +585,8 @@ textarea {
 .answer-panel {
   background: var(--ink);
   color: var(--paper);
+  border: 1px solid var(--ink);
+  box-shadow: var(--shadow-soft);
   padding: 30px;
   margin-bottom: 26px;
 }
@@ -560,9 +620,16 @@ textarea {
 
 .result-card {
   background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-soft);
   padding: 22px 24px 20px;
   margin-bottom: 16px;
   border-left: 8px solid var(--official);
+  transition: border-color 120ms ease;
+}
+
+.result-card:hover {
+  background: #fbf7ee;
 }
 
 .result-card.source-media {
@@ -683,6 +750,32 @@ textarea {
   text-decoration: none;
 }
 
+.citation-url-raw {
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: var(--step-1);
+  overflow-wrap: anywhere;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.field-hint {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: var(--step-1);
+  font-variant-numeric: tabular-nums;
+}
+
 .result-meta code,
 .snapshot-id code {
   font-family: var(--font-ui);
@@ -733,6 +826,12 @@ textarea {
     grid-template-columns: 1fr auto;
     align-items: center;
     padding: 22px 18px 16px;
+  }
+
+  .header-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
   }
 
   .site-tagline {
