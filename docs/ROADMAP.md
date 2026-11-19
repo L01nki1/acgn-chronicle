@@ -163,11 +163,25 @@ rule.
   `chroma.sqlite3` size and SHA-256), plus `n/p50/p95/mean/min/max` and raw samples. This artifact
   class is exempt from the run-id rule that applies to evaluation runs, but it still binds the
   number to a code SHA and an index.
+  **Current gate record:** `bench/latency-20261119-cpu.json` — p50 `214.5 ms`, p95 **`217.6 ms`**,
+  n=30 after five warm-ups, Config A on `main@1a878fb18e01`, `gate_eligible=true`, all six index
+  files hash-matched to a fresh extraction of the pristine tarball. Reference CPU is **Apple M4 Max**
+  (`macOS-27.0.1-arm64-arm-64bit-Mach-O`, model from `sysctl`); a reference CPU *class* may be cited
+  in the report, but the model and the artifact remain the authoritative record. This supersedes the
+  `#105` artifact (`249.6 ms`): that copy's SQLite catalogue had been opened before hashing, so its
+  `chroma.sqlite3` hash did not match the tarball. Both numbers clear 500 ms; only the pristine one
+  is the gate record.
 - **The GPU lane is reported, not gated.** A Colab T4 p50/p95 is recorded in the run archive
   (`meta.json` → `retrieval.latency_ms`) and reported in the experiment section, because it is the
-  lane the evaluation runs on and the number a reader would expect. It is not held to 500 ms. E's
-  post-#96 T4 re-run under the #94 checklist remains the deciding measurement; this rule records
-  its reporting status, not its value.
+  lane the evaluation runs on and the number a reader would expect. It is not held to 500 ms. The
+  post-#96 measurement (E, #94/#110) is the deciding one: A p50 `718.5 ms` / p95 **`1,097.5 ms`**
+  (`20261118-A-post96-e5`) and A′ p50 `991.6 ms` / p95 **`1,512.0 ms`**
+  (`20261118-Aprime-post96-e5`), against `1,800.7 / 2,287.7 ms` before #96 (−39.1% / −33.9%).
+  Both are at `git_sha a3104c4`, identity `multilingual-e5-base-torch-cuda-fp32-d2fa8669`, T4,
+  `reportable=true`, QA fingerprint `dd0bbe1a302df6d5`; retrieval metrics are unchanged and
+  `compare_tier1_runs` against the 11/17 pair reports `identical`/`comparable` over 32 items with
+  identical first-5 chunk ids. The T4 p95 remains above 500 ms; under this rule that is reported,
+  not a gate failure, and no cross-lane ratio is asserted.
 - **Why the split is not a loophole.** The two lanes run the same query path, so the local number
   measures the implementation and the T4 number measures the host. Gating the implementation and
   reporting the host-backed number is the only split where neither number is doing the other's job;
@@ -180,6 +194,11 @@ rule.
 - **Percentile source.** For T4 runs, `meta.json` → `retrieval.latency_ms = {n, p50, p95}`,
   nearest-rank; `metrics.json` carries no latency block. Any T4 latency figure in the report must
   trace to a run id and that field. Local CPU figures trace to the benchmark JSON above instead.
+- **Report latency row (E, report §4.4.1/§4.4.2/§4.7).** Copy the gate number from the pristine
+  `20261119` artifact (`p95 217.6 ms`, Apple M4 Max) and the reported T4 numbers from the two
+  `post96-e5` run archives (`1,097.5 / 1,512.0 ms`). Do not quote `#105`'s `249.6 ms` as the gate;
+  state the lane and reference CPU class beside each number and keep the 500 ms bound attached to
+  the local CPU lane only.
 
 #### ① Chunking comparison — how it is measured
 
