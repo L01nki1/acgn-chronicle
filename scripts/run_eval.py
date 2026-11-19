@@ -469,6 +469,27 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", default="eval/runs", help="run archive root")
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument(
+        "--translate-queries",
+        default="",
+        metavar="LANGS",
+        help=(
+            "comma-separated question languages to rewrite into English before retrieval "
+            "(e.g. 'zh'). Requires --answerer live; the answer still uses the original "
+            "question. Empty (the default) leaves retrieval unchanged."
+        ),
+    )
+    parser.add_argument(
+        "--official-bonus",
+        type=float,
+        default=1.0,
+        metavar="WEIGHT",
+        help=(
+            "score multiplier for official-source chunks before ranking (REBUILD_PLAN §1b). "
+            "1.0 (the default) is the historical single-pool search; 1.08 recovers official "
+            "recall on this corpus without lowering media recall."
+        ),
+    )
+    parser.add_argument(
         "--run-id",
         default=None,
         help="override the generated identity-scoped run id",
@@ -590,6 +611,23 @@ def main(argv: list[str] | None = None) -> int:
             f"LLM PROBE: status={llm_probe['status']} model_present={llm_probe['model_present']}",
             file=sys.stderr,
         )
+    translate_langs = tuple(
+        part.strip() for part in str(args.translate_queries).split(",") if part.strip()
+    )
+    query_translator = None
+    if translate_langs:
+        if args.answerer != "live":
+            print(
+                "TRANSLATION CONFIG: --translate-queries needs --answerer live (it calls the "
+                "answer-line model to rewrite the query)",
+                file=sys.stderr,
+            )
+            return 2
+        from acgn_rag.core.ground.provider import make_openai_answer_client
+        from acgn_rag.core.retrieve.translate_query import translate_query
+
+        _translate_client = make_openai_answer_client(settings.llm)
+        query_translator = lambda q: translate_query(q, _translate_client)  # noqa: E731
     try:
         window_start, window_end, window_verified = resolve_window(
             settings.paths.snapshots / args.snapshot,
@@ -686,6 +724,8 @@ def main(argv: list[str] | None = None) -> int:
         qa_role=args.qa_role,
         llm_probe=llm_probe,
         abstention=abstention,
+        translate_langs=translate_langs,
+        official_score_weight=args.official_bonus,
     )
     if args.preflight_only:
         problems: list[str] = []
@@ -741,6 +781,7 @@ def main(argv: list[str] | None = None) -> int:
             qa_items=items,
             evidence_resolver=evidence_resolver,
             snapshot_member_urls=member_urls,
+            query_translator=query_translator,
         )
     except ValueError as exc:
         print(f"RUN REFUSED: {exc}", file=sys.stderr)

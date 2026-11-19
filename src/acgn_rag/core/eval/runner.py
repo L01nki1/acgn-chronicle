@@ -31,7 +31,7 @@ from acgn_rag.core.ports import (
     RetrievalQuery,
     RetrievedChunk,
 )
-from acgn_rag.core.retrieve.vector import search
+from acgn_rag.core.retrieve.official_first import search_with_official_bonus
 from acgn_rag.core.store.build_state import assert_no_incomplete_build
 
 CONFIG_TOKENS = {"A'": "A-prime"}
@@ -159,6 +159,14 @@ class RunSpec:
     qa_role: Literal["report", "calibration"] = "report"
     llm_probe: Mapping[str, Any] | None = None
     abstention: Mapping[str, Any] | None = None
+    #: Optional query-translation lane (REBUILD_PLAN §4.3). When set, a question in
+    #: ``translate_langs`` is rewritten into English before retrieval and the rewritten text
+    #: is what the store sees. The original question still goes to the answerer, so a bad
+    #: translation can move a result but can never reach the prompt as evidence.
+    translate_langs: tuple[str, ...] = ()
+    #: Multiplier on an official chunk's score before the single ranking (§1b). 1.0 keeps the
+    #: historical single-pool behaviour, so an on/off comparison is one constant.
+    official_score_weight: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -959,10 +967,12 @@ def _answer_record(
     chunks: Sequence[RetrievedChunk],
     answer: GroundedAnswer | None,
     diagnostics: Mapping[str, Any] | None = None,
+    translation: Mapping[str, Any] | None = None,
+    source_mix: Any = None,
 ) -> dict[str, Any]:
     diagnostics_row = diagnostics or {}
     provider_completion = diagnostics_row.get("provider_completion") is True
-    return {
+    record = {
         "qa_id": str(item["qa_id"]),
         "question": str(item["question"]),
         "retrieved_chunk_ids": [chunk.chunk_id for chunk in chunks],
@@ -975,6 +985,17 @@ def _answer_record(
         "provider_completion": provider_completion,
         "diagnostics": diagnostics,
     }
+    if translation is not None:
+        # Only written when the lane is active, so a run without translation keeps the
+        # archived shape earlier runs and the Tier-1 comparison already rely on.
+        record["query_translation"] = dict(translation)
+    if source_mix is not None and (source_mix.official or source_mix.media):
+        # Which tier supplied this row's evidence; advisory, and absent when the bonus is off.
+        record["source_mix"] = {
+            "official": source_mix.official,
+            "media": source_mix.media,
+        }
+    return record
 
 
 def run(
@@ -986,12 +1007,18 @@ def run(
     qa_items: Sequence[Mapping[str, Any]] | None = None,
     evidence_resolver: Callable[[Sequence[str]], Mapping[str, Sequence[str]]] | None = None,
     snapshot_member_urls: Collection[str] | None = None,
+    query_translator: Callable[[str], Any] | None = None,
 ) -> RunResult:
     """Execute one run and write the archive under `out_root/<run_id>/`.
 
     `snapshot_member_urls` is the full member URL set from the frozen manifest. A gold URL
     present there but absent from the bound collection is recorded as `member_not_indexed`,
     not `gold_unavailable`; the alias policy is pending the E/F/D rule.
+
+    `query_translator` is the optional cross-language retrieval lane: it takes a question and
+    returns an object with an `english` attribute (or None when translation is unavailable).
+    It is consulted only for items whose `lang` is in `spec.translate_langs`, and only the
+    retrieval text changes - the answerer always receives the original question.
     """
     _validate_spec(spec)
     _validate_applied_threshold(spec, answerer)
@@ -1043,20 +1070,50 @@ def run(
     for item in items:
         gold_urls = _item_urls(item)
         window = item["window"]
+        question = str(item["question"])
+        # The translation lane changes only what the store is asked. The answerer keeps the
+        # original question, so the answer is still about what the user actually asked.
+        retrieval_text = question
+        translation: dict[str, Any] | None = None
+        if query_translator is not None and str(item.get("lang", "")) in spec.translate_langs:
+            translated = query_translator(question)
+            translation = {
+                "lang": str(item.get("lang", "")),
+                "english": None,
+                "used": False,
+            }
+            if translated is not None:
+                retrieval_text = translated.english
+                translation = {
+                    "lang": str(item.get("lang", "")),
+                    "english": translated.english,
+                    "used": True,
+                }
         query = RetrievalQuery(
-            text=str(item["question"]),
+            text=retrieval_text,
+            top_k=spec.top_k,
+            snapshot_id=spec.snapshot_id,
+            filters=RetrievalFilters(since=str(window[0]), until=str(window[1])),
+        )
+        answer_query = RetrievalQuery(
+            text=question,
             top_k=spec.top_k,
             snapshot_id=spec.snapshot_id,
             filters=RetrievalFilters(since=str(window[0]), until=str(window[1])),
         )
         started = time.perf_counter()
-        chunks = search(query, store=store, embedder=embedder)
+        chunks, source_mix = search_with_official_bonus(
+            query,
+            store=store,
+            embedder=embedder,
+            official_weight=spec.official_score_weight,
+        )
         retrieval_latencies.append((time.perf_counter() - started) * 1000.0)
         answer: GroundedAnswer | None = None
         diagnostics: dict[str, Any] | None = None
         if answerer is not None:
             if hasattr(answerer, "answer_with_diagnostics"):
-                answer_run = answerer.answer_with_diagnostics(query, chunks)
+                answer_run = answerer.answer_with_diagnostics(answer_query, chunks)
                 answer = answer_run.answer
                 raw_diagnostics = getattr(answer_run, "diagnostics", None)
                 if raw_diagnostics is not None:
@@ -1067,7 +1124,7 @@ def run(
                     )
             else:
                 answer = answerer.answer(query, chunks)
-        answers.append(_answer_record(item, chunks, answer, diagnostics))
+        answers.append(_answer_record(item, chunks, answer, diagnostics, translation, source_mix))
         gold_resolved = any(resolved.get(url) for url in gold_urls)
         gold_member_not_indexed = (
             bool(gold_urls)
