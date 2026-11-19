@@ -44,13 +44,27 @@ Both are `reportable=true`, `qa.role=report`, with the A′ calibration artifact
 - **B-005 host:** run 1 cites Real Sound (`realsound.jp/2026/09/post-2522771.html`); run 2 cites the gold Nijimen page (`nijimen.kusuguru.co.jp/topics/642080`). Both are grounded; the report must record the per-row host.
 - **A-008:** 2 citations in run 1, 1 in run 2.
 
+## Before/after — the 11/17 pilot vs these runs (same 32-item QA set)
+
+| | 11/17 pilot (A, 0.825) | today (A′, 0.858) |
+|---|---:|---:|
+| cited rows | 1 | 13 |
+| abstentions | 31 | 19 |
+| provider completions | 27 | 16 |
+| false-refusal rate (n=23) | 0.9565 | 0.478 |
+
+The gate is **stricter** now, so fewer rows reach the model (27 → 16 completions). The gain is
+in the claim path (B's #106 media/official citation rules) plus A→A′ retrieval (6/23 → 8/23 gold
+hits), not in a looser threshold.
+
 ## The one item D has to adjudicate
 
 **D-004** (`answerable: false`) was answered in both runs:
 
 > 開催時間：10:00〜18:00（最終入場17:00） [1]
 
-The cited chunk (Nijimen, `…::A'::5`) contains that sentence verbatim:
+The cited chunk (Nijimen, `https://nijimen.kusuguru.co.jp/topics/645376`, `…::A'::5`)
+contains that sentence verbatim:
 `開催時間：10:00〜18:00（最終入場17:00）`.
 
 So this is not a hallucination and not a citation violation — the retrieval found the
