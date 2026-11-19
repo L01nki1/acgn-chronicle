@@ -37,12 +37,30 @@ ATTRIBUTION_FIELDS = ("source_type", "publisher", "title", "url", "published_at"
 SOURCE_TYPES = frozenset({"official", "media", "metadata"})
 
 
+def _url_renderable(url: str) -> bool:
+    """Mirror the page's `new URL(url)` acceptance: a URL the browser cannot parse is no card.
+
+    `urlparse` alone is looser than the browser in both directions: it accepts `https://:443/a`
+    (non-empty netloc, empty host) and **raises** `ValueError` on an unclosed IPv6 bracket — the
+    browser rejects the first and does not crash on the second. The transcript must therefore
+    parse defensively and reject exactly what `new URL()` would reject, without aborting the run.
+    """
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            return False
+        parsed.port  # noqa: B018 - an out-of-range or malformed port raises, like `new URL()`
+    except ValueError:
+        return False
+    return True
+
+
 def is_renderable_citation(citation: Any) -> bool:
     """Apply the page's attribution rule (`contract.mjs:isRenderableCitation`) to a payload.
 
     The transcript must count what the page would draw, not what the wire happens to carry: a
-    citation with a blank field or a non-HTTP(S) URL is dropped by the client, so counting it here
-    would let the demo report cards a reviewer never sees.
+    citation with a blank field or a URL the browser cannot open is dropped by the client, so
+    counting it here would let the demo report cards a reviewer never sees.
     """
     if not isinstance(citation, dict):
         return False
@@ -52,9 +70,7 @@ def is_renderable_citation(citation: Any) -> bool:
             return False
     if citation["source_type"] not in SOURCE_TYPES:
         return False
-    parsed = urlparse(citation["url"])
-    # `new URL("https://")` throws in the page, so a scheme without a host is not renderable either.
-    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+    return _url_renderable(citation["url"])
 
 
 def _post(client: TestClient, path: str, body: dict[str, Any]) -> tuple[int, Any]:
