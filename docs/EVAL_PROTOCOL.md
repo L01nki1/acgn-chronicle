@@ -56,7 +56,7 @@ The freeze date exists because a set edited after seeing the results is not a me
 |---|---|
 | `qa_id` | `<type>-<nnn>`, unique, never reused |
 | `type` | `A` time-sensitive · `B` detail · `C` cross-source synthesis · `D` out-of-scope / unanswerable |
-| `lang` | `en` or `zh` — the language the **question** is asked in, not the source's. Per-language metrics key on it; ≥8 of 30 must be `zh` (§3) |
+| `lang` | `en` or `zh` — the language the **question** is asked in, not the source's. Per-language metrics key on it; ≥4 per set must be `zh` (§3) |
 | `answerable` | `false` for items the corpus cannot answer. **Explicit, never inferred from `type`**: type D is "out-of-scope", which is not the same as unanswerable — a type-D item may be answerable, and `abstention_accuracy` counts only the `answerable: false` ones |
 | `answerable: false` | unanswerable items carry `gold_answer` `""` and `key_entities` `[]` |
 | `gold_answer` | the shortest string that is either right or wrong; no hedging |
@@ -80,7 +80,7 @@ a new snapshot, a new chunking config and a rebuild. Per-run chunk ids are resol
 | Per type | A 10–12 · B 8–10 · C 6–8 · D ≥8 |
 | Type A share | ≤ one third of the total |
 | Unanswerable | ≥5 items with `answerable: false` (all inside type D) |
-| Language | **≥8 of 30 with `lang: "zh"`**, several of them targeting JP-language official sources (issue #14 P1; the corpus is trilingual — JP official, EN media, ZH media — and an all-English proxy would not measure that). Enforced per item by `check_qa.py`, not by eye |
+| Language | **≥4 per set with `lang: "zh"`** (`MIN_ZH`; lowered from 8 of 30 — see DECISIONS 2026-11-20), several of them targeting JP-language official sources (issue #14 P1; the corpus is trilingual — JP official, EN media, ZH media — and an all-English proxy would not measure that). Enforced per item by `check_qa.py`, not by eye |
 | Evidence | every answerable item has ≥1 `urls` entry |
 | Independent labels | exactly the 10 `overlap: true` items, labelled twice |
 

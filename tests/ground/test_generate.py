@@ -32,7 +32,18 @@ from acgn_rag.core.ground.generate import (
     validate_grounded_answer,
 )
 from acgn_rag.core.ground.policy import MEDIA_SOURCE_RULE, QUOTE_DISCIPLINE_RULE
-from acgn_rag.core.ports import Citation, GroundedAnswer, RetrievalQuery, RetrievedChunk
+from acgn_rag.core.ground.validation import (
+    ClaimEvidence,
+    allowed_media_quote,
+    source_exposure_exceeds_budget,
+)
+from acgn_rag.core.ports import (
+    MAX_QUOTE_CHARS,
+    Citation,
+    GroundedAnswer,
+    RetrievalQuery,
+    RetrievedChunk,
+)
 
 type JsonValue = str | int | float | bool | list[JsonValue] | dict[str, JsonValue] | None
 
@@ -260,6 +271,54 @@ def test_quote_discipline_is_on_by_default_and_the_escape_hatch_is_byte_identica
     # A blank value is not a literal "off": unset and empty both take the adopted default.
     monkeypatch.setenv("ACGN_ANSWER_QUOTE_DISCIPLINE", "")
     assert generate.system_prompt() == SYSTEM_PROMPT + " " + QUOTE_DISCIPLINE_RULE
+
+
+def test_headline_quotes_are_charged_against_the_per_source_exposure_budget() -> None:
+    """A title-only answer cannot spend the budget twice: four slices of one headline.
+
+    `allowed_media_quote` accepts a claim that is a verbatim run of the chunk's body *or* its
+    headline, so the exposure counter must charge both. Counting only the body left the
+    headline free: this test would have passed every individual claim and reported a total of
+    zero before the fix, letting one 215-character headline leave the source in full.
+    """
+    headline = (
+        "The Idolmaster Cinderella Girls Announces New Anime Adaptation Of Its Starlight Stage "
+        "Branch With A Returning Cast Panel Revealed At The Autumn Festival Broadcast And A "
+        "Confirmed Two Season Run Beginning Next Spring"
+    )
+    assert len(headline) > MAX_QUOTE_CHARS
+    media_citation = Citation(
+        source_type="media",
+        publisher="ANN",
+        title=headline,
+        url="https://example.com/news/1",
+        published_at="2026-11-04",
+        chunk_id="chunk-1",
+    )
+    chunk = RetrievedChunk(
+        chunk_id="chunk-1",
+        doc_id="doc-1",
+        snapshot_id="20261104-abcdef012345",
+        text="Body text that shares nothing with the headline.",
+        score=0.9,
+        citation=media_citation,
+    )
+    slices = [headline[offset : offset + 60] for offset in range(0, len(headline), 60)]
+
+    # Every slice is a legal individual quotation...
+    for piece in slices:
+        assert len(piece) <= MAX_QUOTE_CHARS
+        # allowed_media_quote strips surrounding whitespace before comparing, so the returned
+        # quotation is the piece without its leading space, not the raw slice.
+        assert allowed_media_quote(piece, [chunk]) == piece.strip()
+
+    # ...and together they exceed what one source may expose.
+    claims = [ClaimEvidence(text=piece, chunks=(chunk,)) for piece in slices]
+    assert sum(len(piece) for piece in slices) > MAX_QUOTE_CHARS
+    assert source_exposure_exceeds_budget(claims, [chunk]) is True
+
+    # A single slice of the same headline stays within budget.
+    assert source_exposure_exceeds_budget(claims[:1], [chunk]) is False
 
 
 def test_final_guard_rejects_a_non_request_citation() -> None:

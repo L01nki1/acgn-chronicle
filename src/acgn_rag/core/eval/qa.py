@@ -55,7 +55,11 @@ REQUIRED_FIELDS = (
     "annotator",
     "verified_by",
 )
-QA_ID_PATTERN = re.compile(r"^[ABCD]-\d{3}$")
+#: `<type>-<nnn>`, optionally namespaced (`delivery-A-001`). A second instrument that reuses the
+#: frozen set's bare ids would collide on every row: tools that key by `qa_id` (the headline
+#: check, per-item label joins) would then grade a delivery item against an unrelated frozen item.
+#: The namespace keeps one id space across sets without renaming the frozen instrument.
+QA_ID_PATTERN = re.compile(r"^(?P<namespace>[a-z0-9]+-)?(?P<type>[ABCD])-(?P<nnn>\d{3})$")
 
 
 def load_jsonl(path: str | Path) -> list[dict[str, Any]]:
@@ -160,11 +164,12 @@ def _check_item(item: dict[str, Any], index: int) -> list[str]:
         return [f"{where}: missing field(s) {missing}"]
 
     qa_id = str(item["qa_id"])
-    if not QA_ID_PATTERN.match(qa_id):
-        problems.append(f"{where}: qa_id must look like A-007")
+    match = QA_ID_PATTERN.match(qa_id)
+    if not match:
+        problems.append(f"{where}: qa_id must look like A-007 (or delivery-A-007)")
     if item["type"] not in QA_TYPES:
         problems.append(f"{where}: type must be one of {QA_TYPES}")
-    elif QA_ID_PATTERN.match(qa_id) and qa_id[0] != item["type"]:
+    elif match and match.group("type") != item["type"]:
         problems.append(f"{where}: qa_id prefix disagrees with type {item['type']}")
     if item["lang"] not in LANGS:
         problems.append(
