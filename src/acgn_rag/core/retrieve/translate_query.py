@@ -69,11 +69,21 @@ def build_translation_prompt(question: str) -> tuple[str, str]:
 
 
 def clean_translation(raw: str) -> str:
-    """Keep the reply's first meaningful line; strip quoting and list punctuation."""
+    """Keep the reply's first meaningful line; strip quoting, fences and list punctuation.
+
+    A fenced reply is unwrapped to the text *between* the fences. Splitting on the fence and
+    taking the last segment instead made a well-formed ```query``` reply empty (the translation
+    was silently lost) while any prose after the closing fence became the query — which is how a
+    stray "Here is your query." could become a retrieval query.
+    """
     text = raw.strip()
-    for fence in ("```",):
-        if text.startswith(fence):
-            text = text.split(fence)[-1].strip() if text.count(fence) > 1 else text[len(fence) :]
+    fence = "```"
+    if fence in text:
+        body = text.split(fence, 1)[1]
+        # The closing fence may be absent (a truncated reply): then the tail is the body.
+        text = body.split(fence, 1)[0].strip()
+        if not text:
+            text = raw.strip().strip(fence).strip()
     line = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
     return line.strip("\"“”'` ").strip()
 
