@@ -36,7 +36,7 @@ from acgn_rag.core.ground.validation import (
     validate_grounded_answer,
     validate_retrieved_evidence,
 )
-from acgn_rag.core.ports import MAX_QUOTE_CHARS, GroundedAnswer, RetrievalQuery, RetrievedChunk
+from acgn_rag.core.ports import MAX_CLAIM_CHARS, GroundedAnswer, RetrievalQuery, RetrievedChunk
 
 # RUNBOOK §3.4/§3.6: the CSLab DSV4-flash answer deployment returns no content when
 # max_tokens is below 1024, because reasoning tokens consume the budget. That makes 1024
@@ -104,7 +104,7 @@ SYSTEM_PROMPT: Final = (
     "non-empty array of integer evidence numbers supporting that claim. Omit every unsupported "
     "claim. Cite only the evidence needed to support the whole claim. When official evidence "
     "alone supports the claim, cite only those official blocks. For a claim citing media, put "
-    f"only a verbatim source excerpt of at most {MAX_QUOTE_CHARS} characters in text, without "
+    f"only a verbatim source excerpt of at most {MAX_CLAIM_CHARS} characters in text, without "
     "an attribution prefix. Cite only the media blocks that contain that excerpt. "
     'If no claim is supported, return {"claims": []}. Never output chunk ids, URLs or '
     "prose outside the JSON object. Never add citation markers or citation-like bracket groups "

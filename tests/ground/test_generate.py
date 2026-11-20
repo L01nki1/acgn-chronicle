@@ -38,7 +38,7 @@ from acgn_rag.core.ground.validation import (
     source_exposure_exceeds_budget,
 )
 from acgn_rag.core.ports import (
-    MAX_QUOTE_CHARS,
+    MAX_CLAIM_CHARS,
     Citation,
     GroundedAnswer,
     RetrievalQuery,
@@ -284,9 +284,10 @@ def test_headline_quotes_are_charged_against_the_per_source_exposure_budget() ->
     headline = (
         "The Idolmaster Cinderella Girls Announces New Anime Adaptation Of Its Starlight Stage "
         "Branch With A Returning Cast Panel Revealed At The Autumn Festival Broadcast And A "
-        "Confirmed Two Season Run Beginning Next Spring"
+        "Confirmed Two Season Run Beginning Next Spring With Production By A Returning Studio "
+        "And An Original Soundtrack Release Announced Alongside The First Key Visual"
     )
-    assert len(headline) > MAX_QUOTE_CHARS
+    assert len(headline) > MAX_CLAIM_CHARS
     media_citation = Citation(
         source_type="media",
         publisher="ANN",
@@ -307,14 +308,14 @@ def test_headline_quotes_are_charged_against_the_per_source_exposure_budget() ->
 
     # Every slice is a legal individual quotation...
     for piece in slices:
-        assert len(piece) <= MAX_QUOTE_CHARS
+        assert len(piece) <= MAX_CLAIM_CHARS
         # allowed_media_quote strips surrounding whitespace before comparing, so the returned
         # quotation is the piece without its leading space, not the raw slice.
         assert allowed_media_quote(piece, [chunk]) == piece.strip()
 
     # ...and together they exceed what one source may expose.
     claims = [ClaimEvidence(text=piece, chunks=(chunk,)) for piece in slices]
-    assert sum(len(piece) for piece in slices) > MAX_QUOTE_CHARS
+    assert sum(len(piece) for piece in slices) > MAX_CLAIM_CHARS
     assert source_exposure_exceeds_budget(claims, [chunk]) is True
 
     # A single slice of the same headline stays within budget.
@@ -460,7 +461,10 @@ def test_run_diagnostics_count_only_the_first_rule_that_drops_each_claim() -> No
             "citation": media.citation.model_copy(update={"source_type": "media"}),
         }
     )
-    copied_text = "The official release contains a detailed announcement of the schedule. " * 4
+    # Long enough to cross the per-source exposure budget on its own, whatever the limit is.
+    copied_text = "The official release contains a detailed announcement of the schedule. " * (
+        MAX_CLAIM_CHARS // 60 + 2
+    )
     official = _chunk(3).model_copy(update={"text": copied_text})
     client = FakeAnswerClient(
         _response(

@@ -57,13 +57,18 @@ QUOTE_DISCIPLINE_RULE = (
 FOCUS_RULE = (
     "Answer the question that was asked, not the paragraph it came from. "
     "(a) The first sentence of the first claim must state the asked-for fact as its subject or "
-    "object — the date, the name, the number — not the surrounding event. "
+    "object - the date, the name, the number - not the surrounding event. "
     '(b) Never demote the answer to a parenthetical, a relative clause or a trailing "which also" '
     "detail: if the model's only route to a fact is a sentence whose subject is something else, "
     "quote the shortest verbatim run that still contains the fact, not the whole sentence. "
     "(c) Add a second claim only when the question asks two things. Context that the question did "
     "not ask for belongs in neither claim. "
-    "(d) Prefer the shortest verbatim run that answers the question exactly."
+    "(d) A three-to-six word verbatim run IS a complete answer when it answers the question. "
+    '"Odeholo", "Studio KAI", "2027" and "three more cast members" are all valid claims on their '
+    "own: the citation carries the verifiability, so the claim does not have to carry the context. "
+    "Copying a whole sentence to look complete is worse than being brief. "
+    "(e) Prefer the shortest verbatim run that answers the question exactly. Do not append "
+    "publisher names, dates, background or 'also' clauses that the question did not ask for."
 )
 
 

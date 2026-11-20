@@ -9,7 +9,7 @@ from difflib import SequenceMatcher
 from typing import Final
 
 from acgn_rag.core.ports import (
-    MAX_QUOTE_CHARS,
+    MAX_CLAIM_CHARS,
     Citation,
     GroundedAnswer,
     RetrievalQuery,
@@ -114,7 +114,10 @@ def allowed_media_quote(
     source for the same verbatim requirement.
     """
     claim_text = _strip_optional_quotes(claim_text)
-    if not claim_text or len(claim_text) > MAX_QUOTE_CHARS:
+    # MAX_CLAIM_CHARS, not MAX_QUOTE_CHARS: this bounds one model-written claim, while the C3
+    # wire limit bounds what a client receives (serialize.py). Coupling them made a slightly
+    # longer but correct quotation fail and the whole question abstain.
+    if not claim_text or len(claim_text) > MAX_CLAIM_CHARS:
         return None
     for chunk in chunks:
         if _is_verbatim(claim_text, chunk.text):
@@ -182,7 +185,7 @@ def source_exposure_exceeds_budget(
             overlap_by_source[source] = max(overlap_by_source.get(source, 0), copied)
         for source, copied in overlap_by_source.items():
             exposure_by_source[source] = exposure_by_source.get(source, 0) + copied
-    return any(exposure > MAX_QUOTE_CHARS for exposure in exposure_by_source.values())
+    return any(exposure > MAX_CLAIM_CHARS for exposure in exposure_by_source.values())
 
 
 def validate_grounded_answer(

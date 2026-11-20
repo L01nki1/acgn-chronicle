@@ -14,7 +14,7 @@ from acgn_rag.core.ground import (
     validate_grounded_answer,
 )
 from acgn_rag.core.ports import (
-    MAX_QUOTE_CHARS,
+    MAX_CLAIM_CHARS,
     Citation,
     GroundedAnswer,
     RetrievalQuery,
@@ -69,7 +69,10 @@ def test_answerer_drops_over_budget_verbatim_claims_instead_of_failing() -> None
     assert answer.abstained
     assert answer.answer == REJECTED_CLAIMS_REASON
 
-    first, second = "a" * 110, "b" * 110
+    # Two pieces that individually fit but together cross the per-source budget. Scaled to the
+    # claim limit so this still tests the boundary when the limit changes.
+    piece = MAX_CLAIM_CHARS // 2 + 10
+    first, second = "a" * piece, "b" * piece
     answer = GroundedAnswerer(
         FakeAnswerClient(
             [
@@ -78,6 +81,8 @@ def test_answerer_drops_over_budget_verbatim_claims_instead_of_failing() -> None
             ]
         )
     ).answer(_query(), [_chunk(f"{first} {second}")])
+    assert not answer.abstained
+    assert answer.answer == f"{first} [1]"
     assert not answer.abstained
     assert answer.answer == f"{first} [1]"
 
@@ -102,8 +107,12 @@ def test_answerer_rejects_two_media_quotes_reconstructing_one_body() -> None:
     )
     second = (
         "The announcement also states that distribution will include television and online "
-        "streaming, with further scheduling details to be published separately."
+        "streaming, with further scheduling details, including the exact broadcast window and "
+        "the platforms involved, to be published separately at a later date."
     )
+    # Each sentence is under the per-claim limit but together they reconstruct more than one
+    # source may expose, so only the first survives.
+    assert len(first) + len(second) > MAX_CLAIM_CHARS
     claims = [
         {"text": first, "evidence_indices": [1]},
         {"text": second, "evidence_indices": [1]},
@@ -168,21 +177,23 @@ def test_final_guard_rejects_full_source_in_refusal_fields(field: str) -> None:
 def test_final_guard_allows_long_paraphrased_refusal_explanations() -> None:
     chunk = _chunk("The official announcement has no release date.")
     answer = GroundedAnswerer(FakeAnswerClient([])).answer(_query(), [chunk])
-    answer.answer = "The selected records do not resolve the requested question. " * 5
+    answer.answer = "The selected records do not resolve the requested question. " * 6
     answer.abstain_reason = "The requested date is absent from the selected records."
 
     validated = validate_grounded_answer(answer, _query().snapshot_id, [chunk])
 
     assert validated.abstained
-    assert len(validated.answer) > MAX_QUOTE_CHARS
+    assert len(validated.answer) > MAX_CLAIM_CHARS
     assert validated.answer != validated.abstain_reason
 
 
 @pytest.mark.parametrize(
     ("length", "accepted"),
-    [(MAX_QUOTE_CHARS, True), (MAX_QUOTE_CHARS + 1, False)],
+    [(MAX_CLAIM_CHARS, True), (MAX_CLAIM_CHARS + 1, False)],
 )
-def test_literal_source_budget_accepts_200_and_drops_201(length: int, accepted: bool) -> None:
+def test_literal_source_budget_accepts_the_claim_limit_and_drops_one_more(
+    length: int, accepted: bool
+) -> None:
     quote = "x" * length
     answer = GroundedAnswerer(FakeAnswerClient([{"text": quote, "evidence_indices": [1]}])).answer(
         _query(), [_chunk(quote)]
@@ -199,7 +210,9 @@ def test_literal_source_budget_accepts_200_and_drops_201(length: int, accepted: 
 def test_source_budget_groups_chunks_by_document_or_trimmed_url(
     shared_identity: str,
 ) -> None:
-    first, second = "a" * 110, "b" * 110
+    # Two chunks of one source that together exceed the budget; scaled to the claim limit.
+    piece = MAX_CLAIM_CHARS // 2 + 10
+    first, second = "a" * piece, "b" * piece
     chunks = [
         _chunk(
             first,
@@ -272,7 +285,7 @@ def test_same_document_long_paraphrase_is_not_limited_by_answer_length() -> None
     answer = GroundedAnswerer(FakeAnswerClient(claims)).answer(_query(), [_chunk(source)])
 
     assert not answer.abstained
-    assert len(answer.answer) > MAX_QUOTE_CHARS
+    assert len(answer.answer) > MAX_CLAIM_CHARS
     assert list(answer.cited_chunk_ids) == ["chunk-1"]
 
 
@@ -306,7 +319,7 @@ def test_long_paraphrase_across_sources_is_not_limited_by_answer_length() -> Non
     answer = GroundedAnswerer(FakeAnswerClient(claims)).answer(_query(), chunks)
 
     assert not answer.abstained
-    assert len(answer.answer) > MAX_QUOTE_CHARS
+    assert len(answer.answer) > MAX_CLAIM_CHARS
     assert list(answer.cited_chunk_ids) == [f"chunk-{index}" for index in range(1, 5)]
 
 

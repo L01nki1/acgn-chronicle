@@ -28,7 +28,17 @@ SourceType = Literal["official", "media", "metadata"]
 SCHEMA_VERSION = "0.2.5"
 
 # Shared by the wire constraint and the serializer; serialize.MAX_QUOTE_CHARS re-exports it.
+# This is the **C3 outbound** limit: what any client receives as an excerpt. It is a compliance
+# boundary, not a modelling choice, and it does not move when the answer line changes.
 MAX_QUOTE_CHARS = 200
+
+# The longest single claim the answer line may produce from a media source. Split out from
+# MAX_QUOTE_CHARS because the two answer different questions: C3 bounds what leaves the system,
+# this bounds what the model may quote into one claim. A 200-character cap here fought the
+# answer-focus rule - a benchmark item's baseline answer already ran to 201 characters, so asking
+# for slightly more context pushed it over and the whole question was refused on exposure budget.
+# The wire limit is unchanged, so nothing about what a client can receive moves.
+MAX_CLAIM_CHARS = 300
 
 # One definition, reused by both the internal and the wire chunk type: a score whose meaning is
 # left implicit is worse than no score, because a client will average it with another config's. The
@@ -305,6 +315,7 @@ WIRE_MODELS: tuple[str, ...] = (
 )
 
 __all__ = [
+    "MAX_CLAIM_CHARS",
     "MAX_QUOTE_CHARS",
     "SCHEMA_VERSION",
     "SCORE_SEMANTICS",
