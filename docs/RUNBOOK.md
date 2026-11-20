@@ -69,6 +69,21 @@ Unlimited raw input is still accepted but is not verified as a complete frozen s
 > When idempotency fails, the first suspects are always **manifest ordering / time zone / timestamp format**,
 > not the hash function.
 
+> **`SQLITE_TMPDIR` when a restored index looks corrupt (`#116`, reported by E).** A Chroma metadata
+> filter runs as a SQLite query, and filtering the ~36k-row media set materialises a temporary file. If
+> `TEMP` is not writable, SQLite cannot create it and returns `code: 14 unable to open database file`
+> (`SQLITE_CANTOPEN`). The failure looks exactly like a damaged index — and it is not: it only appears for
+> filters that materialise rows, so an `official`-only filter can keep working while a `published_ts`
+> predicate fails, which is what makes a good artifact look broken. On Windows point both variables at a
+> writable directory before the first query:
+>
+> ```powershell
+> $env:SQLITE_TMPDIR = 'D:\path\to\writable\tmp'; $env:TMP = $env:SQLITE_TMPDIR; $env:TEMP = $env:SQLITE_TMPDIR
+> ```
+>
+> Symptom → cause: `SQLITE_CANTOPEN` on a filtered query, unfiltered query fine, artifacts' `sha256`
+> matches `eval/snapshot_evidence.json`. Never re-pack or re-export an index for this.
+
 > Rebuilds **upsert**: a build over a *smaller* input than an earlier run leaves the extra rows in place
 > (stale entries a `--limit` trial run commonly produces). Pass `--fresh` to replace the selected
 > snapshot/config collections instead — each collection is deleted only **after** the input has parsed and

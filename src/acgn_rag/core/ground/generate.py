@@ -18,7 +18,11 @@ from typing import Annotated, Final, Protocol
 from pydantic import BaseModel, ConfigDict, StrictInt, StringConstraints, ValidationError
 
 from acgn_rag.config import LLMConfig
-from acgn_rag.core.ground.policy import MEDIA_SOURCE_RULE
+from acgn_rag.core.ground.policy import (
+    MEDIA_SOURCE_RULE,
+    QUOTE_DISCIPLINE_RULE,
+    quote_discipline_enabled,
+)
 from acgn_rag.core.ground.validation import (
     ClaimEvidence,
     InvalidModelResponseError,
@@ -106,6 +110,20 @@ SYSTEM_PROMPT: Final = (
     "adds them after validating the evidence indices. Publisher names may be stated when they are "
     "part of the factual answer. " + MEDIA_SOURCE_RULE
 )
+
+
+def system_prompt() -> str:
+    """The controlling prompt for this process, including the media rule variant.
+
+    ``SYSTEM_PROMPT`` is the pre-adoption prompt, unchanged in wording and order, so anything
+    that pins its contract keeps holding. Quote discipline is **on by default** and only
+    *appends* the copy mechanics, so the escape hatch differs in exactly one trailing paragraph:
+    ``ACGN_ANSWER_QUOTE_DISCIPLINE=0`` reproduces ``SYSTEM_PROMPT`` byte for byte.
+    """
+    if quote_discipline_enabled():
+        return SYSTEM_PROMPT + " " + QUOTE_DISCIPLINE_RULE
+    return SYSTEM_PROMPT
+
 
 _FENCED_BLOCK: Final = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 _KANA: Final = re.compile(r"[\u3040-\u30ff\u31f0-\u31ff]")
@@ -262,7 +280,7 @@ def build_grounding_prompt(
             f"{index}. {json.dumps(provenance, ensure_ascii=False, separators=(',', ':'))}"
         )
     user = f"Question:\n{query.text}\n\nNumbered evidence for this request:\n" + "\n".join(evidence)
-    return SYSTEM_PROMPT, user
+    return system_prompt(), user
 
 
 def generate_grounded_answer(

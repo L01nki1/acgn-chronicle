@@ -18,9 +18,11 @@ from acgn_rag.core.ground import (
     InvalidModelResponseError,
     InvalidRetrievedEvidenceError,
     PromptBudgetError,
+    generate,
 )
 from acgn_rag.core.ground.generate import (
     NO_EVIDENCE_REASON,
+    SYSTEM_PROMPT,
     UNSUPPORTED_REASON,
     GroundedAnswerer,
     _refusal_message,
@@ -29,7 +31,7 @@ from acgn_rag.core.ground.generate import (
     generate_grounded_answer_run,
     validate_grounded_answer,
 )
-from acgn_rag.core.ground.policy import MEDIA_SOURCE_RULE
+from acgn_rag.core.ground.policy import MEDIA_SOURCE_RULE, QUOTE_DISCIPLINE_RULE
 from acgn_rag.core.ports import Citation, GroundedAnswer, RetrievalQuery, RetrievedChunk
 
 type JsonValue = str | int | float | bool | list[JsonValue] | dict[str, JsonValue] | None
@@ -215,22 +217,49 @@ def test_request_isolation_failure_raises_before_model_use(
     assert client.calls == []
 
 
-def test_prompt_contains_the_actual_question_evidence_and_shared_media_policy() -> None:
+def test_prompt_contains_the_actual_question_evidence_and_shared_media_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     query = _query()
     chunks = [_chunk(1), _chunk(2)]
 
-    system, user = build_grounding_prompt(query, chunks)
+    # The shipped prompt body must survive both modes: with quote discipline on (the default)
+    # the media rule is no longer the last thing said, but it must still be present verbatim.
+    monkeypatch.setenv("ACGN_ANSWER_QUOTE_DISCIPLINE", "0")
+    system_off, user = build_grounding_prompt(query, chunks)
+    assert system_off.endswith(MEDIA_SOURCE_RULE)
 
-    assert system.endswith(MEDIA_SOURCE_RULE)
-    assert "answer only the facts asked for" in system
-    assert "cite only those official blocks" in system
-    assert "Keep verbatim quotes in their source language" in system
-    assert "without an attribution prefix" in system
-    assert "Cite only the media blocks that contain that excerpt" in system
+    monkeypatch.delenv("ACGN_ANSWER_QUOTE_DISCIPLINE", raising=False)
+    system_on, user_on = build_grounding_prompt(query, chunks)
+    assert system_on.startswith(system_off)
+    assert MEDIA_SOURCE_RULE in system_on
+    assert user == user_on
+
+    for system in (system_off, system_on):
+        assert "answer only the facts asked for" in system
+        assert "cite only those official blocks" in system
+        assert "Keep verbatim quotes in their source language" in system
+        assert "without an attribution prefix" in system
+        assert "Cite only the media blocks that contain that excerpt" in system
     assert query.text in user
     assert chunks[0].text in user
     assert chunks[1].citation.url in user
     assert chunks[0].chunk_id not in user
+
+
+def test_quote_discipline_is_on_by_default_and_the_escape_hatch_is_byte_identical(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The adopted default appends the rule; disabling it restores the old prompt exactly."""
+    monkeypatch.delenv("ACGN_ANSWER_QUOTE_DISCIPLINE", raising=False)
+    assert generate.system_prompt() == SYSTEM_PROMPT + " " + QUOTE_DISCIPLINE_RULE
+
+    monkeypatch.setenv("ACGN_ANSWER_QUOTE_DISCIPLINE", "0")
+    assert generate.system_prompt() == SYSTEM_PROMPT
+
+    # A blank value is not a literal "off": unset and empty both take the adopted default.
+    monkeypatch.setenv("ACGN_ANSWER_QUOTE_DISCIPLINE", "")
+    assert generate.system_prompt() == SYSTEM_PROMPT + " " + QUOTE_DISCIPLINE_RULE
 
 
 def test_final_guard_rejects_a_non_request_citation() -> None:
