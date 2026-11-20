@@ -9,7 +9,9 @@
 param(
     [Parameter(Mandatory = $true)][ValidateSet('off', 'on')][string]$Arm,
     [Parameter(Mandatory = $true)][string]$RunId,
-    [string]$QaSet = 'eval/qa_set_delivery.jsonl'
+    [string]$QaSet = 'eval/qa_set_delivery.jsonl',
+    # Chunking variant. A (512/64) and A' (256/0) share one snapshot and encoder.
+    [ValidateSet('A', "A'")][string]$Config = 'A'
 )
 
 Set-StrictMode -Version Latest
@@ -29,7 +31,7 @@ switch ($Arm) {
     }
 }
 
-$args_ = @($CommonArgs)
+$args_ = Add-ConfigArg -Arguments $CommonArgs -Config $Config
 if ($QaSet -ne 'eval/qa_set_delivery.jsonl') {
     $idx = [array]::IndexOf($args_, '--qa')
     $args_[$idx + 1] = $QaSet

@@ -11,7 +11,9 @@
 
 param(
     [Parameter(Mandatory = $true)][ValidateSet('off', 'on')][string]$Arm,
-    [Parameter(Mandatory = $true)][string]$RunId
+    [Parameter(Mandatory = $true)][string]$RunId,
+    # Chunking variant. A (512/64) and A' (256/0) are built on the same snapshot and encoder.
+    [ValidateSet('A', "A'")][string]$Config = 'A'
 )
 
 Set-StrictMode -Version Latest
@@ -31,13 +33,14 @@ switch ($Arm) {
     }
 }
 
-$args_ = @($CommonArgs) + @('--run-id', $RunId, '--out', $OutRoot)
+$args_ = Add-ConfigArg -Arguments $CommonArgs -Config $Config
+$args_ += @('--run-id', $RunId, '--out', $OutRoot)
 $logDir = Join-Path $RepoRoot 'experiments\logs'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $log = Join-Path $logDir "$RunId.log"
 
-Write-Host ("=== ARM={0}  RUN={1}  FOCUS={2}  QUOTE_DISCIPLINE={3} ===" -f `
-    $Arm, $RunId, $env:ACGN_ANSWER_FOCUS, $env:ACGN_ANSWER_QUOTE_DISCIPLINE)
+Write-Host ("=== ARM={0}  CONFIG={1}  RUN={2}  FOCUS={3}  QUOTE_DISCIPLINE={4} ===" -f `
+    $Arm, $Config, $RunId, $env:ACGN_ANSWER_FOCUS, $env:ACGN_ANSWER_QUOTE_DISCIPLINE)
 
 if (-not (Test-Path -LiteralPath $Py)) {
     Write-Host "=== FAILED: interpreter not found at $Py ==="
