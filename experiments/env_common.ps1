@@ -1,5 +1,8 @@
-# Shared environment for the quote-discipline A/B experiment (NEXT_STEPS.md §2).
-# Dot-source this from any launcher:  . .\experiments\env_common.ps1
+# Shared environment for the answer-line A/B runs. Dot-source from a launcher:
+#   . .\experiments\env_common.ps1
+#
+# The launchers set ACGN_ANSWER_FOCUS and ACGN_ANSWER_QUOTE_DISCIPLINE explicitly for each arm;
+# both rules are default-on, so clearing a variable is NOT the same as disabling a rule.
 
 $env:ACGN_DATA_DIR = 'D:\ACGNdaily-Database\.bge-index'
 $env:ACGN_EMBED_MODEL = 'BAAI/bge-m3'
@@ -17,7 +20,7 @@ $Script:RepoRoot = 'D:\ACGNdaily-Database'
 $Script:Py       = 'D:\ACGNdaily-Database\.evalvenv\Scripts\python.exe'
 $Script:OutRoot  = 'D:\ACGNdaily-Database\evalout'
 
-# The fixed arm of the experiment: everything except ACGN_ANSWER_QUOTE_DISCIPLINE.
+# Every A/B run invokes this fixed set; the arm switches are injected by the launcher.
 $Script:CommonArgs = @(
     'scripts/run_eval.py',
     '--config', 'A',
