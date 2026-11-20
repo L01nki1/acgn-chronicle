@@ -41,7 +41,7 @@ from acgn_rag.core.eval.runner import (
     verify_build_identity,
 )
 from acgn_rag.core.ground.calibration import CalibrationSample, choose_threshold
-from acgn_rag.core.ground.generate import ANSWERER_VERSION
+from acgn_rag.core.ground.generate import answerer_version
 from acgn_rag.core.ports import RetrievalFilters, RetrievalQuery
 from acgn_rag.core.retrieve.official_first import search_with_official_bonus
 from acgn_rag.core.retrieve.vector import search
@@ -284,7 +284,7 @@ def main(argv: list[str] | None = None) -> int:
         # name that lane or a live run on it can never pair with the artifact.
         query_transform=f"translate-{args.translate_queries}" if args.translate_queries else "none",
         official_score_weight=args.official_bonus,
-        answerer_version=ANSWERER_VERSION,
+        answerer_version=answerer_version(),
     )
     run_id = args.run_id or _run_id(args.config, str(build_identity["identity_slug"]))
     if not _RUN_ID.fullmatch(run_id):

@@ -62,7 +62,28 @@ ABSTAIN_RETRIEVAL_BELOW_THRESHOLD: Final = "retrieval_below_threshold"
 # whenever a change here can move an answer or an abstention. v1 is PR #116's answer line:
 # the 16k prompt ceiling and headline-verbatim media quotes. Archives written before this
 # field existed are read back with the documented legacy default "pre-titlequote".
+#
+# The two prompt rules are switchable, so the version must describe the *effective* combination
+# rather than a fixed string: two runs that differ only in ACGN_ANSWER_FOCUS would otherwise
+# compare as identical. `answerer_version()` appends one token per enabled rule; with both on -
+# the default - it yields the plain v1 slug, which is also what a caller comparing against a
+# literal expects. `ANSWERER_VERSION` stays the base of that string.
 ANSWERER_VERSION: Final = "c4-titlequote-v1"
+
+
+def answerer_version() -> str:
+    """The answer line's identity for this process, including which prompt rules are on.
+
+    Recorded in run identity, so disabling a default-on rule cannot silently produce a run that
+    still compares equal to a run with it enabled.
+    """
+    parts = [ANSWERER_VERSION]
+    if not quote_discipline_enabled():
+        parts.append("no-quote-discipline")
+    if not answer_focus_enabled():
+        parts.append("no-focus")
+    return "+".join(parts)
+
 
 NO_EVIDENCE_REASON: Final = "No retrieved evidence was available for this request."
 UNSUPPORTED_REASON: Final = "No retrieved evidence supports a grounded answer to this question."

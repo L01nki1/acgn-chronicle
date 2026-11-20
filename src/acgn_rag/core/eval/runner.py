@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from acgn_rag.core.eval import metrics, qa
-from acgn_rag.core.ground.generate import ANSWERER_VERSION
+from acgn_rag.core.ground.generate import answerer_version
 from acgn_rag.core.ports import (
     GroundedAnswer,
     RetrievalFilters,
@@ -573,7 +573,7 @@ def _spec_identity(spec: RunSpec) -> dict[str, Any]:
         build_identity=spec.build_identity,
         query_transform=_query_transform_slug(spec),
         official_score_weight=spec.official_score_weight,
-        answerer_version=ANSWERER_VERSION,
+        answerer_version=answerer_version(),
     )
 
 
@@ -1301,7 +1301,7 @@ def run(
         "collection": spec.collection,
         "query_transform": _query_transform_slug(spec),
         "official_score_weight": spec.official_score_weight,
-        "answerer_version": ANSWERER_VERSION,
+        "answerer_version": answerer_version(),
         "llm": dict(spec.llm),
         "llm_probe": dict(spec.llm_probe) if spec.llm_probe else None,
         "abstention": _abstention_metadata(spec),
