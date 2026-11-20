@@ -10,7 +10,7 @@
 # successful run.
 
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('off', 'on')][string]$Arm,
+    [Parameter(Mandatory = $true)][ValidateSet('off', 'on', 'default')][string]$Arm,
     [Parameter(Mandatory = $true)][string]$RunId,
     # Chunking variant. A (512/64) and A' (256/0) are built on the same snapshot and encoder.
     [ValidateSet('A', "A'")][string]$Config = 'A'
@@ -30,6 +30,12 @@ switch ($Arm) {
     'off' {
         $env:ACGN_ANSWER_FOCUS = '0'
         $env:ACGN_ANSWER_QUOTE_DISCIPLINE = '0'
+    }
+    'default' {
+        # What a fresh checkout does: no switches set, so the shipping defaults apply. This is
+        # the arm that answers "what does the product do", as opposed to an A/B contrast arm.
+        Remove-Item Env:\ACGN_ANSWER_FOCUS -ErrorAction SilentlyContinue
+        Remove-Item Env:\ACGN_ANSWER_QUOTE_DISCIPLINE -ErrorAction SilentlyContinue
     }
 }
 
