@@ -56,6 +56,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _git_sha() -> str:
+    """The commit this run executed, marked when the tree was modified.
+
+    A bare `rev-parse HEAD` is not enough to say what code ran: a run started from a worktree
+    with uncommitted edits records the *parent* commit and silently misattributes its own
+    results. That happened in this PR - one run of the adopted answer line is filed under the
+    commit that preceded the rule it was testing.
+
+    The suffix is `+dirty` when nothing under the package, scripts or tests differs from HEAD,
+    and `+dirty:<n>` otherwise, where `n` counts the changed paths. A stray untracked scratch
+    file therefore does not invalidate a run, but a modified source file does.
+    """
     try:
         completed = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -66,7 +77,35 @@ def _git_sha() -> str:
         )
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
-    return completed.stdout.strip() or "unknown"
+    sha = completed.stdout.strip() or "unknown"
+
+    # Ignored and untracked files do not change behaviour unless they are importable sources,
+    # so ask about tracked modifications only, scoped to the directories that can affect a run.
+    try:
+        status = subprocess.run(
+            [
+                "git",
+                "status",
+                "--porcelain",
+                "--untracked-files=no",
+                "--",
+                "src",
+                "scripts",
+                "tests",
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        # A dirty check must never be the reason a run fails; "unknown" says it did not happen.
+        return f"{sha}+dirty:unknown"
+    changed = [line for line in status.stdout.splitlines() if line.strip()]
+    if not changed:
+        return sha
+    return f"{sha}+dirty:{len(changed)}"
 
 
 _CURRENT_CUDA_DEVICE = -1
