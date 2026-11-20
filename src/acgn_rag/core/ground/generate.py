@@ -19,8 +19,10 @@ from pydantic import BaseModel, ConfigDict, StrictInt, StringConstraints, Valida
 
 from acgn_rag.config import LLMConfig
 from acgn_rag.core.ground.policy import (
+    FOCUS_RULE,
     MEDIA_SOURCE_RULE,
     QUOTE_DISCIPLINE_RULE,
+    answer_focus_enabled,
     quote_discipline_enabled,
 )
 from acgn_rag.core.ground.validation import (
@@ -113,16 +115,23 @@ SYSTEM_PROMPT: Final = (
 
 
 def system_prompt() -> str:
-    """The controlling prompt for this process, including the media rule variant.
+    """The controlling prompt for this process, including the append-only rule variants.
 
     ``SYSTEM_PROMPT`` is the pre-adoption prompt, unchanged in wording and order, so anything
-    that pins its contract keeps holding. Quote discipline is **on by default** and only
-    *appends* the copy mechanics, so the escape hatch differs in exactly one trailing paragraph:
-    ``ACGN_ANSWER_QUOTE_DISCIPLINE=0`` reproduces ``SYSTEM_PROMPT`` byte for byte.
+    that pins its contract keeps holding. Each optional rule is only *appended*, so the escape
+    hatch differs in exactly one trailing paragraph:
+
+      - quote discipline is **on by default**; ``ACGN_ANSWER_QUOTE_DISCIPLINE=0`` drops it and
+        reproduces ``SYSTEM_PROMPT`` byte for byte when answer focus is also off;
+      - answer focus is **off by default** until an A/B with repeats adopts it;
+        ``ACGN_ANSWER_FOCUS=1`` enables it.
     """
+    prompt = SYSTEM_PROMPT
     if quote_discipline_enabled():
-        return SYSTEM_PROMPT + " " + QUOTE_DISCIPLINE_RULE
-    return SYSTEM_PROMPT
+        prompt += " " + QUOTE_DISCIPLINE_RULE
+    if answer_focus_enabled():
+        prompt += " " + FOCUS_RULE
+    return prompt
 
 
 _FENCED_BLOCK: Final = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
