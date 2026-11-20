@@ -1,0 +1,31 @@
+# Shared environment for the quote-discipline A/B experiment (NEXT_STEPS.md §2).
+# Dot-source this from any launcher:  . .\experiments\env_common.ps1
+
+$env:ACGN_DATA_DIR = 'D:\ACGNdaily-Database\.bge-index'
+$env:ACGN_EMBED_MODEL = 'BAAI/bge-m3'
+$env:ACGN_EMBED_DEVICE = 'cuda'
+$env:ACGN_EMBED_BATCH = '16'
+$env:HF_HOME = 'D:\ACGNdaily-Database\.hf-home'
+$env:HF_HUB_OFFLINE = '1'
+$env:HF_HUB_DISABLE_SYMLINKS = '1'
+$env:SQLITE_TMPDIR = 'D:\ACGNdaily-Database\.sqltmp'
+$env:TMP = 'D:\ACGNdaily-Database\.sqltmp'
+$env:TEMP = 'D:\ACGNdaily-Database\.sqltmp'
+$env:PYTHONIOENCODING = 'utf-8'
+
+$Script:RepoRoot = 'D:\ACGNdaily-Database'
+$Script:Py       = 'D:\ACGNdaily-Database\.evalvenv\Scripts\python.exe'
+$Script:OutRoot  = 'D:\ACGNdaily-Database\evalout'
+
+# The fixed arm of the experiment: everything except ACGN_ANSWER_QUOTE_DISCIPLINE.
+$Script:CommonArgs = @(
+    'scripts/run_eval.py',
+    '--config', 'A',
+    '--snapshot', '20261105-d797b5f0ae8e',
+    '--qa', 'eval/qa_set_delivery.jsonl',
+    '--answerer', 'live',
+    '--translate-queries', 'zh',
+    '--official-bonus', '1.08',
+    '--window-start', '2023-11-05',
+    '--window-end', '2026-11-05'
+)
