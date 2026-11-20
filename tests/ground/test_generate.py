@@ -234,13 +234,16 @@ def test_prompt_contains_the_actual_question_evidence_and_shared_media_policy(
     query = _query()
     chunks = [_chunk(1), _chunk(2)]
 
-    # The shipped prompt body must survive both modes: with quote discipline on (the default)
-    # the media rule is no longer the last thing said, but it must still be present verbatim.
+    # The shipped prompt body must survive every mode. Two append-only rules exist, so the
+    # "ends with the media rule" shape only holds with both off; with either on the media rule
+    # must still be present verbatim.
     monkeypatch.setenv("ACGN_ANSWER_QUOTE_DISCIPLINE", "0")
+    monkeypatch.setenv("ACGN_ANSWER_FOCUS", "0")
     system_off, user = build_grounding_prompt(query, chunks)
     assert system_off.endswith(MEDIA_SOURCE_RULE)
 
     monkeypatch.delenv("ACGN_ANSWER_QUOTE_DISCIPLINE", raising=False)
+    monkeypatch.delenv("ACGN_ANSWER_FOCUS", raising=False)
     system_on, user_on = build_grounding_prompt(query, chunks)
     assert system_on.startswith(system_off)
     assert MEDIA_SOURCE_RULE in system_on
@@ -262,6 +265,8 @@ def test_quote_discipline_is_on_by_default_and_the_escape_hatch_is_byte_identica
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The adopted default appends the rule; disabling it restores the old prompt exactly."""
+    # Isolate the quote-discipline switch from the other append-only rule.
+    monkeypatch.setenv("ACGN_ANSWER_FOCUS", "0")
     monkeypatch.delenv("ACGN_ANSWER_QUOTE_DISCIPLINE", raising=False)
     assert generate.system_prompt() == SYSTEM_PROMPT + " " + QUOTE_DISCIPLINE_RULE
 

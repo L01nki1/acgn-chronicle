@@ -54,6 +54,13 @@ QUOTE_DISCIPLINE_RULE = (
 #: phrase might. Measured on the real index, 10 of 26 gold facts DO pass the verbatim check as
 #: short answers ("Odeholo", "Studio KAI", "2027"), so precision is reachable — the prompt just
 #: never asked for it. This paragraph asks, and states the ordering constraint explicitly.
+#:
+#: Adopted after three runs on the corrected delivery set: answer/gold length ratio 8.31 -> 2.23
+#: to 2.60, answers that lead with the asked-for fact 4/27 -> 13-15/26, unanswerable items still
+#: refused 7/7 and no false answer in any run. Rule (f) exists because of the one item that was
+#: still refused in all three runs: its headline is itself a complete answer beginning with the
+#: asked-for subject, and without (f) the brevity rules read as instructions to fragment or
+#: extend it, which produced an over-budget claim and lost the whole question.
 FOCUS_RULE = (
     "Answer the question that was asked, not the paragraph it came from. "
     "(a) The first sentence of the first claim must state the asked-for fact as its subject or "
@@ -68,7 +75,19 @@ FOCUS_RULE = (
     "own: the citation carries the verifiability, so the claim does not have to carry the context. "
     "Copying a whole sentence to look complete is worse than being brief. "
     "(e) Prefer the shortest verbatim run that answers the question exactly. Do not append "
-    "publisher names, dates, background or 'also' clauses that the question did not ask for."
+    "publisher names, dates, background or 'also' clauses that the question did not ask for. "
+    "(f) A headline that already answers the question IS a complete claim - copy it whole and "
+    "stop. Do not extend it with body text, do not join a second sentence to it, and do not "
+    "splice it to your own wording: rules (d) and (e) ask for brevity, never for fragmentation. "
+    "Never build a longer run out of a headline plus surrounding body text, and never let one "
+    "claim exceed the quote budget - a claim that runs over is discarded and the question goes "
+    "unanswered, which is worse than a source-language headline that reads like a sentence. "
+    "(g) Rule (f) permits quoting a whole headline; it never permits answering a question the "
+    "headline does not answer. Before copying anything, check that it states the specific thing "
+    "asked for - the named person, the yes/no fact, the number. A headline on the same topic is "
+    "NOT an answer: if the evidence states what happened but not what was asked (for example it "
+    "reports a hiatus when the question asks whether an editor changed), return "
+    '{"claims": []} and let the question be refused. Relevant is not the same as answering.'
 )
 
 
@@ -85,12 +104,11 @@ def _flag(name: str, default: bool) -> bool:
 
 
 def answer_focus_enabled() -> bool:
-    """Whether the answer-focus paragraph is appended.
+    """Whether the answer-focus paragraph is appended. **On by default** (measured adoption).
 
-    Off by default until measured: the quote-discipline precedent is that a prompt rule is
-    adopted on an A/B with repeats, not on how well it reads. ``ACGN_ANSWER_FOCUS=1`` enables it.
+    ``ACGN_ANSWER_FOCUS=0`` is the escape hatch back to the pre-adoption prompt.
     """
-    return _flag("ACGN_ANSWER_FOCUS", default=False)
+    return _flag("ACGN_ANSWER_FOCUS", default=True)
 
 
 def quote_discipline_enabled() -> bool:
