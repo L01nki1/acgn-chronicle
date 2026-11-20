@@ -1479,6 +1479,12 @@ def test_compare_tier1_runs_ignores_generation_fields(tmp_path: Path) -> None:
     ]
     rows[0]["cited_chunk_ids"] = ["c1"]
     rows[0]["status"] = "answered"
+    rows[0]["diagnostics"] = {
+        "prompt_build_ms": 1.25,
+        "provider_ms": 145.0,
+        "validation_ms": 3.0,
+        "total_ms": 150.25,
+    }
     answers_path.write_text(
         "\n".join(json.dumps(row) for row in rows) + "\n",
         encoding="utf-8",

@@ -417,6 +417,48 @@ def test_prose_and_fences_around_the_json_object_do_not_lose_valid_claims(raw: s
     assert answer.answer == "Fact one. [1]"
 
 
+@pytest.mark.parametrize(
+    "claims",
+    [[], [{"text": "Supported fact.", "evidence_indices": [1]}]],
+)
+def test_diagnostics_record_each_generation_phase_after_calling_the_provider(
+    claims: Sequence[dict[str, JsonValue]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ticks = iter([1_000_000, 3_000_000, 5_500_000, 8_750_000, 13_000_000])
+    monkeypatch.setattr("acgn_rag.core.ground.generate.perf_counter_ns", lambda: next(ticks))
+    client = FakeAnswerClient(_response(claims))
+
+    run = generate_grounded_answer_run(_query(), [_chunk(1)], client)
+
+    assert run.answer.abstained == (not claims)
+    assert len(client.calls) == 1
+    assert run.diagnostics.provider_completion is True
+    assert run.diagnostics.prompt_build_ms == 2.5
+    assert run.diagnostics.provider_ms == 3.25
+    assert run.diagnostics.validation_ms == 4.25
+    assert run.diagnostics.total_ms == 12.0
+
+
+@pytest.mark.parametrize("has_evidence", [False, True])
+def test_early_refusal_records_total_time_and_skips_generation_phases(
+    has_evidence: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ticks = iter([1_000_000, 2_500_000])
+    monkeypatch.setattr("acgn_rag.core.ground.generate.perf_counter_ns", lambda: next(ticks))
+    client = FakeAnswerClient(_response([]))
+    chunks = [_chunk(1)] if has_evidence else []
+
+    run = generate_grounded_answer_run(_query(), chunks, client, min_retrieval_score=0.9)
+
+    assert run.answer.abstained
+    assert client.calls == []
+    assert run.diagnostics.provider_completion is False
+    assert run.diagnostics.prompt_build_ms is None
+    assert run.diagnostics.provider_ms is None
+    assert run.diagnostics.validation_ms is None
+    assert run.diagnostics.total_ms == 1.5
+
+
 def test_one_malformed_claim_does_not_discard_the_valid_claims() -> None:
     client = FakeAnswerClient(
         _response(
