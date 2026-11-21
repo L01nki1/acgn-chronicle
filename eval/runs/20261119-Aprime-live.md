@@ -1,5 +1,7 @@
 # ④ live runs on A′ — 2026-11-19
 
+> Related measurement set: `20261121-eval-record.md` (E4 bge, delivery A/B, four-index replay).
+
 Two Tier-2 live runs on the adopted e5 Config A′ lane, for D's ④ adjudication.
 Both are `reportable=true`, `qa.role=report`, with the A′ calibration artifact.
 

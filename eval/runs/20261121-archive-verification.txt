@@ -1,0 +1,22 @@
+run                                  files  qa elig fp         report reason                 win    hit    mrr live
+20261120-E4-bge-A                        6  30   13 663840690a False  calibration_instrument True   8/13 0.4615 -
+20261120-E4-bge-Aprime                   6  30   13 663840690a False  calibration_instrument True   7/13 0.3910 -
+20261120-delivery-bge-Aprime-off         6  34   26 c77c842dd7 True   None                   True  25/26 0.8667 live
+20261120-delivery-bge-Aprime-on          6  34   26 c77c842dd7 True   None                   True  25/26 0.8667 live
+eval-bge-m3-A-bonus-null-r1              6  34   27 97b7ca7e84 True   None                   True  26/27 0.7802 -
+eval-bge-m3-A-single-null-r1             6  34   27 97b7ca7e84 True   None                   True  26/27 0.7802 -
+eval-bge-m3-A-live-adopted-r1            6  34   27 97b7ca7e84 True   None                   True  26/27 0.7802 live
+eval-bge-m3-Ap-bonus-null-r1             6  34   27 97b7ca7e84 True   None                   True  26/27 0.8469 -
+eval-bge-m3-Ap-single-null-r1            6  34   27 97b7ca7e84 True   None                   True  26/27 0.8469 -
+eval-bge-m3-Ap-live-adopted-r1           6  34   27 97b7ca7e84 True   None                   True  26/27 0.8469 live
+eval-e5-A-bonus-null-r1                  6  34   27 97b7ca7e84 True   None                   True  21/27 0.5877 -
+eval-e5-A-single-null-r1                 6  34   27 97b7ca7e84 True   None                   True  21/27 0.5877 -
+eval-e5-A-live-adopted-r1                6  34   27 97b7ca7e84 True   None                   True  21/27 0.5877 live
+eval-e5-Ap-bonus-null-r1                 6  34   27 97b7ca7e84 True   None                   True  21/27 0.6543 -
+eval-e5-Ap-single-null-r1                6  34   27 97b7ca7e84 True   None                   True  21/27 0.6543 -
+eval-e5-Ap-live-adopted-r1               6  34   27 97b7ca7e84 True   None                   True  21/27 0.6543 live
+
+files: 96 / 96
+secrets-like strings: none
+zips tracked by git: none
+verification: PASS
