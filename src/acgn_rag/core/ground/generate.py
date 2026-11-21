@@ -13,6 +13,7 @@ import re
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from time import perf_counter_ns
 from typing import Annotated, Final, Protocol
 
 from pydantic import BaseModel, ConfigDict, StrictInt, StringConstraints, ValidationError
@@ -112,7 +113,13 @@ class Completion:
 
 @dataclass(frozen=True, slots=True)
 class AnswerDiagnostics:
-    """Non-wire generation diagnostics for the evaluation run record."""
+    """Non-wire generation diagnostics for the evaluation run record.
+
+    Durations are monotonic milliseconds. Prompt time includes the budget check.
+    Provider time covers the completion call. Validation runs from response parsing
+    through the final wire answer. Total time includes preflight and final validation.
+    Stages skipped on an early refusal have no duration.
+    """
 
     max_tokens: int
     finish_reason: str | None = None
@@ -129,6 +136,11 @@ class AnswerDiagnostics:
     claims_seen: int = 0
     parse_ok: int = 0
     dropped_by_rule: dict[str, int] = field(default_factory=dict)
+    # Preserve deterministic diagnostics equality while archiving timing observations.
+    prompt_build_ms: float | None = field(default=None, compare=False)
+    provider_ms: float | None = field(default=None, compare=False)
+    validation_ms: float | None = field(default=None, compare=False)
+    total_ms: float | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -241,6 +253,7 @@ def generate_grounded_answer_run(
     min_retrieval_score: float | None = None,
 ) -> GroundedAnswerRun:
     """Generate one answer and keep the diagnostics a calibration run must record."""
+    started_ns = perf_counter_ns()
     if min_retrieval_score is not None:
         # bool is an int subclass, so math.isfinite(True) is True and True would silently act
         # as 1.0 -- a threshold nobody asked for. Reject it before the finite check.
@@ -252,13 +265,14 @@ def generate_grounded_answer_run(
         if not math.isfinite(min_retrieval_score):
             raise ValueError(f"min_retrieval_score must be finite, got {min_retrieval_score!r}")
     if not chunks:
-        return _abstain_run(
-            ABSTAIN_NO_EVIDENCE,
-            query.text,
-            AnswerDiagnostics(
+        answer = _abstain_answer(ABSTAIN_NO_EVIDENCE, query.text)
+        return GroundedAnswerRun(
+            answer=answer,
+            diagnostics=AnswerDiagnostics(
                 max_tokens=max_tokens,
                 abstain_code=ABSTAIN_NO_EVIDENCE,
                 min_retrieval_score=min_retrieval_score,
+                total_ms=(perf_counter_ns() - started_ns) / 1_000_000,
             ),
         )
     validate_retrieved_evidence(query, chunks)
@@ -270,17 +284,19 @@ def generate_grounded_answer_run(
         raise ValueError("retrieved chunk scores must be finite")
     retrieval_top_score = max(chunk.score for chunk in chunks)
     if min_retrieval_score is not None and retrieval_top_score < min_retrieval_score:
-        return _abstain_run(
-            ABSTAIN_RETRIEVAL_BELOW_THRESHOLD,
-            query.text,
-            AnswerDiagnostics(
+        answer = _abstain_answer(ABSTAIN_RETRIEVAL_BELOW_THRESHOLD, query.text)
+        return GroundedAnswerRun(
+            answer=answer,
+            diagnostics=AnswerDiagnostics(
                 max_tokens=max_tokens,
                 abstain_code=ABSTAIN_RETRIEVAL_BELOW_THRESHOLD,
                 min_retrieval_score=min_retrieval_score,
                 retrieval_top_score=retrieval_top_score,
+                total_ms=(perf_counter_ns() - started_ns) / 1_000_000,
             ),
         )
 
+    prompt_started_ns = perf_counter_ns()
     system, user = build_grounding_prompt(query, chunks)
     prompt_size = len(system) + len(user)
     if prompt_size > PROMPT_EVIDENCE_MAX_CHARS:
@@ -288,7 +304,9 @@ def generate_grounded_answer_run(
             f"composed grounding prompt is {prompt_size} characters; "
             f"the limit is {PROMPT_EVIDENCE_MAX_CHARS}"
         )
+    provider_started_ns = perf_counter_ns()
     completion = client.complete(system, user, max_tokens=max_tokens)
+    validation_started_ns = perf_counter_ns()
     drafts, dropped_invalid = _parse_claims(completion.text)
 
     citations_by_id: dict[str, int] = {}
@@ -346,6 +364,17 @@ def generate_grounded_answer_run(
     abstain_code = None
     if not rendered_claims:
         abstain_code = ABSTAIN_MODEL_EMPTY if not drafts else ABSTAIN_ALL_CLAIMS_REJECTED
+        validated = _abstain_answer(abstain_code, query.text)
+    else:
+        answer = GroundedAnswer(
+            answer=" ".join(rendered_claims),
+            citations=[chunk.citation for chunk in used_chunks],
+            cited_chunk_ids=[chunk.chunk_id for chunk in used_chunks],
+            abstained=False,
+            abstain_reason=None,
+        )
+        validated = validate_grounded_answer(answer, query.snapshot_id, chunks)
+    finished_ns = perf_counter_ns()
     diagnostics = AnswerDiagnostics(
         max_tokens=max_tokens,
         finish_reason=completion.finish_reason,
@@ -358,18 +387,11 @@ def generate_grounded_answer_run(
         claims_seen=len(drafts) + dropped_invalid,
         parse_ok=len(drafts),
         dropped_by_rule=dict(dropped_by_rule),
+        prompt_build_ms=(provider_started_ns - prompt_started_ns) / 1_000_000,
+        provider_ms=(validation_started_ns - provider_started_ns) / 1_000_000,
+        validation_ms=(finished_ns - validation_started_ns) / 1_000_000,
+        total_ms=(finished_ns - started_ns) / 1_000_000,
     )
-    if abstain_code is not None:
-        return _abstain_run(abstain_code, query.text, diagnostics)
-
-    answer = GroundedAnswer(
-        answer=" ".join(rendered_claims),
-        citations=[chunk.citation for chunk in used_chunks],
-        cited_chunk_ids=[chunk.chunk_id for chunk in used_chunks],
-        abstained=False,
-        abstain_reason=None,
-    )
-    validated = validate_grounded_answer(answer, query.snapshot_id, chunks)
     return GroundedAnswerRun(answer=validated, diagnostics=diagnostics)
 
 
@@ -463,7 +485,7 @@ def _refusal_message(code: str, question: str) -> str:
     return _REFUSALS[_question_language(question)][code]
 
 
-def _abstain_run(code: str, question: str, diagnostics: AnswerDiagnostics) -> GroundedAnswerRun:
+def _abstain_answer(code: str, question: str) -> GroundedAnswer:
     reason = _refusal_message(code, question)
     answer = GroundedAnswer(
         answer=reason,
@@ -472,7 +494,4 @@ def _abstain_run(code: str, question: str, diagnostics: AnswerDiagnostics) -> Gr
         abstained=True,
         abstain_reason=reason,
     )
-    return GroundedAnswerRun(
-        answer=validate_grounded_answer(answer, "", ()),
-        diagnostics=diagnostics,
-    )
+    return validate_grounded_answer(answer, "", ())
