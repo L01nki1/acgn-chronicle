@@ -14,8 +14,9 @@ the #111 correction
 | Delivery A/B | `qa_set_delivery.jsonl` @ `fb4dddf`, fp `c77c842d…` | 34; **26 answerable / 8 unanswerable** (pre-relabel) | true, window verified | bge A′ 25/26, 25 answered, 1 refusal, 7/8 unanswerable, **1 false answer (D-004)** |
 | Index replay | `qa_set_delivery.jsonl` @ `e152902`, fp `97b7ca7e…` | 34; **27 answerable / 7 unanswerable** (post-relabel) | true, window verified | bge 26/27, e5 21/27; 0 false answers |
 
-The 25/26 and 26/27 figures are the same delivery archives under two labels: the D-004 relabel
-turns one false answer into an answerable hit. Quote 26/27 for the current instrument.
+The 25/26 and 26/27 figures are two rounds on the same 34-item set, before and after the D-004
+relabel. They are different runs, not one run read twice; the relabel turns one false answer into
+an answerable hit. Quote 26/27 for the current instrument.
 
 ## Delivery A/B — 2026-11-20
 
