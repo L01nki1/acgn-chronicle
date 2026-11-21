@@ -1,0 +1,228 @@
+{
+  "run_id": "20261120-delivery-bge-Aprime-off",
+  "snapshot_id": "20261105-d797b5f0ae8e",
+  "window_start": "2023-11-05",
+  "window_end": "2026-11-05",
+  "window_verified": true,
+  "chunk_config": "A'",
+  "retrieval": {
+    "mode": "vector",
+    "top_k": 5,
+    "over_fetch": 5,
+    "latency_ms": {
+      "n": 34,
+      "p50": 1473.956,
+      "p95": 2223.262
+    }
+  },
+  "embed": {
+    "model": "BAAI/bge-m3",
+    "backend": "torch",
+    "device": "cuda",
+    "precision": "fp32",
+    "library_versions": {
+      "sentence_transformers": "5.7.0",
+      "torch": "2.14.1+cu130",
+      "transformers": "5.22.1",
+      "numpy": "2.4.6"
+    },
+    "batch": 16
+  },
+  "build_identity": {
+    "model": "BAAI/bge-m3",
+    "backend": "torch",
+    "device": "cuda",
+    "precision": "fp32",
+    "batch_size": 16,
+    "identity_slug": "bge-m3-torch-cuda-fp32-6174cb54",
+    "lib_sentence_transformers": "5.7.0",
+    "lib_torch": "2.14.1+cu130",
+    "lib_transformers": "5.22.1",
+    "lib_numpy": "2.4.6"
+  },
+  "chunker": {
+    "version": "composed-input-v2",
+    "header_version": "h1",
+    "config": "A'",
+    "max_tokens": 256,
+    "overlap": 0,
+    "max_seq_length": 512
+  },
+  "reportable": true,
+  "non_reportable_reason": null,
+  "reportable_scope": "run; per-family availability is in metrics.reporting",
+  "determinism": {
+    "torch_available": true,
+    "torch_seed": 0,
+    "use_deterministic_algorithms": true,
+    "warn_only": true,
+    "gpu_model": "Tesla T4"
+  },
+  "gpu_policy": "not_enforced",
+  "require_gpu": false,
+  "collection": "snap_full_20261105-d797b5f0ae8e_A-prime",
+  "query_transform": "none",
+  "official_score_weight": 1.0,
+  "answerer_version": "c4-titlequote-v1",
+  "llm": {
+    "provider": "https://opencode.ai/inference/go/openai/v1",
+    "model": "deepseek-v4.1-flash",
+    "version": "deepseek-v4.1-flash",
+    "temperature": 0.0,
+    "seed": null
+  },
+  "llm_probe": {
+    "endpoint": "https://opencode.ai/inference/go/openai/v1/models",
+    "checked_at": "2026-11-20T04:43:16+00:00",
+    "model": "deepseek-v4.1-flash",
+    "status": 200,
+    "model_present": true,
+    "model_count": 31,
+    "error": null
+  },
+  "abstention": {
+    "threshold": null,
+    "source": null,
+    "calibration_identity": null
+  },
+  "git_sha": "fb4dddf",
+  "qa": {
+    "path": "eval/qa_set_delivery.jsonl",
+    "count": 34,
+    "inputs_fingerprint": "c77c842dd7e346a0253562715516d069e6cef0748ac82838e43ed3150ca07a0d",
+    "validated": true,
+    "validation": "validated",
+    "source": "cli",
+    "role": "report"
+  },
+  "created_at": "2026-11-20T04:54:51+00:00",
+  "metrics": {
+    "counts": {
+      "qa_total": 34,
+      "answerable": 26,
+      "unanswerable": 8,
+      "gold_unavailable": 0,
+      "gold_member_not_indexed": 0,
+      "gold_unresolved": 0,
+      "dropped": 0,
+      "deduped_count": 36121,
+      "indexed_chunks": 108899
+    },
+    "retrieval": {
+      "k": 5,
+      "hit": {
+        "all": {
+          "value": 0.9615384615384616,
+          "n": 26
+        },
+        "en": {
+          "value": 0.9565217391304348,
+          "n": 23
+        },
+        "zh": {
+          "value": 1.0,
+          "n": 3
+        }
+      },
+      "mrr": {
+        "all": {
+          "value": 0.8666666666666667,
+          "n": 26
+        },
+        "en": {
+          "value": 0.8782608695652173,
+          "n": 23
+        },
+        "zh": {
+          "value": 0.7777777777777778,
+          "n": 3
+        }
+      },
+      "evidence_recall": {
+        "all": {
+          "value": 0.9615384615384616,
+          "n": 26
+        },
+        "en": {
+          "value": 0.9565217391304348,
+          "n": 23
+        },
+        "zh": {
+          "value": 1.0,
+          "n": 3
+        }
+      },
+      "excluded": {
+        "unanswerable": 8,
+        "gold_unavailable": 0,
+        "gold_member_not_indexed": 0,
+        "gold_unresolved": 0,
+        "missing_gold": 0,
+        "dropped": 0
+      }
+    },
+    "correctness": {
+      "counts": {
+        "fully_correct": 0,
+        "partially_correct": 0,
+        "incorrect": 0
+      },
+      "rates": {
+        "all": {
+          "value": null,
+          "n": 0
+        },
+        "en": {
+          "value": null,
+          "n": 0
+        },
+        "zh": {
+          "value": null,
+          "n": 0
+        }
+      }
+    },
+    "abstention": {
+      "threshold": null,
+      "refusal_rate": {
+        "value": 0.875,
+        "n": 8
+      },
+      "false_refusal_rate": {
+        "value": 0.038461538461538464,
+        "n": 26
+      },
+      "calibration_in_sample": {
+        "value": null,
+        "n": 0
+      }
+    },
+    "citation": {
+      "containment_rate": {
+        "value": 1.0,
+        "n": 26
+      },
+      "violations": 0,
+      "abstained_violations": 0
+    },
+    "reporting": {
+      "retrieval": {
+        "available": true,
+        "n": 26
+      },
+      "correctness": {
+        "available": false,
+        "n": 0
+      },
+      "abstention": {
+        "available": true,
+        "n": 34
+      },
+      "citation": {
+        "available": true,
+        "n": 26
+      }
+    },
+    "provisional": false
+  }
+}

@@ -1,0 +1,220 @@
+{
+  "run_id": "eval-bge-m3-A-bonus-null-r1",
+  "snapshot_id": "20261105-d797b5f0ae8e",
+  "window_start": "2023-11-05",
+  "window_end": "2026-11-05",
+  "window_verified": true,
+  "chunk_config": "A",
+  "retrieval": {
+    "mode": "vector",
+    "top_k": 5,
+    "over_fetch": 5,
+    "latency_ms": {
+      "n": 34,
+      "p50": 2713.25,
+      "p95": 3858.384
+    }
+  },
+  "embed": {
+    "model": "BAAI/bge-m3",
+    "backend": "torch",
+    "device": "cuda",
+    "precision": "fp32",
+    "library_versions": {
+      "sentence_transformers": "5.7.0",
+      "torch": "2.14.1+cu130",
+      "transformers": "5.22.1",
+      "numpy": "2.4.6"
+    },
+    "batch": 16
+  },
+  "build_identity": {
+    "model": "BAAI/bge-m3",
+    "backend": "torch",
+    "device": "cuda",
+    "precision": "fp32",
+    "batch_size": 16,
+    "identity_slug": "bge-m3-torch-cuda-fp32-6174cb54",
+    "lib_sentence_transformers": "5.7.0",
+    "lib_torch": "2.14.1+cu130",
+    "lib_transformers": "5.22.1",
+    "lib_numpy": "2.4.6"
+  },
+  "chunker": {
+    "version": "composed-input-v2",
+    "header_version": "h1",
+    "config": "A",
+    "max_tokens": 512,
+    "overlap": 64,
+    "max_seq_length": 512
+  },
+  "reportable": true,
+  "non_reportable_reason": null,
+  "reportable_scope": "run; per-family availability is in metrics.reporting",
+  "determinism": {
+    "torch_available": true,
+    "torch_seed": 0,
+    "use_deterministic_algorithms": true,
+    "warn_only": true,
+    "gpu_model": "Tesla T4"
+  },
+  "gpu_policy": "not_enforced",
+  "require_gpu": false,
+  "collection": "snap_full_20261105-d797b5f0ae8e_A",
+  "query_transform": "none",
+  "official_score_weight": 1.08,
+  "answerer_version": "c4-titlequote-v1",
+  "llm": {
+    "provider": "none",
+    "model": "none",
+    "version": "none",
+    "temperature": 0.0,
+    "seed": null
+  },
+  "llm_probe": null,
+  "abstention": {
+    "threshold": null,
+    "source": null,
+    "calibration_identity": null
+  },
+  "git_sha": "e152902+dirty:1",
+  "qa": {
+    "path": "eval/qa_set_delivery.jsonl",
+    "count": 34,
+    "inputs_fingerprint": "97b7ca7e846ed070841d1adb85802d46fbe662c0d124b4818d283d0089c94e8d",
+    "validated": true,
+    "validation": "validated",
+    "source": "cli",
+    "role": "report"
+  },
+  "created_at": "2026-11-21T03:02:10+00:00",
+  "metrics": {
+    "counts": {
+      "qa_total": 34,
+      "answerable": 27,
+      "unanswerable": 7,
+      "gold_unavailable": 0,
+      "gold_member_not_indexed": 0,
+      "gold_unresolved": 0,
+      "dropped": 0,
+      "deduped_count": 36121,
+      "indexed_chunks": 73976
+    },
+    "retrieval": {
+      "k": 5,
+      "hit": {
+        "all": {
+          "value": 0.9629629629629629,
+          "n": 27
+        },
+        "en": {
+          "value": 1.0,
+          "n": 24
+        },
+        "zh": {
+          "value": 0.6666666666666666,
+          "n": 3
+        }
+      },
+      "mrr": {
+        "all": {
+          "value": 0.7802469135802469,
+          "n": 27
+        },
+        "en": {
+          "value": 0.8152777777777778,
+          "n": 24
+        },
+        "zh": {
+          "value": 0.5,
+          "n": 3
+        }
+      },
+      "evidence_recall": {
+        "all": {
+          "value": 0.9629629629629629,
+          "n": 27
+        },
+        "en": {
+          "value": 1.0,
+          "n": 24
+        },
+        "zh": {
+          "value": 0.6666666666666666,
+          "n": 3
+        }
+      },
+      "excluded": {
+        "unanswerable": 7,
+        "gold_unavailable": 0,
+        "gold_member_not_indexed": 0,
+        "gold_unresolved": 0,
+        "missing_gold": 0,
+        "dropped": 0
+      }
+    },
+    "correctness": {
+      "counts": {
+        "fully_correct": 0,
+        "partially_correct": 0,
+        "incorrect": 0
+      },
+      "rates": {
+        "all": {
+          "value": null,
+          "n": 0
+        },
+        "en": {
+          "value": null,
+          "n": 0
+        },
+        "zh": {
+          "value": null,
+          "n": 0
+        }
+      }
+    },
+    "abstention": {
+      "threshold": null,
+      "refusal_rate": {
+        "value": null,
+        "n": 0
+      },
+      "false_refusal_rate": {
+        "value": null,
+        "n": 0
+      },
+      "calibration_in_sample": {
+        "value": null,
+        "n": 0
+      }
+    },
+    "citation": {
+      "containment_rate": {
+        "value": null,
+        "n": 0
+      },
+      "violations": 0,
+      "abstained_violations": 0
+    },
+    "reporting": {
+      "retrieval": {
+        "available": true,
+        "n": 27
+      },
+      "correctness": {
+        "available": false,
+        "n": 0
+      },
+      "abstention": {
+        "available": false,
+        "n": 0
+      },
+      "citation": {
+        "available": false,
+        "n": 0
+      }
+    },
+    "provisional": false
+  }
+}
