@@ -36,8 +36,11 @@ const dom = {
   snapshotSelect: document.querySelector("#snapshot-select"),
   snapshotId: document.querySelector("#snapshot-id"),
   resultState: document.querySelector("#result-state"),
+  resultStatus: document.querySelector("#result-status"),
   resultMeta: document.querySelector("#result-meta"),
   resultsTitle: document.querySelector("#results-title"),
+  contractNotes: document.querySelector("#contract-notes"),
+  questionCount: document.querySelector("#question-count"),
   since: document.querySelector("#since"),
   until: document.querySelector("#until"),
   mediaId: document.querySelector("#media-id"),
@@ -97,6 +100,26 @@ function setFormNote(message, isError = false) {
 function setBusy(isBusy) {
   dom.submit.disabled = isBusy;
   dom.resultState.setAttribute("aria-busy", String(isBusy));
+}
+
+/** Announce the outcome in one short sentence instead of re-reading the whole panel. */
+function setResultStatus(message) {
+  dom.resultStatus.textContent = message;
+}
+
+// The page runs one query on load, but a visitor who just arrived did not ask for it; scrolling
+// them into the middle of the page would be a worse first impression than the missing feedback.
+let userIntent = false;
+
+/**
+ * On a narrow viewport the results sit far below the form, so a submit used to look like nothing
+ * happened. Bring the result region into view; desktop and the initial load are left alone.
+ */
+function revealResults() {
+  if (!userIntent || !window.matchMedia("(max-width: 860px)").matches) {
+    return;
+  }
+  dom.resultState.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 /**
@@ -177,14 +200,20 @@ function buildRequest() {
 
   const filters = {};
   const sourceTypes = selectedSourceTypes();
-  if (sourceTypes.length > 0) {
-    filters.source_types = sourceTypes;
+  // No checkbox is not "no filter": omitting source_types widens the request to everything, the
+  // opposite of the user's "I selected nothing". Rejecting it keeps the form's meaning honest.
+  if (sourceTypes.length === 0) {
+    throw new FormError("至少选择一个来源类型；全部不选不等于不筛选。");
   }
+  filters.source_types = sourceTypes;
   if (dom.since.value) {
     filters.since = dom.since.value;
   }
   if (dom.until.value) {
     filters.until = dom.until.value;
+  }
+  if (dom.since.value && dom.until.value && dom.since.value > dom.until.value) {
+    throw new FormError("开始日期不能晚于结束日期。");
   }
   if (dom.mediaId.value.trim()) {
     const mediaId = Number(dom.mediaId.value);
@@ -311,13 +340,16 @@ function renderResponse(mode, payload, request, fromCache) {
 
   if (mode === "retrieve") {
     renderRetrieve(payload, request, stateName);
+    revealResults();
     return;
   }
   if (stateName === "ask-abstained") {
     renderRefusal(payload);
+    revealResults();
     return;
   }
   renderAnswer(payload, request);
+  revealResults();
 }
 
 function renderRetrieve(payload, request, stateName) {
@@ -335,7 +367,7 @@ function renderRetrieve(payload, request, stateName) {
   container.append(
     element("p", {
       className: "compliance-note",
-      text: `${items.length} 条片段通过引用检查；每条引文最多 ${MAX_QUOTE_CODEPOINTS} 个字符。`,
+      text: `${items.length} 条片段通过引用检查；按 score 排序，仅在本次响应内有效；每条引文最多 ${MAX_QUOTE_CODEPOINTS} 个字符。`,
     }),
   );
   items.forEach((excerpt) => {
@@ -345,6 +377,7 @@ function renderRetrieve(payload, request, stateName) {
     container.append(renderHiddenNotice(hiddenCount));
   }
   replace(dom.resultState, container);
+  setResultStatus(`已显示 ${items.length} 条检索片段。`);
 }
 
 function renderExcerptCard(excerpt) {
@@ -378,7 +411,6 @@ function renderExcerptCard(excerpt) {
 
   const meta = element("div", { className: "result-meta" }, [
     element("span", { text: `score ${Number(excerpt.score).toFixed(3)}` }),
-    element("span", { text: "仅本次响应内排序" }),
     element("span", {
       text: `字符 ${quoteLength} / ${MAX_QUOTE_CODEPOINTS}`,
     }),
@@ -402,12 +434,12 @@ function renderCitationUrl(citation) {
   // anchor can carry the original URL. `noopener` keeps the opened page out of `window.opener`.
   const link = element("a", {
     className: "citation-url-value",
-    text: citation.url,
+    text: "打开原文",
     attrs: {
       href: citation.url,
       target: "_blank",
       rel: "noopener noreferrer",
-      title: "在新窗口打开原文",
+      title: `在新窗口打开原文：${citation.url}`,
     },
   });
   link.append(
@@ -416,6 +448,7 @@ function renderCitationUrl(citation) {
   return element("div", { className: "citation-url" }, [
     element("span", { className: "citation-url-label", text: "来源" }),
     link,
+    element("span", { className: "citation-url-raw", text: citation.url }),
   ]);
 }
 
@@ -446,7 +479,7 @@ function renderAnswer(payload, request) {
     container.append(
       element("p", {
         className: "compliance-note",
-        text: `${visible.length} 条引用带 URL 与来源字段，按契约展示；点击来源可在新窗口打开原文。`,
+        text: `${visible.length} 条引用带 URL 与来源字段，按契约展示；“打开原文”在新窗口打开来源链接。`,
       }),
     );
     visible.forEach((citation) => {
@@ -466,6 +499,11 @@ function renderAnswer(payload, request) {
     container.append(renderHiddenNotice(hiddenCount));
   }
   replace(dom.resultState, container);
+  setResultStatus(
+    visible.length > 0
+      ? `已回答，展示 ${visible.length} 条引用。`
+      : "已回答，但没有可展示的引用。",
+  );
 }
 
 function renderCitationCard(citation) {
@@ -505,6 +543,7 @@ function renderEmpty(request, detail) {
   const filters = request.body.filters;
   const clearFilters = element("button", { text: "改用无筛选检索", attrs: { type: "button" } });
   clearFilters.addEventListener("click", () => {
+    userIntent = true;
     dom.sourceInputs.forEach((input) => {
       input.checked = true;
     });
@@ -527,6 +566,7 @@ function renderEmpty(request, detail) {
       element("div", { className: "state-actions" }, [clearFilters]),
     ]),
   );
+  setResultStatus("没有检索到片段：当前筛选下没有证据，这不是拒答。");
 }
 
 function renderRefusal(payload) {
@@ -536,19 +576,24 @@ function renderRefusal(payload) {
       : "服务端没有提供拒答原因。";
   const answer =
     typeof payload.answer === "string" && payload.answer.trim() ? payload.answer : reason;
+  // `answer` and `abstain_reason` may legitimately be the same string; printing both reads like a
+  // rendering bug. Show the sentence once and keep the reason only when it adds information.
+  const reasonAddsDetail = answer !== reason;
 
-  replace(
-    dom.resultState,
-    element("section", { className: "state-panel refusal-panel" }, [
-      element("h3", { text: "系统拒绝回答" }),
-      element("p", { text: answer }),
-      element("p", {
-        text: "拒答不是空结果：它表示知识库没有足够依据，因此没有引用可展示。",
-      }),
-      element("p", { className: "state-detail", text: `原因：${reason}` }),
-      element("p", { className: "state-detail", text: "引用数量：0；cited_chunk_ids：0" }),
-    ]),
-  );
+  const rows = [
+    element("h3", { text: "系统拒绝回答" }),
+    element("p", { text: answer }),
+    element("p", {
+      text: "拒答不是空结果：它表示知识库没有足够依据，因此没有引用可展示。",
+    }),
+  ];
+  if (reasonAddsDetail) {
+    rows.push(element("p", { className: "state-detail", text: `原因：${reason}` }));
+  }
+  rows.push(element("p", { className: "state-detail", text: "引用数量：0；cited_chunk_ids：0" }));
+
+  replace(dom.resultState, element("section", { className: "state-panel refusal-panel" }, rows));
+  setResultStatus("系统拒绝回答，没有展示任何引用。");
 }
 
 function renderComplianceOnly(hiddenCount) {
@@ -564,6 +609,7 @@ function renderComplianceOnly(hiddenCount) {
       }),
     ]),
   );
+  setResultStatus(`${hiddenCount} 条结果因缺少来源信息被隐藏。`);
 }
 
 function renderHiddenNotice(count) {
@@ -683,9 +729,12 @@ function renderApiError(error, request = state.lastRequest) {
   }
   dom.resultMeta.textContent = `请求失败 · HTTP ${status || "network"}`;
   replace(dom.resultState, panel);
+  setResultStatus(`请求失败：HTTP ${status || "网络错误"}。`);
+  revealResults();
 }
 
 async function handleAction(action, request) {
+  userIntent = true;
   if (action === "refresh") {
     try {
       await loadInventory();
@@ -728,9 +777,23 @@ async function handleAction(action, request) {
   }
 }
 
+function updateQuestionCount() {
+  const used = [...dom.question.value].length;
+  const limit = Number(dom.question.maxLength) || 500;
+  dom.questionCount.textContent = `${used} / ${limit}`;
+}
+
 function bindEvents() {
+  updateQuestionCount();
+  dom.question.addEventListener("input", updateQuestionCount);
+  // The contract notes are context, not something the query needs; on a phone they pushed the
+  // form's submit button off the first screen.
+  if (window.matchMedia("(max-width: 860px)").matches) {
+    dom.contractNotes.open = false;
+  }
   dom.form.addEventListener("submit", (event) => {
     event.preventDefault();
+    userIntent = true;
     runQuery();
   });
   dom.form.addEventListener("input", markFormChanged);
@@ -746,6 +809,7 @@ function bindEvents() {
   });
   document.querySelectorAll("[data-example]").forEach((button) => {
     button.addEventListener("click", () => {
+      userIntent = true;
       dom.question.value = button.dataset.example ?? "";
       dom.question.focus();
       runQuery();

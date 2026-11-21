@@ -40,12 +40,12 @@ mimetypes.add_type("text/javascript", ".js")
 
 
 def create_app(backend: KnowledgePortBackend | None = None) -> FastAPI:
-    """Build the host around a backend; G1a defaults to the fixed mock."""
+    """Build the host around a backend; the default is the fixed mock."""
     port = MockKnowledgePort() if backend is None else backend
     app = FastAPI(
         title="ACGN Chronicle KnowledgePort",
         version="0.1.0",
-        description="G1a mock host for the WP6 query page. Responses follow the wire contract.",
+        description="Local host for the WP6 query page. Responses follow the wire contract.",
     )
 
     @app.exception_handler(PortError)

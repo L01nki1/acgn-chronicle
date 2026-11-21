@@ -50,7 +50,7 @@ def test_citation_url_renders_as_a_safe_link() -> None:
 
     `isRenderableCitation` has already rejected non-http(s) URLs before a card is built, so the
     anchor may carry the original URL; `noopener noreferrer` keeps the opened page out of
-    `window.opener`.
+    `window.opener`. The link text names the action; the URL stays visible beside it (#97).
     """
     source = APP_FILE.read_text(encoding="utf-8")
     assert "跳转将在 G2 启用" not in source
@@ -58,6 +58,40 @@ def test_citation_url_renders_as_a_safe_link() -> None:
     assert "href: citation.url" in source
     assert 'target: "_blank"' in source
     assert 'rel: "noopener noreferrer"' in source
+    assert 'text: "打开原文"' in source
+    assert "citation-url-raw" in source
+
+
+def test_no_source_type_is_rejected_instead_of_widening_the_query() -> None:
+    """Unchecking every source type used to omit `source_types`, widening the query to everything.
+
+    The form's meaning is "these sources or nothing", so the page must refuse to submit (#97).
+    """
+    source = APP_FILE.read_text(encoding="utf-8")
+    assert "sourceTypes.length === 0" in source
+    assert "全部不选不等于不筛选" in source
+    assert "filters.source_types = sourceTypes;" in source
+
+
+def test_a_refusal_never_prints_the_same_sentence_twice() -> None:
+    source = APP_FILE.read_text(encoding="utf-8")
+    assert "reasonAddsDetail" in source
+
+
+def test_narrow_viewports_reveal_results_and_hide_contract_notes() -> None:
+    """On a phone the results live below the fold, so a submit looked like nothing happened.
+
+    The page brings the result region into view and collapses the contract notes first (#97).
+    The page also queries once on load; that render must not yank the visitor into the results
+    before they have asked for anything.
+    """
+    source = APP_FILE.read_text(encoding="utf-8")
+    assert "scrollIntoView" in source
+    assert "function revealResults()" in source
+    assert "dom.contractNotes.open = false" in source
+    assert "revealResults();" in source
+    assert "let userIntent = false;" in source
+    assert "if (!userIntent ||" in source
 
 
 @pytest.mark.skipif(
