@@ -79,7 +79,7 @@
   },
   "abstention": {
     "threshold": 0.8579685091972351,
-    "source": "/content/acgn-chronicle/eval/runs/20261119-cal-Aprime-e5/calibration.json",
+    "source": "eval/runs/20261119-cal-Aprime-e5/calibration.json",
     "calibration_identity": {
       "snapshot_id": "20261105-d797b5f0ae8e",
       "chunk_config": "A'",
