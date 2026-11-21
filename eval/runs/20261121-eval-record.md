@@ -77,3 +77,5 @@ retrieval, and a live run (`translate zh`, `bonus 1.08`, both prompt rules, no t
 - Pool these rounds with the frozen ④ instrument or with each other.
 - Quote 25/26 as the current bge number; it is the pre-relabel instrument.
 - Treat the E4 13-item subset as a rate for all 20 calibration items.
+- Do not pair the 11/19 calibration (`20261119-cal-Aprime-e5`) with post-#116 code; it predates
+  the three identity fields.

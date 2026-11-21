@@ -18,6 +18,13 @@ Both are `reportable=true`, `qa.role=report`, with the A′ calibration artifact
 | `meta.llm_probe` | `status=200`, `model_present=true`, `model_count=1` |
 | `ACGN_ANSWER_MAX_TOKENS` | 8192 (2048 produced `finish_reason=length` with empty content) |
 
+## Code era — calibration predates #116
+
+`20261119-cal-Aprime-e5` was created before #116 (`fb4dddf`) and carries no `query_transform`,
+`official_score_weight` or `answerer_version`. This archive records the e5 lane under pre-#116
+code, `reportable=true`; it is **not** a behaviour baseline for the merged answer line. After #116,
+④'s thresholded runs need a fresh `scripts/calibrate_abstention.py` at the new identity.
+
 ## Retrieval (headline rates match the 11/17 A′ archive)
 
 | Metric | Value |
@@ -47,7 +54,10 @@ the same URL set appears on 4/30 items, and no row has identical `retrieved_urls
 - **Unanswerable:** 5 of 6 refused.
 - **Answerable:** 14 of 26 refused; `false_refusal_rate` 0.478 (n=23 after 3 `gold_unavailable`).
 - **Abstention spread:** none. A-003 and A-006 both answered in both runs.
-- **B-005 host:** run 1 cites Real Sound (`realsound.jp/2026/09/post-2522771.html`); run 2 cites the gold Nijimen page (`nijimen.kusuguru.co.jp/topics/642080`). Both are grounded; the report must record the per-row host.
+- **B-005 host:** run 1 cites Real Sound (`realsound.jp/2026/09/post-2522771.html`); run 2 cites a
+  **non-gold** Nijimen preview page (`nijimen.kusuguru.co.jp/topics/642080`; gold is
+  `topics/627938`). Both citations are grounded, but gold recall is 0 on both runs; the report must
+  record the per-row host.
 - **A-008:** 2 citations in run 1, 1 in run 2.
 
 ## Before/after — the 11/17 pilot vs these runs (same 32-item QA set)
