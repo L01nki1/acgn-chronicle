@@ -20,6 +20,7 @@ import json
 import math
 import subprocess
 import sys
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -500,6 +501,47 @@ def _nonreportable_exit(result: RunResult) -> int:
     return 1
 
 
+def _warn_if_translation_lane_failed(result: RunResult, langs: tuple[str, ...]) -> None:
+    """Say loudly when the translation lane was requested but never produced a phrasing.
+
+    An all-miss lane is not a neutral "translation unavailable" condition: the run then measures
+    direct retrieval while its identity still says `translate-zh`, so the archive reads as a
+    translated-lane result that was never translated. That is exactly how a broken translator
+    client (a missing provider session header) went unnoticed through a whole delivery round.
+
+    Nothing is raised as an error: the rows carry `used: false`, the numbers remain valid for the
+    direct arm, and refusing a completed run over it would lose the evidence. The operator gets
+    told, and the reason is already in every affected row.
+    """
+    if not langs:
+        return
+    rows: list[dict[str, Any]] = []
+    for answer in result.answers:
+        translation = answer.get("query_translation")
+        if isinstance(translation, dict):
+            rows.append(translation)
+    if not rows:
+        print(
+            f"TRANSLATION LANE: requested for {','.join(langs)} but no row recorded a "
+            "translation; the run measured direct retrieval only.",
+            file=sys.stderr,
+        )
+        return
+    used = sum(1 for row in rows if row.get("used"))
+    if used:
+        return
+    reasons = Counter(str(row.get("reason") or "unknown") for row in rows)
+    details = Counter(str(row.get("detail")) for row in rows if row.get("detail"))
+    print(
+        f"TRANSLATION LANE FAILED: 0 of {len(rows)} rows ({','.join(langs)}) were translated. "
+        f"reasons={dict(reasons)}"
+        + (f" first_detail={next(iter(details))}" if details else "")
+        + ". This run measured DIRECT retrieval while its identity says the translation lane "
+        "was on; do not report it as a translated-lane result.",
+        file=sys.stderr,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run one evaluation configuration")
     parser.add_argument("--config", required=True, choices=CONFIG_CHOICES)
@@ -672,10 +714,13 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
         from acgn_rag.core.ground.provider import make_openai_answer_client
-        from acgn_rag.core.retrieve.translate_query import translate_query
+        from acgn_rag.core.retrieve.translate_query import attempt_translation
 
         _translate_client = make_openai_answer_client(settings.llm)
-        query_translator = lambda q: translate_query(q, _translate_client)  # noqa: E731
+        # `attempt_translation` rather than `translate_query`: the miss reason is recorded in
+        # every affected answer row, so a lane that never reached the model is visible in the
+        # archive instead of reading as an ordinary `used: false`.
+        query_translator = lambda q: attempt_translation(q, _translate_client)  # noqa: E731
     try:
         window_start, window_end, window_verified = resolve_window(
             settings.paths.snapshots / args.snapshot,
@@ -848,6 +893,7 @@ def main(argv: list[str] | None = None) -> int:
             "from retrieval metrics and this run is not reportable.",
             file=sys.stderr,
         )
+    _warn_if_translation_lane_failed(result, translate_langs)
     if _nonreportable_exit(result):
         return 1
     print(f"hit@k:  {result.metrics['retrieval']['hit']}")

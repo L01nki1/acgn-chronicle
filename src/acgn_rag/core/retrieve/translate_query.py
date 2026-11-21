@@ -64,6 +64,31 @@ def _normalize(text: str) -> str:
     return " ".join(text.split()).strip().lower()
 
 
+#: Why a translation attempt produced no phrasing. `ok` is the only success value.
+#:
+#: `provider_error` is the one that matters operationally: the translator never reached the
+#: model, so every question falls back to its original text and the lane measured nothing. A run
+#: that reports this for every row was not measuring translation at all.
+TRANSLATION_MISS_REASONS = ("ok", "provider_error", "empty_translation", "empty_question")
+
+
+@dataclass(frozen=True)
+class TranslationAttempt:
+    """One translation attempt: the phrasing if any, plus why it is absent when it is.
+
+    ``detail`` carries the exception text or the finish reason. It exists so a failed lane is
+    diagnosable from the archive alone instead of requiring a local reproduction.
+    """
+
+    translated: TranslatedQuery | None
+    reason: str
+    detail: str | None = None
+
+    @property
+    def used(self) -> bool:
+        return self.translated is not None
+
+
 def build_translation_prompt(question: str) -> tuple[str, str]:
     return TRANSLATE_SYSTEM_PROMPT, f"Question:\n{question}"
 
@@ -103,25 +128,55 @@ def translate_query(
     The budget is not about the short query text: a reasoning model spends tokens thinking
     before it answers, and 256 was observed to end with ``finish_reason=length`` and no
     content on the longest question. 512 covers that reasoning plus the line we keep.
+
+    This is the thin wrapper kept for callers that only want the text. Use
+    :func:`attempt_translation` when the reason for a miss matters: ``None`` here conflates a
+    dead provider with an empty completion, and that conflation is what let a run report
+    ``used: false`` on every Chinese row without anyone noticing the translator had never
+    worked.
+    """
+    return attempt_translation(question, client, max_tokens=max_tokens).translated
+
+
+def attempt_translation(
+    question: str,
+    client,
+    *,
+    max_tokens: int = 512,
+) -> TranslationAttempt:
+    """Return the phrasing **and why it was or was not produced**.
+
+    The empty question, the raising provider and the empty completion all used to become the
+    same ``None``, so an archive could not distinguish "translation is not needed here" from
+    "the translator is broken". They are separate outcomes here, and the exception text is
+    carried through so a reviewer can see a 530 or a missing session header in the archive
+    rather than having to re-derive it.
     """
     question = question.strip()
     if not question:
-        return None
+        return TranslationAttempt(None, "empty_question")
+
     system, user = build_translation_prompt(question)
     try:
         completion = client.complete(system, user, max_tokens=max_tokens)
-    except Exception:
-        # A provider fault must not break retrieval: the caller re-uses the original query.
-        return None
+    except Exception as exc:
+        # Deliberately still not fatal: the caller re-uses the original query. The difference
+        # is that the failure now leaves a trace instead of vanishing.
+        return TranslationAttempt(None, "provider_error", f"{type(exc).__name__}: {exc}")
+
     english = clean_translation(getattr(completion, "text", "") or "")
     if not english:
-        return None
-    return TranslatedQuery(original=question, english=english)
+        finish = getattr(completion, "finish_reason", None)
+        return TranslationAttempt(None, "empty_translation", f"finish_reason={finish}")
+    return TranslationAttempt(TranslatedQuery(original=question, english=english), "ok")
 
 
 __all__ = [
     "TRANSLATE_SYSTEM_PROMPT",
+    "TRANSLATION_MISS_REASONS",
     "TranslatedQuery",
+    "TranslationAttempt",
+    "attempt_translation",
     "build_translation_prompt",
     "clean_translation",
     "translate_query",

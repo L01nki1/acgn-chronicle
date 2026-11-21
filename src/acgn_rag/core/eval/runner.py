@@ -1177,18 +1177,24 @@ def run(
         translation: dict[str, Any] | None = None
         if query_translator is not None and str(item.get("lang", "")) in spec.translate_langs:
             translated = query_translator(retrieval_text)
+            # The translator may return a bare result (`.english`) or a `TranslationAttempt`
+            # carrying the miss reason. Both are accepted; the attempt form is what makes a
+            # broken lane visible instead of showing up as `used: false` on every row.
+            attempt = getattr(translated, "translated", translated)
+            reason = getattr(translated, "reason", None)
+            detail = getattr(translated, "detail", None)
+            english = getattr(attempt, "english", None)
             translation = {
                 "lang": str(item.get("lang", "")),
-                "english": None,
-                "used": False,
+                "english": english,
+                "used": attempt is not None,
             }
-            if translated is not None:
-                retrieval_text = translated.english
-                translation = {
-                    "lang": str(item.get("lang", "")),
-                    "english": translated.english,
-                    "used": True,
-                }
+            if reason is not None:
+                translation["reason"] = reason
+            if detail is not None:
+                translation["detail"] = detail
+            if attempt is not None:
+                retrieval_text = attempt.english
         query = RetrievalQuery(
             text=retrieval_text,
             top_k=spec.top_k,
