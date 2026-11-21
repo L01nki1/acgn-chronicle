@@ -1,0 +1,129 @@
+{
+  "counts": {
+    "qa_total": 34,
+    "answerable": 27,
+    "unanswerable": 7,
+    "gold_unavailable": 0,
+    "gold_member_not_indexed": 0,
+    "gold_unresolved": 0,
+    "dropped": 0,
+    "deduped_count": 36121,
+    "indexed_chunks": 108899
+  },
+  "retrieval": {
+    "k": 5,
+    "hit": {
+      "all": {
+        "value": 0.9629629629629629,
+        "n": 27
+      },
+      "en": {
+        "value": 0.9583333333333334,
+        "n": 24
+      },
+      "zh": {
+        "value": 1.0,
+        "n": 3
+      }
+    },
+    "mrr": {
+      "all": {
+        "value": 0.8469135802469135,
+        "n": 27
+      },
+      "en": {
+        "value": 0.8555555555555556,
+        "n": 24
+      },
+      "zh": {
+        "value": 0.7777777777777778,
+        "n": 3
+      }
+    },
+    "evidence_recall": {
+      "all": {
+        "value": 0.9629629629629629,
+        "n": 27
+      },
+      "en": {
+        "value": 0.9583333333333334,
+        "n": 24
+      },
+      "zh": {
+        "value": 1.0,
+        "n": 3
+      }
+    },
+    "excluded": {
+      "unanswerable": 7,
+      "gold_unavailable": 0,
+      "gold_member_not_indexed": 0,
+      "gold_unresolved": 0,
+      "missing_gold": 0,
+      "dropped": 0
+    }
+  },
+  "correctness": {
+    "counts": {
+      "fully_correct": 0,
+      "partially_correct": 0,
+      "incorrect": 0
+    },
+    "rates": {
+      "all": {
+        "value": null,
+        "n": 0
+      },
+      "en": {
+        "value": null,
+        "n": 0
+      },
+      "zh": {
+        "value": null,
+        "n": 0
+      }
+    }
+  },
+  "abstention": {
+    "threshold": null,
+    "refusal_rate": {
+      "value": null,
+      "n": 0
+    },
+    "false_refusal_rate": {
+      "value": null,
+      "n": 0
+    },
+    "calibration_in_sample": {
+      "value": null,
+      "n": 0
+    }
+  },
+  "citation": {
+    "containment_rate": {
+      "value": null,
+      "n": 0
+    },
+    "violations": 0,
+    "abstained_violations": 0
+  },
+  "reporting": {
+    "retrieval": {
+      "available": true,
+      "n": 27
+    },
+    "correctness": {
+      "available": false,
+      "n": 0
+    },
+    "abstention": {
+      "available": false,
+      "n": 0
+    },
+    "citation": {
+      "available": false,
+      "n": 0
+    }
+  },
+  "provisional": false
+}
