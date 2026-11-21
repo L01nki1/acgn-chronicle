@@ -1,0 +1,79 @@
+{
+  "snapshot_id": "20261105-d797b5f0ae8e",
+  "config": "A'",
+  "collection": "snap_full_20261105-d797b5f0ae8e_A-prime",
+  "build_identity": {
+    "model": "BAAI/bge-m3",
+    "backend": "torch",
+    "device": "cuda",
+    "precision": "fp32",
+    "batch_size": 16,
+    "identity_slug": "bge-m3-torch-cuda-fp32-6174cb54",
+    "lib_sentence_transformers": "5.7.0",
+    "lib_torch": "2.14.1+cu130",
+    "lib_transformers": "5.22.1",
+    "lib_numpy": "2.4.6"
+  },
+  "resolved": {
+    "https://corp.toei-anim.co.jp/ja/press/COPY-COPY-COPY-press3446966996929941900.html": [
+      "doc_1f84a44088d3fb4a20cc2a579c162f0fcc29373093395eda4994e5c5f39724e0::A'::1"
+    ],
+    "https://corp.toei-anim.co.jp/ja/press/COPY-press8150009092261170999.html": [
+      "doc_46cc35d3e1e95890ba80bc463ca1820dba602c69dbef198c1910e79165e25540::A'::1"
+    ],
+    "https://corp.toei-anim.co.jp/ja/press/press-488412368085442252.html": [
+      "doc_e507a892a6fb6b487b9adcd02585086d2210dd1dee78789dd34e89f8ac78abcc::A'::1"
+    ],
+    "https://corp.toei-anim.co.jp/ja/press/press2767724526450328636.html": [
+      "doc_29b7916c8820fe0f9fb53f3d37af393d1cd046c0505206023a1b934a3a2b7633::A'::1"
+    ],
+    "https://corp.toei-anim.co.jp/ja/press/press5863404116982109091.html": [
+      "doc_74a70264a2538504dbb2f243a797d73547e057fb1ad0a905333fec23ddcf3af7::A'::1"
+    ],
+    "https://corp.toei-anim.co.jp/ja/press/press8150009092261170965.html": [
+      "doc_116362e58b0ba5a1f753cf4bfc1de8ec0b47047e2b0d35bcaabcca9854130dc6::A'::1"
+    ],
+    "https://prtimes.jp/main/html/rd/p/000000074.000068162.html": [],
+    "https://prtimes.jp/main/html/rd/p/000001661.000030865.html": [],
+    "https://prtimes.jp/main/html/rd/p/000001667.000030865.html": [],
+    "https://prtimes.jp/main/html/rd/p/000002374.000051316.html": [],
+    "https://prtimes.jp/main/html/rd/p/000003899.000025615.html": [],
+    "https://prtimes.jp/main/html/rd/p/000006161.000018131.html": [],
+    "https://prtimes.jp/main/html/rd/p/000006515.000032953.html": [],
+    "https://www.animenewsnetwork.com/news/2024-07-05/bleach-gets-new-bleach-rebirth-of-souls-3d-arena-fighting-game/.212891": [
+      "doc_2db5f1e0984624e253faf08f0d4536fb34a36c1e293be55b339ff6927d7b76f9::A'::1"
+    ],
+    "https://www.animenewsnetwork.com/news/2024-07-05/ubel-blatt-anime-trailer-reveals-new-cast-main-staff-winter-2025-premiere/.212901": [
+      "doc_e5f06d312334d9c0a4d9075cb9b62979bfa601ee890c8b71cad79f2079209420::A'::1"
+    ],
+    "https://www.capcom.co.jp/ir/news/html/260608.html?utm_source=capcom_top&utm_medium=web&utm_campaign=referer": [
+      "doc_254e9f0d78c9072fdf6164ccfb0358012732d13e2b001036fb185cea642667e1::A'::1"
+    ],
+    "https://www.capcom.co.jp/ir/news/html/260609.html?utm_source=capcom_top&utm_medium=web&utm_campaign=referer": [
+      "doc_0a7f5a0f9bf2e357f8f69fee02eee2ccf6c5d3d198df347235b86de01b48053f::A'::1"
+    ],
+    "https://www.capcom.co.jp/ir/news/html/260907.html?utm_source=capcom_top&utm_medium=web&utm_campaign=referer": [
+      "doc_1c79a0b3b16e65db517bf24aa09a06e70a6cecb49d78cbcfd7b0809e77686668::A'::1"
+    ],
+    "https://www.mappa.co.jp/news/works/2025/3406/": [
+      "doc_ed758e9c05ae58b7212baf8ea136835c2c36b024e149d008eaba3e5b9d78fa15::A'::1"
+    ],
+    "https://www.toei-anim.co.jp/news/detail/d-qzy_r1z3t/": [
+      "doc_b83c132dbcb2dce900b535854d58771c122358955f2a5bd338eb9c82e895e4b7::A'::1"
+    ],
+    "https://www.toei-anim.co.jp/news/detail/swrts4ocpb/": [
+      "doc_f3377f3e7b8cb3d6d2f198ef541f017e1c9b1b76cb2c8b18d426f583b2996056::A'::1"
+    ]
+  },
+  "unresolved": [
+    "https://prtimes.jp/main/html/rd/p/000000074.000068162.html",
+    "https://prtimes.jp/main/html/rd/p/000001661.000030865.html",
+    "https://prtimes.jp/main/html/rd/p/000001667.000030865.html",
+    "https://prtimes.jp/main/html/rd/p/000002374.000051316.html",
+    "https://prtimes.jp/main/html/rd/p/000003899.000025615.html",
+    "https://prtimes.jp/main/html/rd/p/000006161.000018131.html",
+    "https://prtimes.jp/main/html/rd/p/000006515.000032953.html"
+  ],
+  "member_not_indexed": [],
+  "status": "resolved"
+}

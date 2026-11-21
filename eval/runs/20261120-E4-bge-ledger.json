@@ -1,0 +1,50 @@
+{
+  "created_at": "2026-11-20T02:28:38+00:00",
+  "commit": "6492171",
+  "snapshot": "20261105-d797b5f0ae8e",
+  "tarball_sha256": "7c0ee14bb34e9b4238fd86e7168797632ba49b096044e1d8a0080cb0f736c478",
+  "tarball_bytes": 1501473217,
+  "root": "/content/bge_extract",
+  "identities": {
+    "A": {
+      "model": "BAAI/bge-m3",
+      "device": "cuda",
+      "precision": "fp32",
+      "batch_size": 16,
+      "identity_slug": "bge-m3-torch-cuda-fp32-6174cb54"
+    },
+    "A-prime": {
+      "model": "BAAI/bge-m3",
+      "device": "cuda",
+      "precision": "fp32",
+      "batch_size": 16,
+      "identity_slug": "bge-m3-torch-cuda-fp32-6174cb54"
+    }
+  },
+  "chunks": {
+    "A": 73976,
+    "A'": 108899
+  },
+  "runs": [
+    "20261120-E4-bge-A",
+    "20261120-E4-bge-Aprime"
+  ],
+  "comparison": {
+    "e5 A": {
+      "hits": 0,
+      "mrr": 0.0
+    },
+    "e5 A'": {
+      "hits": 0,
+      "mrr": 0.0
+    },
+    "bge A": {
+      "hits": 8,
+      "mrr": 0.46153846153846156
+    },
+    "bge A'": {
+      "hits": 7,
+      "mrr": 0.391025641025641
+    }
+  }
+}
