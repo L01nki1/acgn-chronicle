@@ -56,7 +56,7 @@ def not_serving_client() -> Iterator[TestClient]:
         yield test_client
 
 
-def _query(text: str = "第二季什么时候开播？", **overrides: Any) -> dict[str, Any]:  # noqa: RUF001
+def _query(text: str = "第二季什么时候开播？", **overrides: Any) -> dict[str, Any]:
     body: dict[str, Any] = {"text": text, "snapshot_id": CURRENT_SNAPSHOT_ID, "top_k": 5}
     body.update(overrides)
     return body
@@ -254,7 +254,7 @@ def test_ask_with_no_evidence_abstains_instead_of_returning_empty(client: TestCl
 
 
 def test_ask_private_question_abstains(client: TestClient) -> None:
-    payload = client.post("/ask", json=_query(text="导演的私人电话是多少？")).json()  # noqa: RUF001
+    payload = client.post("/ask", json=_query(text="导演的私人电话是多少？")).json()
     answer = GroundedAnswer.model_validate(payload)
     assert answer.abstained is True
     assert answer.citations == []

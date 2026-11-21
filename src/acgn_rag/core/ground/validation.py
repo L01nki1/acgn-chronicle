@@ -9,7 +9,7 @@ from difflib import SequenceMatcher
 from typing import Final
 
 from acgn_rag.core.ports import (
-    MAX_QUOTE_CHARS,
+    MAX_CLAIM_CHARS,
     Citation,
     GroundedAnswer,
     RetrievalQuery,
@@ -103,18 +103,42 @@ def allowed_media_quote(
     claim_text: str,
     chunks: Sequence[RetrievedChunk],
 ) -> str | None:
-    """Return an in-budget verbatim media quotation, without optional enclosing quotes."""
+    """Return an in-budget verbatim media quotation, without optional enclosing quotes.
+
+    A claim counts as a quotation when it is a verbatim run of either the chunk's body or its
+    headline. The prompt shows the model both (the `title` field and the `text` field of every
+    numbered evidence block), so accepting only the body rejected claims the model could read
+    straight off the page: on this corpus a news headline such as "Cardfight!! Vanguard
+    Announces New TV Anime for 2027" *is* the answer, and it appears only in the title. The C4
+    rule forbids paraphrasing commentary, not quoting a headline, so the headline is a valid
+    source for the same verbatim requirement.
+    """
     claim_text = _strip_optional_quotes(claim_text)
-    if not claim_text or len(claim_text) > MAX_QUOTE_CHARS:
+    # MAX_CLAIM_CHARS, not MAX_QUOTE_CHARS: this bounds one model-written claim, while the C3
+    # wire limit bounds what a client receives (serialize.py). Coupling them made a slightly
+    # longer but correct quotation fail and the whole question abstain.
+    if not claim_text or len(claim_text) > MAX_CLAIM_CHARS:
         return None
-    return claim_text if any(_is_verbatim(claim_text, chunk.text) for chunk in chunks) else None
+    for chunk in chunks:
+        if _is_verbatim(claim_text, chunk.text):
+            return claim_text
+        if _is_verbatim(claim_text, chunk.citation.title):
+            return claim_text
+    return None
 
 
 def source_exposure_exceeds_budget(
     claims: Sequence[ClaimEvidence],
     chunks: Sequence[RetrievedChunk],
 ) -> bool:
-    """Count repeated verbatim exposure per source identity across claims and chunks."""
+    """Count repeated verbatim exposure per source identity across claims and chunks.
+
+    Body and headline are both counted. ``allowed_media_quote`` accepts a claim that is a
+    verbatim run of either one, so counting only ``chunk.text`` left the headline uncharged: a
+    model could return several distinct slices of one long title, each under the per-claim
+    limit, and the per-source total stayed at zero. On a news corpus the headline is often the
+    whole answer, so that was reachable in practice, not theoretical.
+    """
     chunks_by_id = {chunk.chunk_id: chunk for chunk in chunks}
     parents = {chunk_id: chunk_id for chunk_id in chunks_by_id}
 
@@ -147,14 +171,21 @@ def source_exposure_exceeds_budget(
         text = _normalize(claim.text)
         overlap_by_source: dict[str, int] = {}
         for chunk in chunk_list:
-            copied = _verbatim_exposure(text, _normalize(chunk.text))
+            # Body and headline are two fields of the same source, and a claim can quote both,
+            # so a single chunk charges their sum. Across chunks the maximum stands, not the
+            # total: overlapping chunks of one document repeat the same text, and summing them
+            # would charge one 150-char quotation as 300 just because the document is chunked
+            # with overlap.
+            copied = _verbatim_exposure(text, _normalize(chunk.text)) + _verbatim_exposure(
+                text, _normalize(chunk.citation.title)
+            )
             if copied == 0:
                 continue
             source = find(chunk.chunk_id)
             overlap_by_source[source] = max(overlap_by_source.get(source, 0), copied)
         for source, copied in overlap_by_source.items():
             exposure_by_source[source] = exposure_by_source.get(source, 0) + copied
-    return any(exposure > MAX_QUOTE_CHARS for exposure in exposure_by_source.values())
+    return any(exposure > MAX_CLAIM_CHARS for exposure in exposure_by_source.values())
 
 
 def validate_grounded_answer(

@@ -66,6 +66,10 @@ extend-exclude = ["data", "notebooks", "tests/ingest/fixtures", "*.md"]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 # Only line length is relaxed; everything else stays strict
 ignore = ["E501"]
+# RUF001/002/003 catch homoglyph typos; the zh/ja question data in the frozen instruments and
+# their regression tests legitimately uses full-width punctuation and occasional full-width
+# Latin (e.g. ＭＨＷ), so exactly those characters are allowed instead of escaping every string.
+allowed-confusables = ["（", "）", "！", "？", "～", "×", "：", "Ｍ", "Ｈ", "Ｗ"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"

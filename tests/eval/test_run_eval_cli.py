@@ -20,6 +20,7 @@ import run_eval  # noqa: E402
 
 from acgn_rag.config import EmbedConfig, LLMConfig  # noqa: E402
 from acgn_rag.core.eval import qa, runner  # noqa: E402
+from acgn_rag.core.ground.generate import ANSWERER_VERSION  # noqa: E402
 
 SNAPSHOT = "20261028abcdef"
 CHUNKER = {
@@ -207,6 +208,9 @@ def test_abstention_artifact_reaches_runspec(
         top_k=5,
         over_fetch=5,
         build_identity=BUILD_IDENTITY,
+        query_transform="none",
+        official_score_weight=1.0,
+        answerer_version=ANSWERER_VERSION,
     )
     artifact = {
         "run_id": "20261115-cal-A-fake",

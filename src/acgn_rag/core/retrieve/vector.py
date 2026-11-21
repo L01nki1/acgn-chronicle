@@ -10,6 +10,7 @@ internal `RetrievedChunk`, and returns a deterministic order. It never serialize
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
@@ -169,4 +170,23 @@ def search(
     return chunks
 
 
-__all__ = ["EmbedderPort", "StorePort", "build_where", "search", "to_retrieved"]
+def normalize_query_text(text: str) -> str:
+    """NFKC-normalize a query and collapse its whitespace, for the optional input lane.
+
+    Full-width Latin, half-width katakana and compatibility characters normalize to the forms
+    an English news index actually stores. Opt-in for now: the effect on this index's score
+    distribution is unmeasured, so the eval lane records the transform in the run identity
+    (`query_transform`) and production retrieval stays byte-identical until a frozen-set
+    comparison run passes.
+    """
+    return " ".join(unicodedata.normalize("NFKC", text).split())
+
+
+__all__ = [
+    "EmbedderPort",
+    "StorePort",
+    "build_where",
+    "normalize_query_text",
+    "search",
+    "to_retrieved",
+]

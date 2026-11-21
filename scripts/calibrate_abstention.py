@@ -41,7 +41,9 @@ from acgn_rag.core.eval.runner import (
     verify_build_identity,
 )
 from acgn_rag.core.ground.calibration import CalibrationSample, choose_threshold
+from acgn_rag.core.ground.generate import answerer_version
 from acgn_rag.core.ports import RetrievalFilters, RetrievalQuery
+from acgn_rag.core.retrieve.official_first import search_with_official_bonus
 from acgn_rag.core.retrieve.vector import search
 from acgn_rag.core.store import ChromaStore
 
@@ -155,6 +157,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--target-missed-refusal-rate", type=float, default=0.2)
     parser.add_argument("--run-id", default=None)
     parser.add_argument(
+        "--official-bonus",
+        type=float,
+        default=1.0,
+        help="official-chunk score multiplier used when scoring (default 1.0 = single pool); "
+        "recorded in the calibration identity so a run on the same lane can use it",
+    )
+    parser.add_argument(
+        "--translate-queries",
+        default="",
+        metavar="ZH",
+        help="translate questions in this language before scoring, e.g. 'zh' (default: off); "
+        "requires --answerer live and is recorded in the calibration identity",
+    )
+    parser.add_argument(
         "--allow-any-set",
         action="store_true",
         help="exploration only: accept a calibration set other than 30 items (20/10); not gate evidence",
@@ -222,18 +238,29 @@ def main(argv: list[str] | None = None) -> int:
 
     scores: list[float | None] = []
     for row in rows:
-        chunks = search(
-            RetrievalQuery(
-                text=str(row["question"]),
-                top_k=args.top_k,
-                snapshot_id=args.snapshot,
-                filters=_filters(row),
-            ),
-            store=store,
-            embedder=embedder,
+        query = RetrievalQuery(
+            text=str(row["question"]),
+            top_k=args.top_k,
+            snapshot_id=args.snapshot,
+            filters=_filters(row),
         )
+        if args.translate_queries:
+            raise SystemExit(
+                "TRANSLATION UNSUPPORTED: --translate-queries needs an answer-line client and is "
+                "not wired into calibration yet; omit it to calibrate the single-pool lane"
+            )
+        if args.official_bonus == 1.0:
+            chunks = search(query, store=store, embedder=embedder)
+        else:
+            # The bonus reranks official chunks, so the top score that selects the threshold must
+            # come from the same reranked pool a live run will compare against.
+            chunks, _mix = search_with_official_bonus(
+                query,
+                store=store,
+                embedder=embedder,
+                official_weight=args.official_bonus,
+            )
         scores.append(max((chunk.score for chunk in chunks), default=None))
-
     try:
         samples = _samples(rows, scores)
         result = choose_threshold(
@@ -252,6 +279,12 @@ def main(argv: list[str] | None = None) -> int:
         top_k=args.top_k,
         over_fetch=settings.store.over_fetch_factor,
         build_identity=build_identity,
+        # Recorded from the flags actually used, not hard-coded: a threshold is bound to the
+        # lane it was measured on, so a calibration produced for a bonus/translation lane has to
+        # name that lane or a live run on it can never pair with the artifact.
+        query_transform=f"translate-{args.translate_queries}" if args.translate_queries else "none",
+        official_score_weight=args.official_bonus,
+        answerer_version=answerer_version(),
     )
     run_id = args.run_id or _run_id(args.config, str(build_identity["identity_slug"]))
     if not _RUN_ID.fullmatch(run_id):

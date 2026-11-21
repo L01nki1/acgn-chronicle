@@ -18,18 +18,32 @@ from acgn_rag.core.ground import (
     InvalidModelResponseError,
     InvalidRetrievedEvidenceError,
     PromptBudgetError,
+    generate,
 )
 from acgn_rag.core.ground.generate import (
     NO_EVIDENCE_REASON,
+    SYSTEM_PROMPT,
     UNSUPPORTED_REASON,
     GroundedAnswerer,
+    _refusal_message,
     build_grounding_prompt,
     generate_grounded_answer,
     generate_grounded_answer_run,
     validate_grounded_answer,
 )
-from acgn_rag.core.ground.policy import MEDIA_SOURCE_RULE
-from acgn_rag.core.ports import Citation, GroundedAnswer, RetrievalQuery, RetrievedChunk
+from acgn_rag.core.ground.policy import MEDIA_SOURCE_RULE, QUOTE_DISCIPLINE_RULE
+from acgn_rag.core.ground.validation import (
+    ClaimEvidence,
+    allowed_media_quote,
+    source_exposure_exceeds_budget,
+)
+from acgn_rag.core.ports import (
+    MAX_CLAIM_CHARS,
+    Citation,
+    GroundedAnswer,
+    RetrievalQuery,
+    RetrievedChunk,
+)
 
 type JsonValue = str | int | float | bool | list[JsonValue] | dict[str, JsonValue] | None
 
@@ -214,22 +228,103 @@ def test_request_isolation_failure_raises_before_model_use(
     assert client.calls == []
 
 
-def test_prompt_contains_the_actual_question_evidence_and_shared_media_policy() -> None:
+def test_prompt_contains_the_actual_question_evidence_and_shared_media_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     query = _query()
     chunks = [_chunk(1), _chunk(2)]
 
-    system, user = build_grounding_prompt(query, chunks)
+    # The shipped prompt body must survive every mode. Two append-only rules exist, so the
+    # "ends with the media rule" shape only holds with both off; with either on the media rule
+    # must still be present verbatim.
+    monkeypatch.setenv("ACGN_ANSWER_QUOTE_DISCIPLINE", "0")
+    monkeypatch.setenv("ACGN_ANSWER_FOCUS", "0")
+    system_off, user = build_grounding_prompt(query, chunks)
+    assert system_off.endswith(MEDIA_SOURCE_RULE)
 
-    assert system.endswith(MEDIA_SOURCE_RULE)
-    assert "answer only the facts asked for" in system
-    assert "cite only those official blocks" in system
-    assert "Keep verbatim quotes in their source language" in system
-    assert "without an attribution prefix" in system
-    assert "Cite only the media blocks that contain that excerpt" in system
+    monkeypatch.delenv("ACGN_ANSWER_QUOTE_DISCIPLINE", raising=False)
+    monkeypatch.delenv("ACGN_ANSWER_FOCUS", raising=False)
+    system_on, user_on = build_grounding_prompt(query, chunks)
+    assert system_on.startswith(system_off)
+    assert MEDIA_SOURCE_RULE in system_on
+    assert user == user_on
+
+    for system in (system_off, system_on):
+        assert "answer only the facts asked for" in system
+        assert "cite only those official blocks" in system
+        assert "Keep verbatim quotes in their source language" in system
+        assert "without an attribution prefix" in system
+        assert "Cite only the media blocks that contain that excerpt" in system
     assert query.text in user
     assert chunks[0].text in user
     assert chunks[1].citation.url in user
     assert chunks[0].chunk_id not in user
+
+
+def test_quote_discipline_is_on_by_default_and_the_escape_hatch_is_byte_identical(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The adopted default appends the rule; disabling it restores the old prompt exactly."""
+    # Isolate the quote-discipline switch from the other append-only rule.
+    monkeypatch.setenv("ACGN_ANSWER_FOCUS", "0")
+    monkeypatch.delenv("ACGN_ANSWER_QUOTE_DISCIPLINE", raising=False)
+    assert generate.system_prompt() == SYSTEM_PROMPT + " " + QUOTE_DISCIPLINE_RULE
+
+    monkeypatch.setenv("ACGN_ANSWER_QUOTE_DISCIPLINE", "0")
+    assert generate.system_prompt() == SYSTEM_PROMPT
+
+    # A blank value is not a literal "off": unset and empty both take the adopted default.
+    monkeypatch.setenv("ACGN_ANSWER_QUOTE_DISCIPLINE", "")
+    assert generate.system_prompt() == SYSTEM_PROMPT + " " + QUOTE_DISCIPLINE_RULE
+
+
+def test_headline_quotes_are_charged_against_the_per_source_exposure_budget() -> None:
+    """A title-only answer cannot spend the budget twice: four slices of one headline.
+
+    `allowed_media_quote` accepts a claim that is a verbatim run of the chunk's body *or* its
+    headline, so the exposure counter must charge both. Counting only the body left the
+    headline free: this test would have passed every individual claim and reported a total of
+    zero before the fix, letting one 215-character headline leave the source in full.
+    """
+    headline = (
+        "The Idolmaster Cinderella Girls Announces New Anime Adaptation Of Its Starlight Stage "
+        "Branch With A Returning Cast Panel Revealed At The Autumn Festival Broadcast And A "
+        "Confirmed Two Season Run Beginning Next Spring With Production By A Returning Studio "
+        "And An Original Soundtrack Release Announced Alongside The First Key Visual"
+    )
+    assert len(headline) > MAX_CLAIM_CHARS
+    media_citation = Citation(
+        source_type="media",
+        publisher="ANN",
+        title=headline,
+        url="https://example.com/news/1",
+        published_at="2026-11-04",
+        chunk_id="chunk-1",
+    )
+    chunk = RetrievedChunk(
+        chunk_id="chunk-1",
+        doc_id="doc-1",
+        snapshot_id="20261104-abcdef012345",
+        text="Body text that shares nothing with the headline.",
+        score=0.9,
+        citation=media_citation,
+    )
+    slices = [headline[offset : offset + 60] for offset in range(0, len(headline), 60)]
+
+    # Every slice is a legal individual quotation...
+    for piece in slices:
+        assert len(piece) <= MAX_CLAIM_CHARS
+        # allowed_media_quote strips surrounding whitespace before comparing, so the returned
+        # quotation is the piece without its leading space, not the raw slice.
+        assert allowed_media_quote(piece, [chunk]) == piece.strip()
+
+    # ...and together they exceed what one source may expose.
+    claims = [ClaimEvidence(text=piece, chunks=(chunk,)) for piece in slices]
+    assert sum(len(piece) for piece in slices) > MAX_CLAIM_CHARS
+    assert source_exposure_exceeds_budget(claims, [chunk]) is True
+
+    # A single slice of the same headline stays within budget.
+    assert source_exposure_exceeds_budget(claims[:1], [chunk]) is False
 
 
 def test_final_guard_rejects_a_non_request_citation() -> None:
@@ -371,7 +466,10 @@ def test_run_diagnostics_count_only_the_first_rule_that_drops_each_claim() -> No
             "citation": media.citation.model_copy(update={"source_type": "media"}),
         }
     )
-    copied_text = "The official release contains a detailed announcement of the schedule. " * 4
+    # Long enough to cross the per-source exposure budget on its own, whatever the limit is.
+    copied_text = "The official release contains a detailed announcement of the schedule. " * (
+        MAX_CLAIM_CHARS // 60 + 2
+    )
     official = _chunk(3).model_copy(update={"text": copied_text})
     client = FakeAnswerClient(
         _response(
@@ -567,3 +665,123 @@ def test_malformed_first_object_does_not_hide_the_valid_one() -> None:
     answer = generate_grounded_answer(_query(), [_chunk(1)], FakeAnswerClient(raw))
 
     assert answer.answer == "Fact one. [1]"
+
+
+# --- refusal-language detection (L4a) -------------------------------------------------
+
+# The exact frozen-set items the raw kana rule misjudged (10/32 qa_set + 9/30 calibration): a
+# Japanese work title carries kana into a question asked in English or Chinese, and the old
+# rule answered those refusals in Japanese. Every row asserts the language its declared `lang`
+# actually is, through the observable refusal message.
+_MISJUDGED_QUESTIONS = [
+    (
+        "A-003",
+        "en",
+        "When does the second season of Let This Grieving Soul Retire! (嘆きの亡霊は引退したい) premiere?",
+    ),
+    ("A-004", "zh", "TV 动画《運命の巻戻士》宣布决定于何时播出？"),
+    (
+        "A-006",
+        "zh",
+        "《魔法つかいプリキュア！！～MIRAI DAYS～》宣布从哪一天开始在 ABC 电视台·朝日电视台系列深夜档播出？",
+    ),
+    ("A-008", "en", "When does MAPPA's Dorohedoro (ドロヘドロ) anime begin worldwide streaming?"),
+    (
+        "B-001",
+        "en",
+        "Which studio produced the short anime for Kenshi Yonezu's 2026 NHK soccer theme 「烏」?",
+    ),
+    ("B-005", "zh", "《らんま1/2》第3期在日本电视台播出后由哪个平台独家配信？"),
+    (
+        "B-007",
+        "en",
+        "Which edition of the Academy Awards nominated Toei Animation's Magic Candies (あめだま) for Best Animated Short?",
+    ),
+    (
+        "D-004",
+        "zh",
+        "《進撃の巨人》The Final Season 在 MAPPA EXPO 展区每天的具体开放时间是几点到几点？",
+    ),
+    (
+        "D-007",
+        "zh",
+        "『ざんねんないきもの事典』×《ドラゴンクエストモンスターズ４》的官方联动企划『ざんねんなまもの事典』定于哪一天开始公开？",
+    ),
+    (
+        "D-008",
+        "en",
+        "Which venue hosted the first stop of The Powerpuff Girls POP UP STORE ガールズの休日, which opened on May 2, 2025?",
+    ),
+    (
+        "A-901",
+        "zh",
+        "改编自朝日新闻出版《科学漫画生存》系列的 TV 动画《科学×冒険サバイバル！》在哪个电视台播出？",
+    ),
+    ("A-903", "zh", "にじさんじ 宣布出展的「Anime x Game Festival Korea 2026」于哪一天开幕？"),
+    (
+        "B-901",
+        "en",
+        "What did Toei Animation announce for Galaxy Express 999 (銀河鉄道999) in July 2026?",
+    ),
+    (
+        "B-902",
+        "en",
+        "What is the title of the newly announced sequel to Expelled from Paradise (楽園追放)?",
+    ),
+    (
+        "B-905",
+        "en",
+        "What did MAPPA unveil for the Chainsaw Man Assassin Arc (チェンソーマン 刺客篇)?",
+    ),
+    (
+        "B-910",
+        "en",
+        "Which game engine does the announced Resident Evil Code: Veronica remake (バイオハザード RE:ベロニカ) use?",
+    ),
+    (
+        "B-913",
+        "zh",
+        "TV动画《光が死んだ夏》×ヴィレッジヴァンガード的联动限定商品何时开始线上订购？",
+    ),
+    ("D-908", "en", "What is the exact total episode count of らんま1/2 season 3?"),
+    ("D-909", "zh", "《サクラ大戦》30 周年纪念珠宝是否会在日本以外的市场发售？"),
+]
+
+# Mirror of the no-evidence refusal text per language; the test asserts the observable message
+# rather than the private detector.
+_NO_EVIDENCE_BY_LANG = {
+    "en": NO_EVIDENCE_REASON,
+    "zh": "本次请求没有可用的检索证据。",
+    "ja": "このリクエストには検索で得られた根拠がありません。",
+}
+
+# The four items whose kana survives the quoted-span strip (the title is not inside any
+# bracket); they pin the second-stage function-word fallback.
+_BARE_KANA_IDS = ("D-008", "A-903", "B-913", "D-908")
+
+
+@pytest.mark.parametrize(("qa_id", "lang", "question"), _MISJUDGED_QUESTIONS)
+def test_refusal_language_matches_declared_lang(qa_id: str, lang: str, question: str) -> None:
+    assert _refusal_message(ABSTAIN_NO_EVIDENCE, question) == _NO_EVIDENCE_BY_LANG[lang], qa_id
+
+
+@pytest.mark.parametrize("qa_id", _BARE_KANA_IDS)
+def test_bare_kana_title_is_resolved_by_function_words(qa_id: str) -> None:
+    row = next(row for row in _MISJUDGED_QUESTIONS if row[0] == qa_id)
+
+    assert _refusal_message(ABSTAIN_NO_EVIDENCE, row[2]) == _NO_EVIDENCE_BY_LANG[row[1]], qa_id
+
+
+def test_refusal_language_falls_back_on_a_bare_title() -> None:
+    # A question that is nothing but quoted material loses its frame; the raw script rule runs
+    # on the original text, so a bare Japanese title still answers in Japanese.
+    assert _refusal_message(ABSTAIN_NO_EVIDENCE, "プリキュア") == _NO_EVIDENCE_BY_LANG["ja"]
+
+
+def test_refusal_language_keeps_genuine_japanese_questions_japanese() -> None:
+    # ja input is not a target scenario (no ja QA items), but the defensive ja refusal texts
+    # stay reachable for a real Japanese question.
+    assert (
+        _refusal_message(ABSTAIN_NO_EVIDENCE, "このゲームはいつ発売されますか？")
+        == _NO_EVIDENCE_BY_LANG["ja"]
+    )

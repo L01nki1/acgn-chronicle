@@ -49,7 +49,7 @@ from acgn_rag.core.chunk.variants import CHUNK_VARIANTS
 
 # CJK sentence terminators. The two fullwidth marks are deliberate - they are what ja/zh
 # news text actually ends sentences with; noqa keeps ruff's confusables list quiet.
-_SENTENCE_TERMINATORS = "。！？!?…"  # noqa: RUF001
+_SENTENCE_TERMINATORS = "。！？!?…"
 # Closing quotes/brackets that belong to the sentence that just ended (「…。」 etc.).
 _CLOSERS = "」』）)\"'”’》〉】"  # noqa: RUF001
 

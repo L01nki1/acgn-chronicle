@@ -68,7 +68,7 @@ def _valid_set() -> list[dict[str, Any]]:
             suffix += 1
     for index, item in enumerate(items[:10]):
         items[index] = {**item, "overlap": True}
-    for index in range(8):  # the language quota needs 8 zh items in a valid set
+    for index in range(4):  # the language quota needs 4 zh items in a valid set
         items[index] = {**items[index], "lang": "zh"}
     return items
 
@@ -93,7 +93,7 @@ def test_summary_counts_what_the_report_needs() -> None:
     counts = summary(_valid_set())
     assert counts["total"] == 35
     assert counts["by_type"] == {"A": 11, "B": 9, "C": 7, "D": 8}
-    assert counts["by_lang"] == {"en": 27, "zh": 8}
+    assert counts["by_lang"] == {"en": 31, "zh": 4}
     assert counts["unanswerable"] == 5
     assert counts["overlap"] == 10
 

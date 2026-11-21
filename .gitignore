@@ -64,3 +64,19 @@ desktop.ini
 
 # ---- Internal workspace data (agent memory; never committed) ----
 /.workbuddy/
+
+# ---- Scratch investigation files (NEXT_STEPS.md §5) ----
+# Ad-hoc debug scripts, probe outputs, index copies and local venvs written while
+# diagnosing the answer line and the encoder lanes. They are not sources: several of
+# them are deliberately unformatted and once a `git push` pre-commit hook failed the
+# whole repository lint on them. Ignored by shape (a leading dot) so a new one cannot
+# reintroduce the problem, rather than enumerated one path at a time.
+/.*/
+/.*
+# ...except the files the repository actually ships.
+!/.gitignore
+!/.gitattributes
+!/.env.example
+!/.githooks/
+!/.github/
+!/.python-version

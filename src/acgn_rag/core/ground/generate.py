@@ -18,7 +18,13 @@ from typing import Annotated, Final, Protocol
 from pydantic import BaseModel, ConfigDict, StrictInt, StringConstraints, ValidationError
 
 from acgn_rag.config import LLMConfig
-from acgn_rag.core.ground.policy import MEDIA_SOURCE_RULE
+from acgn_rag.core.ground.policy import (
+    FOCUS_RULE,
+    MEDIA_SOURCE_RULE,
+    QUOTE_DISCIPLINE_RULE,
+    answer_focus_enabled,
+    quote_discipline_enabled,
+)
 from acgn_rag.core.ground.validation import (
     ClaimEvidence,
     InvalidModelResponseError,
@@ -30,7 +36,7 @@ from acgn_rag.core.ground.validation import (
     validate_grounded_answer,
     validate_retrieved_evidence,
 )
-from acgn_rag.core.ports import MAX_QUOTE_CHARS, GroundedAnswer, RetrievalQuery, RetrievedChunk
+from acgn_rag.core.ports import MAX_CLAIM_CHARS, GroundedAnswer, RetrievalQuery, RetrievedChunk
 
 # RUNBOOK §3.4/§3.6: the CSLab DSV4-flash answer deployment returns no content when
 # max_tokens is below 1024, because reasoning tokens consume the budget. That makes 1024
@@ -40,12 +46,44 @@ ANSWER_MAX_TOKENS: Final = 2048
 
 # Top-k full chunk texts are concatenated into one prompt; an unbounded prompt is a real
 # failure mode. Exceeding this ceiling raises instead of truncating the evidence silently.
-PROMPT_EVIDENCE_MAX_CHARS: Final = 12_000
+#
+# 12_000 was too tight for this corpus: the index's own chunk lengths reach 2393 chars at the
+# maximum and p90 is 1537, so five long chunks plus the system prompt overflow the old ceiling
+# (a live calibration run measured 12_413 and lost the whole batch). 16_000 keeps every observed
+# top-5 within budget while staying far below the answer model's context window.
+PROMPT_EVIDENCE_MAX_CHARS: Final = 16_000
 
 ABSTAIN_NO_EVIDENCE: Final = "no_retrieved_evidence"
 ABSTAIN_MODEL_EMPTY: Final = "model_returned_no_claims"
 ABSTAIN_ALL_CLAIMS_REJECTED: Final = "all_claims_rejected"
 ABSTAIN_RETRIEVAL_BELOW_THRESHOLD: Final = "retrieval_below_threshold"
+
+# Version slug for the answer-line behaviour that run identity records (runner.py L5). Bump it
+# whenever a change here can move an answer or an abstention. v1 is PR #116's answer line:
+# the 16k prompt ceiling and headline-verbatim media quotes. Archives written before this
+# field existed are read back with the documented legacy default "pre-titlequote".
+#
+# The two prompt rules are switchable, so the version must describe the *effective* combination
+# rather than a fixed string: two runs that differ only in ACGN_ANSWER_FOCUS would otherwise
+# compare as identical. `answerer_version()` appends one token per enabled rule; with both on -
+# the default - it yields the plain v1 slug, which is also what a caller comparing against a
+# literal expects. `ANSWERER_VERSION` stays the base of that string.
+ANSWERER_VERSION: Final = "c4-titlequote-v1"
+
+
+def answerer_version() -> str:
+    """The answer line's identity for this process, including which prompt rules are on.
+
+    Recorded in run identity, so disabling a default-on rule cannot silently produce a run that
+    still compares equal to a run with it enabled.
+    """
+    parts = [ANSWERER_VERSION]
+    if not quote_discipline_enabled():
+        parts.append("no-quote-discipline")
+    if not answer_focus_enabled():
+        parts.append("no-focus")
+    return "+".join(parts)
+
 
 NO_EVIDENCE_REASON: Final = "No retrieved evidence was available for this request."
 UNSUPPORTED_REASON: Final = "No retrieved evidence supports a grounded answer to this question."
@@ -87,7 +125,7 @@ SYSTEM_PROMPT: Final = (
     "non-empty array of integer evidence numbers supporting that claim. Omit every unsupported "
     "claim. Cite only the evidence needed to support the whole claim. When official evidence "
     "alone supports the claim, cite only those official blocks. For a claim citing media, put "
-    f"only a verbatim source excerpt of at most {MAX_QUOTE_CHARS} characters in text, without "
+    f"only a verbatim source excerpt of at most {MAX_CLAIM_CHARS} characters in text, without "
     "an attribution prefix. Cite only the media blocks that contain that excerpt. "
     'If no claim is supported, return {"claims": []}. Never output chunk ids, URLs or '
     "prose outside the JSON object. Never add citation markers or citation-like bracket groups "
@@ -96,9 +134,70 @@ SYSTEM_PROMPT: Final = (
     "part of the factual answer. " + MEDIA_SOURCE_RULE
 )
 
+
+def system_prompt() -> str:
+    """The controlling prompt for this process, including the append-only rule variants.
+
+    ``SYSTEM_PROMPT`` is the pre-adoption prompt, unchanged in wording and order, so anything
+    that pins its contract keeps holding. Each optional rule is only *appended*, so the escape
+    hatch differs in exactly one trailing paragraph:
+
+      - quote discipline is **on by default**; ``ACGN_ANSWER_QUOTE_DISCIPLINE=0`` drops it and
+        reproduces ``SYSTEM_PROMPT`` byte for byte when answer focus is also off;
+      - answer focus is **off by default** until an A/B with repeats adopts it;
+        ``ACGN_ANSWER_FOCUS=1`` enables it.
+    """
+    prompt = SYSTEM_PROMPT
+    if quote_discipline_enabled():
+        prompt += " " + QUOTE_DISCIPLINE_RULE
+    if answer_focus_enabled():
+        prompt += " " + FOCUS_RULE
+    return prompt
+
+
 _FENCED_BLOCK: Final = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 _KANA: Final = re.compile(r"[\u3040-\u30ff\u31f0-\u31ff]")
 _HAN: Final = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+# A work title inside any of these bracket pairs is quoted material, not the user's language.
+_QUOTED_SPAN: Final = re.compile(
+    r"《[^《》]*》|『[^『』]*』|「[^「」]*」|〈[^〈〉]*〉|（[^（）]*）|\([^()]*\)|\[[^\[\]]*\]"
+)
+_ZH_FUNCTION_WORDS: Final = (
+    "的",
+    "了",
+    "在",
+    "是",
+    "于",
+    "哪",
+    "何",
+    "多少",
+    "什么",
+    "宣布",
+    "开始",
+    "何时",
+    "是否",
+)
+_EN_FUNCTION_WORDS: Final = (
+    "the",
+    "is",
+    "are",
+    "was",
+    "what",
+    "when",
+    "which",
+    "for",
+    "of",
+    "to",
+    "in",
+    "on",
+    "did",
+    "does",
+    "will",
+)
+# Only >=2-character particles: single characters such as は/が also occur inside katakana
+# loanwords, where counting them would invent a Japanese signal.
+_JA_PARTICLES: Final = ("から", "まで", "です", "ます")
+_EN_TOKEN: Final = re.compile(r"[a-z0-9]+")
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,7 +310,7 @@ def build_grounding_prompt(
             f"{index}. {json.dumps(provenance, ensure_ascii=False, separators=(',', ':'))}"
         )
     user = f"Question:\n{query.text}\n\nNumbered evidence for this request:\n" + "\n".join(evidence)
-    return SYSTEM_PROMPT, user
+    return system_prompt(), user
 
 
 def generate_grounded_answer(
@@ -450,13 +549,53 @@ def _brace_spans(text: str) -> list[str]:
     return spans
 
 
-def _question_language(question: str) -> str:
-    """Pick the refusal language from the question's script, without external detection."""
-    if _KANA.search(question):
+def _script_language(text: str) -> str:
+    """The raw script rule: kana means ja, han means zh, anything else is en."""
+    if _KANA.search(text):
         return "ja"
-    if _HAN.search(question):
+    if _HAN.search(text):
         return "zh"
     return "en"
+
+
+def _function_word_language(text: str) -> str:
+    """Resolve a kana-bearing text by function words instead of trusting the script.
+
+    Japanese work titles carry kana into questions asked in English or Chinese, so kana alone
+    is not evidence of the user's language. Chinese function words, English function words
+    (whole tokens) and the >=2-character Japanese particles are counted; the single highest
+    count decides, and a tie or an all-zero count falls back to the script rule. Measured on
+    the frozen instruments, this recovers the 10/32 qa_set and 9/30 calibration items the raw
+    kana rule misjudged, with zero new misjudgments on the 62 + 34 tracked items.
+    """
+    counts = {
+        "zh": sum(text.count(word) for word in _ZH_FUNCTION_WORDS),
+        "en": sum(1 for token in _EN_TOKEN.findall(text.lower()) if token in _EN_FUNCTION_WORDS),
+        "ja": sum(text.count(particle) for particle in _JA_PARTICLES),
+    }
+    best = max(counts.values())
+    winners = [lang for lang, count in counts.items() if count == best]
+    if len(winners) == 1 and best > 0:
+        return winners[0]
+    return _script_language(text)
+
+
+def _question_language(question: str) -> str:
+    """Pick the refusal language from the question's script, without external detection.
+
+    Two stages. First, quoted spans (《…》『…』「…」〈…〉（…）(…) […]) are stripped from the
+    detection input only -- a title inside brackets is data, and on this corpus the title is
+    usually where the kana lives. Second, kana that survives stripping is resolved by function
+    words rather than read as Japanese.
+    """
+    stripped = _QUOTED_SPAN.sub("", question)
+    if not stripped.strip():
+        # The question is nothing but quoted material (a bare title): its frame carried the
+        # language signal, so the raw script rule runs on the original text.
+        return _script_language(question)
+    if not _KANA.search(stripped):
+        return _script_language(stripped)
+    return _function_word_language(stripped)
 
 
 def _refusal_message(code: str, question: str) -> str:

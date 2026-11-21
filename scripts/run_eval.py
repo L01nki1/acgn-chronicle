@@ -20,6 +20,7 @@ import json
 import math
 import subprocess
 import sys
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -56,6 +57,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _git_sha() -> str:
+    """The commit this run executed, marked when the tree was modified.
+
+    A bare `rev-parse HEAD` is not enough to say what code ran: a run started from a worktree
+    with uncommitted edits records the *parent* commit and silently misattributes its own
+    results. That happened in this PR - one run of the adopted answer line is filed under the
+    commit that preceded the rule it was testing.
+
+    The suffix is `+dirty` when nothing under the package, scripts or tests differs from HEAD,
+    and `+dirty:<n>` otherwise, where `n` counts the changed paths. A stray untracked scratch
+    file therefore does not invalidate a run, but a modified source file does.
+    """
     try:
         completed = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -66,7 +78,35 @@ def _git_sha() -> str:
         )
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
-    return completed.stdout.strip() or "unknown"
+    sha = completed.stdout.strip() or "unknown"
+
+    # Ignored and untracked files do not change behaviour unless they are importable sources,
+    # so ask about tracked modifications only, scoped to the directories that can affect a run.
+    try:
+        status = subprocess.run(
+            [
+                "git",
+                "status",
+                "--porcelain",
+                "--untracked-files=no",
+                "--",
+                "src",
+                "scripts",
+                "tests",
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        # A dirty check must never be the reason a run fails; "unknown" says it did not happen.
+        return f"{sha}+dirty:unknown"
+    changed = [line for line in status.stdout.splitlines() if line.strip()]
+    if not changed:
+        return sha
+    return f"{sha}+dirty:{len(changed)}"
 
 
 _CURRENT_CUDA_DEVICE = -1
@@ -461,6 +501,47 @@ def _nonreportable_exit(result: RunResult) -> int:
     return 1
 
 
+def _warn_if_translation_lane_failed(result: RunResult, langs: tuple[str, ...]) -> None:
+    """Say loudly when the translation lane was requested but never produced a phrasing.
+
+    An all-miss lane is not a neutral "translation unavailable" condition: the run then measures
+    direct retrieval while its identity still says `translate-zh`, so the archive reads as a
+    translated-lane result that was never translated. That is exactly how a broken translator
+    client (a missing provider session header) went unnoticed through a whole delivery round.
+
+    Nothing is raised as an error: the rows carry `used: false`, the numbers remain valid for the
+    direct arm, and refusing a completed run over it would lose the evidence. The operator gets
+    told, and the reason is already in every affected row.
+    """
+    if not langs:
+        return
+    rows: list[dict[str, Any]] = []
+    for answer in result.answers:
+        translation = answer.get("query_translation")
+        if isinstance(translation, dict):
+            rows.append(translation)
+    if not rows:
+        print(
+            f"TRANSLATION LANE: requested for {','.join(langs)} but no row recorded a "
+            "translation; the run measured direct retrieval only.",
+            file=sys.stderr,
+        )
+        return
+    used = sum(1 for row in rows if row.get("used"))
+    if used:
+        return
+    reasons = Counter(str(row.get("reason") or "unknown") for row in rows)
+    details = Counter(str(row.get("detail")) for row in rows if row.get("detail"))
+    print(
+        f"TRANSLATION LANE FAILED: 0 of {len(rows)} rows ({','.join(langs)}) were translated. "
+        f"reasons={dict(reasons)}"
+        + (f" first_detail={next(iter(details))}" if details else "")
+        + ". This run measured DIRECT retrieval while its identity says the translation lane "
+        "was on; do not report it as a translated-lane result.",
+        file=sys.stderr,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run one evaluation configuration")
     parser.add_argument("--config", required=True, choices=CONFIG_CHOICES)
@@ -468,6 +549,36 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--qa", default="eval/qa_set.jsonl", help="QA JSONL path")
     parser.add_argument("--out", default="eval/runs", help="run archive root")
     parser.add_argument("--top-k", type=int, default=5)
+    parser.add_argument(
+        "--translate-queries",
+        default="",
+        metavar="LANGS",
+        help=(
+            "comma-separated question languages to rewrite into English before retrieval "
+            "(e.g. 'zh'). Requires --answerer live; the answer still uses the original "
+            "question. Empty (the default) leaves retrieval unchanged."
+        ),
+    )
+    parser.add_argument(
+        "--official-bonus",
+        type=float,
+        default=1.0,
+        metavar="WEIGHT",
+        help=(
+            "score multiplier for official-source chunks before ranking (REBUILD_PLAN §1b). "
+            "1.0 (the default) is the historical single-pool search; 1.08 recovers official "
+            "recall on this corpus without lowering media recall."
+        ),
+    )
+    parser.add_argument(
+        "--nfkc-queries",
+        action="store_true",
+        help=(
+            "NFKC-normalize and collapse whitespace in the retrieval text before encoding "
+            "(REBUILD_PLAN L3). Recorded as query_transform in the run identity. Default off: "
+            "the frozen-set comparison run for this lane has not been executed yet."
+        ),
+    )
     parser.add_argument(
         "--run-id",
         default=None,
@@ -590,6 +701,26 @@ def main(argv: list[str] | None = None) -> int:
             f"LLM PROBE: status={llm_probe['status']} model_present={llm_probe['model_present']}",
             file=sys.stderr,
         )
+    translate_langs = tuple(
+        part.strip() for part in str(args.translate_queries).split(",") if part.strip()
+    )
+    query_translator = None
+    if translate_langs:
+        if args.answerer != "live":
+            print(
+                "TRANSLATION CONFIG: --translate-queries needs --answerer live (it calls the "
+                "answer-line model to rewrite the query)",
+                file=sys.stderr,
+            )
+            return 2
+        from acgn_rag.core.ground.provider import make_openai_answer_client
+        from acgn_rag.core.retrieve.translate_query import attempt_translation
+
+        _translate_client = make_openai_answer_client(settings.llm)
+        # `attempt_translation` rather than `translate_query`: the miss reason is recorded in
+        # every affected answer row, so a lane that never reached the model is visible in the
+        # archive instead of reading as an ordinary `used: false`.
+        query_translator = lambda q: attempt_translation(q, _translate_client)  # noqa: E731
     try:
         window_start, window_end, window_verified = resolve_window(
             settings.paths.snapshots / args.snapshot,
@@ -686,6 +817,9 @@ def main(argv: list[str] | None = None) -> int:
         qa_role=args.qa_role,
         llm_probe=llm_probe,
         abstention=abstention,
+        translate_langs=translate_langs,
+        official_score_weight=args.official_bonus,
+        nfkc_queries=args.nfkc_queries,
     )
     if args.preflight_only:
         problems: list[str] = []
@@ -741,6 +875,7 @@ def main(argv: list[str] | None = None) -> int:
             qa_items=items,
             evidence_resolver=evidence_resolver,
             snapshot_member_urls=member_urls,
+            query_translator=query_translator,
         )
     except ValueError as exc:
         print(f"RUN REFUSED: {exc}", file=sys.stderr)
@@ -758,6 +893,7 @@ def main(argv: list[str] | None = None) -> int:
             "from retrieval metrics and this run is not reportable.",
             file=sys.stderr,
         )
+    _warn_if_translation_lane_failed(result, translate_langs)
     if _nonreportable_exit(result):
         return 1
     print(f"hit@k:  {result.metrics['retrieval']['hit']}")
