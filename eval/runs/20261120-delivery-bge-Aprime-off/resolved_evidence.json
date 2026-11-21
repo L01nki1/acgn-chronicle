@@ -1,0 +1,107 @@
+{
+  "snapshot_id": "20261105-d797b5f0ae8e",
+  "config": "A'",
+  "collection": "snap_full_20261105-d797b5f0ae8e_A-prime",
+  "build_identity": {
+    "model": "BAAI/bge-m3",
+    "backend": "torch",
+    "device": "cuda",
+    "precision": "fp32",
+    "batch_size": 16,
+    "identity_slug": "bge-m3-torch-cuda-fp32-6174cb54",
+    "lib_sentence_transformers": "5.7.0",
+    "lib_torch": "2.14.1+cu130",
+    "lib_transformers": "5.22.1",
+    "lib_numpy": "2.4.6"
+  },
+  "resolved": {
+    "https://www.animenewsnetwork.com/news/2023-11-27/dark-gathering-manga-goes-on-1-month-hiatus/.204850": [
+      "doc_0cd60019e88dd438078a2b5ad84479676b7215d3c941a9b6e45d69eb22ecf0f4::A'::1",
+      "doc_0cd60019e88dd438078a2b5ad84479676b7215d3c941a9b6e45d69eb22ecf0f4::A'::2",
+      "doc_0cd60019e88dd438078a2b5ad84479676b7215d3c941a9b6e45d69eb22ecf0f4::A'::3"
+    ],
+    "https://www.animenewsnetwork.com/news/2024-05-21/shun-umezawa-darwin-incident-manga-gets-tv-anime-adaptation/.210989": [
+      "doc_1be41308ae5d5772db05ecff6ae27ffd0cdb9a790c12526a1b22e4b5b484eb35::A'::1",
+      "doc_1be41308ae5d5772db05ecff6ae27ffd0cdb9a790c12526a1b22e4b5b484eb35::A'::2",
+      "doc_1be41308ae5d5772db05ecff6ae27ffd0cdb9a790c12526a1b22e4b5b484eb35::A'::3"
+    ],
+    "https://www.animenewsnetwork.com/news/2024-07-11/no-longer-allowed-in-another-world-anime-reveals-3-more-cast-members/.213113": [
+      "doc_2a94021de4e6e580b0c077020a02547dc6c429e5fdf6be6bd71b7a71f1bd5181::A'::1",
+      "doc_2a94021de4e6e580b0c077020a02547dc6c429e5fdf6be6bd71b7a71f1bd5181::A'::2",
+      "doc_2a94021de4e6e580b0c077020a02547dc6c429e5fdf6be6bd71b7a71f1bd5181::A'::3",
+      "doc_2a94021de4e6e580b0c077020a02547dc6c429e5fdf6be6bd71b7a71f1bd5181::A'::4"
+    ],
+    "https://www.animenewsnetwork.com/news/2024-07-22/project-sekai-colorful-stage-feat-hatsune-miku-teases-new-project/.213481": [
+      "doc_6757cb42a45f396dcfb2dcb67e18b71605a48e2efe0e301a707c738dee0a9093::A'::1",
+      "doc_6757cb42a45f396dcfb2dcb67e18b71605a48e2efe0e301a707c738dee0a9093::A'::2",
+      "doc_6757cb42a45f396dcfb2dcb67e18b71605a48e2efe0e301a707c738dee0a9093::A'::3"
+    ],
+    "https://www.animenewsnetwork.com/news/2024-08-28/blue-protocol-game-to-end-service-next-january-with-release-in-the-west-canceled/.214859": [
+      "doc_3f881b7df992f7e47e18531b1cf1a65bae0003a76922abeeb950dfa10f9d3e89::A'::1",
+      "doc_3f881b7df992f7e47e18531b1cf1a65bae0003a76922abeeb950dfa10f9d3e89::A'::2"
+    ],
+    "https://www.animenewsnetwork.com/news/2024-11-23/macross-frontier-concerts-announced-for-next-may-july/.218216": [
+      "doc_6fcb1a621e36106ff2e564df64e1db7f19ede7f4e8ab5ec0b3f53a533f675e29::A'::1",
+      "doc_6fcb1a621e36106ff2e564df64e1db7f19ede7f4e8ab5ec0b3f53a533f675e29::A'::2",
+      "doc_6fcb1a621e36106ff2e564df64e1db7f19ede7f4e8ab5ec0b3f53a533f675e29::A'::3"
+    ],
+    "https://www.animenewsnetwork.com/news/2025-01-30/gensho-yasuda-produces-2nd-theatrical-anime-film-opens-in-2027/.220663": [
+      "doc_5d3406c839dd6579b3626bd3cefafd1b9c0ff5e8edfce19cb96247aac08138cb::A'::1",
+      "doc_5d3406c839dd6579b3626bd3cefafd1b9c0ff5e8edfce19cb96247aac08138cb::A'::2",
+      "doc_5d3406c839dd6579b3626bd3cefafd1b9c0ff5e8edfce19cb96247aac08138cb::A'::3",
+      "doc_5d3406c839dd6579b3626bd3cefafd1b9c0ff5e8edfce19cb96247aac08138cb::A'::4"
+    ],
+    "https://www.animenewsnetwork.com/news/2025-02-26/atelier-resleriana-smartphone-game-teases-new-chapter-with-new-character/.221686": [
+      "doc_077b2fa48708b82f28530018b6db220d3d25d52cc17aef74784fd14f7796cc73::A'::1",
+      "doc_077b2fa48708b82f28530018b6db220d3d25d52cc17aef74784fd14f7796cc73::A'::2",
+      "doc_077b2fa48708b82f28530018b6db220d3d25d52cc17aef74784fd14f7796cc73::A'::3"
+    ],
+    "https://www.animenewsnetwork.com/news/2025-03-02/witch-watch-anime-casts-nana-mizuki-katsuyuki-konishi/.221836": [
+      "doc_46d1bddf285c640fb5e4a6a74cbaa336ed989851ee29fb0432ba0afd0ed6b6db::A'::1",
+      "doc_46d1bddf285c640fb5e4a6a74cbaa336ed989851ee29fb0432ba0afd0ed6b6db::A'::2",
+      "doc_46d1bddf285c640fb5e4a6a74cbaa336ed989851ee29fb0432ba0afd0ed6b6db::A'::3",
+      "doc_46d1bddf285c640fb5e4a6a74cbaa336ed989851ee29fb0432ba0afd0ed6b6db::A'::4",
+      "doc_46d1bddf285c640fb5e4a6a74cbaa336ed989851ee29fb0432ba0afd0ed6b6db::A'::5",
+      "doc_46d1bddf285c640fb5e4a6a74cbaa336ed989851ee29fb0432ba0afd0ed6b6db::A'::6"
+    ],
+    "https://www.animenewsnetwork.com/news/2025-05-27/live-action-chihayafuru-sequel-series-trailer-unveils-july-9-debut/.224861": [
+      "doc_05771c1c3df3af5cde283c08b5376763057170538df79eab3629fe939cee68bd::A'::1",
+      "doc_05771c1c3df3af5cde283c08b5376763057170538df79eab3629fe939cee68bd::A'::2",
+      "doc_05771c1c3df3af5cde283c08b5376763057170538df79eab3629fe939cee68bd::A'::3",
+      "doc_05771c1c3df3af5cde283c08b5376763057170538df79eab3629fe939cee68bd::A'::4",
+      "doc_05771c1c3df3af5cde283c08b5376763057170538df79eab3629fe939cee68bd::A'::5"
+    ],
+    "https://www.animenewsnetwork.com/news/2025-09-13/may-i-ask-for-one-final-thing-anime-reveals-more-cast-early-streaming-information/.228755": [
+      "doc_55831d3931b26886a13b841add40228222a68078e4d1e412fdf5abf6f45f8a8f::A'::1",
+      "doc_55831d3931b26886a13b841add40228222a68078e4d1e412fdf5abf6f45f8a8f::A'::2",
+      "doc_55831d3931b26886a13b841add40228222a68078e4d1e412fdf5abf6f45f8a8f::A'::3",
+      "doc_55831d3931b26886a13b841add40228222a68078e4d1e412fdf5abf6f45f8a8f::A'::4"
+    ],
+    "https://www.animenewsnetwork.com/news/2025-12-03/milky-subway-the-galactic-limited-express-films-teaser-unveils-title-february-6-opening/.231656": [
+      "doc_275da27b27d151f69a7549bd0419b3c55fe610de28a4ae669e9624538bb3c57e::A'::1",
+      "doc_275da27b27d151f69a7549bd0419b3c55fe610de28a4ae669e9624538bb3c57e::A'::2",
+      "doc_275da27b27d151f69a7549bd0419b3c55fe610de28a4ae669e9624538bb3c57e::A'::3",
+      "doc_275da27b27d151f69a7549bd0419b3c55fe610de28a4ae669e9624538bb3c57e::A'::4"
+    ],
+    "https://www.animenewsnetwork.com/news/2025-12-23/2nd-gundam-hathaway-film-highlights-noa-past-and-present-in-new-promo-video/.232429": [
+      "doc_01c4f0dd473b4f750706e8acc71802e4ca775cb845be9840b1b354567662c170::A'::1",
+      "doc_01c4f0dd473b4f750706e8acc71802e4ca775cb845be9840b1b354567662c170::A'::2",
+      "doc_01c4f0dd473b4f750706e8acc71802e4ca775cb845be9840b1b354567662c170::A'::3",
+      "doc_01c4f0dd473b4f750706e8acc71802e4ca775cb845be9840b1b354567662c170::A'::4",
+      "doc_01c4f0dd473b4f750706e8acc71802e4ca775cb845be9840b1b354567662c170::A'::5",
+      "doc_01c4f0dd473b4f750706e8acc71802e4ca775cb845be9840b1b354567662c170::A'::6"
+    ],
+    "https://www.animenewsnetwork.com/news/2026-04-10/cardfight-vanguard-announces-new-tv-anime-for-2027-new-theatrical-anime-to-end-divinez-saga/.236288": [
+      "doc_40dc75e1c800a9980e7ca66716ad17323eaecbe07a9b565b527b1d9406890640::A'::1",
+      "doc_40dc75e1c800a9980e7ca66716ad17323eaecbe07a9b565b527b1d9406890640::A'::2",
+      "doc_40dc75e1c800a9980e7ca66716ad17323eaecbe07a9b565b527b1d9406890640::A'::3",
+      "doc_40dc75e1c800a9980e7ca66716ad17323eaecbe07a9b565b527b1d9406890640::A'::4"
+    ],
+    "https://www.animenewsnetwork.com/news/2026-09-07/hololive-vtuber-agency-launch-1st-tv-anime-project-from-studio-kai/.241493": [
+      "doc_47f9dfe1c0c756f05aa4216b90b8a1c7b763aef44623838c6f8bd0b16c9eb920::A'::1"
+    ]
+  },
+  "unresolved": [],
+  "member_not_indexed": [],
+  "status": "resolved"
+}
