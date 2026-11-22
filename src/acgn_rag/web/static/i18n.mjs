@@ -100,7 +100,6 @@ const EN = {
   "view.timeline": "Timeline",
   "view.magazine": "Magazine",
   "view.board": "Board",
-  "views.hint": "One result · four readings",
   "results.placeholder": "Reading the archive…",
 
   "rail.aria": "Quantitative profile for this query",
@@ -403,7 +402,6 @@ const ZH = {
   "view.timeline": "时间轴",
   "view.magazine": "杂志",
   "view.board": "数据看板",
-  "views.hint": "同一份结果 · 四种读法",
   "results.placeholder": "正在读取日报数据…",
 
   "rail.aria": "本次检索的量化剖面",

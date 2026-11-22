@@ -2601,12 +2601,6 @@ html {
   outline-offset: 2px;
 }
 
-.toolbar-hint {
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  color: var(--muted-soft);
-}
-
 /* 本期速览 overview strip ------------------------------------------------ */
 
 .overview-strip {
