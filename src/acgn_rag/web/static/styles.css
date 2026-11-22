@@ -250,8 +250,40 @@ textarea {
 
 .nav-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+}
+
+/* Segmented language switch: two states, no menu, current choice always visible. */
+.lang-switch {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: rgb(255 255 255 / 16%);
+  border: 1px solid rgb(255 255 255 / 28%);
+}
+
+.lang-switch button {
+  border: 0;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: rgb(255 255 255 / 78%);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: background var(--fast), color var(--fast);
+}
+
+.lang-switch button:hover {
+  color: #fff;
+}
+
+.lang-switch button[aria-pressed="true"] {
+  background: rgb(255 255 255 / 94%);
+  color: var(--ink);
 }
 
 .mode-chip {
@@ -397,6 +429,16 @@ textarea {
   border-color: var(--accent-line);
   background: var(--surface);
   box-shadow: 0 0 0 4px rgb(172 77 109 / 12%);
+}
+
+/* Numeric budget for the question field; sits under the input, aligned to its right edge. */
+.field-hint {
+  margin: -4px 4px 0;
+  text-align: right;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--muted-soft);
+  font-variant-numeric: tabular-nums;
 }
 
 .search-icon {
@@ -1294,6 +1336,17 @@ textarea {
   text-decoration: none;
 }
 
+/* The full URL stays visible next to the action link, so the target is never hidden behind a
+   label. It is presentational: the anchor itself already carries the href. */
+.citation-url-raw {
+  color: var(--muted);
+  font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace);
+  font-size: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
 .compliance-note {
   margin: 0 0 2px;
   padding: 11px 16px;
@@ -1361,10 +1414,7 @@ textarea {
   color: var(--muted);
 }
 
-.contract-toggle::before {
-  content: "展开";
-}
-
+/* The summary is duplicated in two languages, so the toggle is a chevron only. */
 .contract-toggle::after {
   content: "";
   width: 8px;
@@ -1377,10 +1427,6 @@ textarea {
 
 .contract-section[open] .contract-summary {
   margin-bottom: 22px;
-}
-
-.contract-section[open] .contract-toggle::before {
-  content: "收起";
 }
 
 .contract-section[open] .contract-toggle::after {

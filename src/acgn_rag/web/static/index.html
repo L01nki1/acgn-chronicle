@@ -1,13 +1,13 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="ACGN 日报的档案检索页面，使用固定 mock 数据。"
+      content="ACGN Chronicle's daily archive search, served from fixed mock data."
     />
-    <title>ACGN 日报 · 档案检索</title>
+    <title>ACGN Chronicle · Archive Search</title>
     <link rel="icon" href="/static/assets/brand-mark.webp" type="image/webp" />
     <link
       rel="preload"
@@ -35,25 +35,29 @@
     </div>
     <div class="scroll-progress" id="scroll-progress" aria-hidden="true"></div>
 
-    <a class="skip-link" href="#main">跳到主要内容</a>
+    <a class="skip-link" href="#main" data-i18n="a11y.skip">Skip to main content</a>
 
     <header class="top-nav">
-      <a class="brand" href="#main" aria-label="ACGN 日报">
+      <a class="brand" href="#main" data-i18n-aria="brand.aria" aria-label="ACGN Chronicle">
         <img class="brand-mark" src="/static/assets/brand-mark.webp" alt="" width="34" height="34" />
         <span class="brand-text">
-          <span class="brand-name">ACGN 日报</span>
-          <span class="brand-sub">ACGN Daily</span>
+          <span class="brand-name" data-i18n="brand.name">ACGN Chronicle</span>
+          <span class="brand-sub" data-i18n="brand.sub">Daily Archive</span>
         </span>
       </a>
 
-      <nav class="nav-links" aria-label="页面导航">
-        <a href="#query">问档案</a>
-        <a href="#results">检索结果</a>
-        <a href="#contract">页面契约</a>
+      <nav class="nav-links" data-i18n-aria="nav.aria" aria-label="Page navigation">
+        <a href="#query" data-i18n="nav.ask">Ask</a>
+        <a href="#results" data-i18n="nav.results">Results</a>
+        <a href="#contract" data-i18n="nav.contract">Contract</a>
       </nav>
 
       <div class="nav-actions">
-        <span class="mode-chip">DEMO · mock 数据</span>
+        <span class="mode-chip" data-i18n="chip.demo">DEMO · mock data</span>
+        <div class="lang-switch" role="group" data-i18n-aria="lang.aria" aria-label="Language">
+          <button type="button" data-lang="en" aria-pressed="true">EN</button>
+          <button type="button" data-lang="zh" aria-pressed="false">中文</button>
+        </div>
       </div>
     </header>
 
@@ -67,9 +71,14 @@
 
       <div class="hero-inner">
         <div class="hero-copy">
-          <span class="eyebrow">ACGN Daily · 每日档案</span>
-          <h1 id="query-title">问日报，<br />留一条线索。</h1>
-          <p class="intro">输入一个问题，日报会帮你检索答案</p>
+          <span class="eyebrow" data-i18n="hero.eyebrow">ACGN Daily · Daily archive</span>
+          <h1 id="query-title">
+            <span data-i18n="hero.title1">Ask the daily,</span><br />
+            <span data-i18n="hero.title2">leave a clue.</span>
+          </h1>
+          <p class="intro" data-i18n="hero.intro">
+            Ask one question and the archive retrieves the evidence for you.
+          </p>
         </div>
 
         <div class="query-card" id="query">
@@ -81,7 +90,9 @@
                   <path d="m16.2 16.2 4.1 4.1" stroke="currentColor" stroke-width="1.8" />
                 </svg>
               </span>
-              <label class="visually-hidden" for="question">问题或检索词</label>
+              <label class="visually-hidden" for="question" data-i18n="form.question">
+                Question or search terms
+              </label>
               <textarea
                 id="question"
                 name="question"
@@ -90,55 +101,59 @@
                 required
                 spellcheck="false"
               >第二季什么时候开播？</textarea>
-              <button type="submit" id="submit-button">检索片段</button>
+              <button type="submit" id="submit-button" data-i18n="form.submit.retrieve">
+                Search excerpts
+              </button>
             </div>
+
+            <p class="field-hint" id="question-count">0 / 500</p>
 
             <div class="query-controls">
               <fieldset class="mode-switch">
-                <legend>输出</legend>
+                <legend data-i18n="form.mode">Output</legend>
                 <label>
                   <input type="radio" name="mode" value="retrieve" checked />
-                  <span>片段检索</span>
+                  <span data-i18n="form.mode.retrieve">Excerpts</span>
                 </label>
                 <label>
                   <input type="radio" name="mode" value="ask" />
-                  <span>带引用问答</span>
+                  <span data-i18n="form.mode.ask">Cited answer</span>
                 </label>
               </fieldset>
 
               <details class="filters">
-                <summary>高级筛选</summary>
+                <summary data-i18n="form.filters">Advanced filters</summary>
 
                 <fieldset class="source-types">
-                  <legend>来源类型</legend>
+                  <legend data-i18n="form.sources">Source type</legend>
                   <label>
                     <input type="checkbox" name="source_type" value="official" checked />
-                    <span>官方</span>
+                    <span data-i18n="source.official">Official</span>
                   </label>
                   <label>
                     <input type="checkbox" name="source_type" value="media" checked />
-                    <span>媒体</span>
+                    <span data-i18n="source.media">Media</span>
                   </label>
                   <label>
                     <input type="checkbox" name="source_type" value="metadata" checked />
-                    <span>元数据</span>
+                    <span data-i18n="source.metadata">Metadata</span>
                   </label>
                 </fieldset>
 
                 <div class="field-grid">
                   <div class="field">
-                    <label for="since">开始日期</label>
+                    <label for="since" data-i18n="form.since">Start date</label>
                     <input type="date" id="since" name="since" />
                   </div>
                   <div class="field">
-                    <label for="until">结束日期</label>
+                    <label for="until" data-i18n="form.until">End date</label>
                     <input type="date" id="until" name="until" />
                   </div>
                 </div>
 
                 <div class="field-grid">
                   <div class="field">
-                    <label for="media-id">作品 ID（可选）</label>
+                    <label for="media-id" data-i18n="form.media">Media ID (optional)</label>
                     <input
                       type="number"
                       id="media-id"
@@ -149,7 +164,7 @@
                     />
                   </div>
                   <div class="field">
-                    <label for="top-k">返回条数</label>
+                    <label for="top-k" data-i18n="form.topk">Results per query</label>
                     <select id="top-k" name="top_k">
                       <option value="3">3</option>
                       <option value="5" selected>5</option>
@@ -160,14 +175,17 @@
               </details>
             </div>
 
-            <p class="form-note" id="form-note">
-              结果绑定到下方快照；切换快照会改变缓存键，不会复用旧语料的答案。
+            <p class="form-note" id="form-note" data-i18n="form.note.retrieve">
+              Results are bound to the snapshot below; an empty result and a refusal are two
+              different states.
             </p>
           </form>
         </div>
 
         <section class="examples" aria-labelledby="examples-title">
-          <h2 class="visually-hidden" id="examples-title">示例问题</h2>
+          <h2 class="visually-hidden" id="examples-title" data-i18n="examples.title">
+            Example questions
+          </h2>
           <div class="example-list">
             <button type="button" data-example="第二季什么时候开播？">第二季什么时候开播？</button>
             <button type="button" data-example="蓝光第一卷什么时候发售？">
@@ -184,15 +202,15 @@
       </div>
 
       <div class="hero-foot" aria-hidden="true">
-        <span>向下，查看档案</span>
+        <span data-i18n="hero.scroll">Scroll to the archive</span>
         <span class="hero-foot-arrow">↓</span>
       </div>
     </section>
 
     <div class="mock-banner" role="status">
-      <span class="mock-banner-tag">提示</span>
-      <p>
-        当前页使用固定 mock 数据，引用链接指向示例地址 example.com。
+      <span class="mock-banner-tag" data-i18n="banner.tag">Note</span>
+      <p data-i18n="banner.text">
+        This page runs on fixed mock data; citation links point to the example domain example.com.
       </p>
     </div>
 
@@ -200,51 +218,72 @@
       <section class="results-section" id="results" aria-labelledby="results-title">
         <header class="section-head reveal">
           <div class="section-heading">
-            <span class="eyebrow">Archive Results · 档案结果</span>
-            <h2 id="results-title">检索结果</h2>
+            <span class="eyebrow" data-i18n="results.eyebrow">Archive Results</span>
+            <h2 id="results-title" data-i18n="results.title.retrieve">Search results</h2>
           </div>
-          <p id="result-meta">等待请求</p>
+          <p id="result-meta" data-i18n="meta.waiting">Waiting for a query</p>
         </header>
 
-        <div class="overview-strip reveal" id="overview-strip" aria-label="本期速览"></div>
+        <div
+          class="overview-strip reveal"
+          id="overview-strip"
+          data-i18n-aria="overview.title"
+          aria-label="Issue overview"
+        ></div>
 
         <div class="workspace">
           <div class="workspace-main">
             <div class="snapshot-bar reveal">
               <span class="snapshot-dot" aria-hidden="true"></span>
-              <label for="snapshot-select">快照</label>
+              <label for="snapshot-select" data-i18n="snapshot.label">Snapshot</label>
               <select id="snapshot-select" disabled>
-                <option>正在读取…</option>
+                <option data-i18n="snapshot.reading">Reading…</option>
               </select>
               <span class="snapshot-id" id="snapshot-id">—</span>
-              <span class="snapshot-config">配置 A · mock</span>
+              <span class="snapshot-config" data-i18n="snapshot.config">Config A · mock</span>
             </div>
 
             <div class="results-toolbar reveal">
-              <div class="view-switch" role="group" aria-label="结果视图切换">
-                <button type="button" data-view="cards" class="is-active" aria-pressed="true">卡片流</button>
-                <button type="button" data-view="timeline" aria-pressed="false">时间轴</button>
-                <button type="button" data-view="magazine" aria-pressed="false">杂志</button>
-                <button type="button" data-view="board" aria-pressed="false">数据看板</button>
+              <div class="view-switch" role="group" data-i18n-aria="views.aria" aria-label="Result view">
+                <button type="button" data-view="cards" class="is-active" aria-pressed="true" data-i18n="view.cards">
+                  Cards
+                </button>
+                <button type="button" data-view="timeline" aria-pressed="false" data-i18n="view.timeline">
+                  Timeline
+                </button>
+                <button type="button" data-view="magazine" aria-pressed="false" data-i18n="view.magazine">
+                  Magazine
+                </button>
+                <button type="button" data-view="board" aria-pressed="false" data-i18n="view.board">
+                  Board
+                </button>
               </div>
-              <span class="toolbar-hint">同一份结果 · 四种读法</span>
+              <span class="toolbar-hint" data-i18n="views.hint">One result · four readings</span>
             </div>
 
-            <div class="result-state" id="result-state" aria-live="polite" aria-busy="false">
+            <div class="result-state" id="result-state" aria-busy="false">
+              <p class="visually-hidden" id="result-status" role="status" aria-live="polite"></p>
               <div class="state-panel placeholder-panel">
-                <p>正在读取日报数据…</p>
+                <p data-i18n="results.placeholder">Reading the archive…</p>
               </div>
             </div>
           </div>
 
-          <aside class="insight-rail reveal" id="insight-rail" aria-label="本次检索的量化剖面">
+          <aside
+            class="insight-rail reveal"
+            id="insight-rail"
+            data-i18n-aria="rail.aria"
+            aria-label="Quantitative profile for this query"
+          >
             <header class="rail-head">
-              <h3>本次剖面</h3>
+              <h3 data-i18n="rail.title">This profile</h3>
             </header>
             <div class="stats-mount" id="stats-mount">
               <div class="stat-empty">
                 <span class="stat-empty-mark" aria-hidden="true">◇</span>
-                <p>提交检索后显示来源构成、分数与时间分布。</p>
+                <p data-i18n="rail.empty">
+                  Run a query to see the source mix, scores and time spread.
+                </p>
               </div>
             </div>
           </aside>
@@ -254,8 +293,8 @@
       <details class="contract-section reveal" id="contract">
         <summary class="section-head contract-summary">
           <div class="section-heading">
-            <span class="eyebrow">Contract · 页面契约</span>
-            <h2 id="notes-title">页面遵守的契约</h2>
+            <span class="eyebrow" data-i18n="contract.eyebrow">Contract</span>
+            <h2 id="notes-title" data-i18n="contract.title">What this page guarantees</h2>
           </div>
           <span class="contract-toggle" aria-hidden="true"></span>
         </summary>
@@ -263,23 +302,35 @@
         <ul class="contract-grid">
           <li>
             <span class="contract-index">01</span>
-            <p>引用对象没有 URL 就不渲染，不灰显、不藏在提示里。</p>
+            <p data-i18n="contract.1">
+              A citation without a URL is never rendered, greyed out or tucked into a tooltip.
+            </p>
           </li>
           <li>
             <span class="contract-index">02</span>
-            <p>正文在服务端裁剪一次，客户端渲染前再裁剪一次，上限 200 个字符。</p>
+            <p data-i18n="contract.2">
+              Bodies are clipped once on the server and again before client rendering, at 200
+              characters.
+            </p>
           </li>
           <li>
             <span class="contract-index">03</span>
-            <p>每次结果都显示对应快照；缓存键包含快照、问题、筛选、top_k 与配置。</p>
+            <p data-i18n="contract.3">
+              Every result shows its snapshot; the cache key covers snapshot, question, filters,
+              top_k and config.
+            </p>
           </li>
           <li>
             <span class="contract-index">04</span>
-            <p>410 表示快照已退役，页面不会自动切到当前快照。</p>
+            <p data-i18n="contract.4">
+              410 means the snapshot is retired; the page never switches to the current one.
+            </p>
           </li>
           <li>
             <span class="contract-index">05</span>
-            <p>没有检索到片段不是拒答；拒答一定会给出原因。</p>
+            <p data-i18n="contract.5">
+              No excerpts is not a refusal; a refusal always states its reason.
+            </p>
           </li>
         </ul>
       </details>
@@ -290,19 +341,27 @@
         <div class="site-footer-brand">
           <img src="/static/assets/brand-mark.webp" alt="" width="30" height="30" />
           <div>
-            <p class="footer-title">ACGN 日报</p>
-            <p class="footer-sub">ACGN Daily · 每日检索</p>
+            <p class="footer-title" data-i18n="footer.brand">ACGN Chronicle</p>
+            <p class="footer-sub" data-i18n="footer.sub">ACGN Daily · Daily search</p>
           </div>
         </div>
-        <p class="site-footer-rules">每日更新 · 来源可追溯 · 快照可回看</p>
+        <p class="site-footer-rules" data-i18n="footer.rules">
+          Updated daily · Traceable sources · Replayable snapshots
+        </p>
       </div>
     </footer>
 
     <dialog class="detail-dialog" id="detail-dialog" aria-labelledby="detail-title">
       <div class="detail-shell">
         <header class="detail-head">
-          <span class="detail-kicker">Archive Detail · 档案详情</span>
-          <button type="button" class="detail-close" id="detail-close" aria-label="关闭详情">
+          <span class="detail-kicker" data-i18n="detail.kicker">Archive Detail</span>
+          <button
+            type="button"
+            class="detail-close"
+            id="detail-close"
+            data-i18n-aria="detail.close"
+            aria-label="Close details"
+          >
             <span aria-hidden="true">×</span>
           </button>
         </header>
@@ -312,7 +371,7 @@
 
     <noscript>
       <div class="state-panel error-panel">
-        <p>这个页面需要 JavaScript 才能加载日报数据。</p>
+        <p data-i18n="noscript">This page needs JavaScript to load the archive.</p>
       </div>
     </noscript>
 

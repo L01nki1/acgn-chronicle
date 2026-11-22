@@ -86,7 +86,7 @@ def test_transcript_quotes_stay_inside_the_shared_budget() -> None:
 
 def test_transcript_reports_answer_and_refusal_as_distinct_states() -> None:
     answered = demo.transcript()["ask"]
-    refused = demo.transcript(question="这个作品的制作人住址在哪里？")["ask"]  # noqa: RUF001
+    refused = demo.transcript(question="这个作品的制作人住址在哪里？")["ask"]
 
     assert answered["status"] == 200
     assert answered["abstained"] is False

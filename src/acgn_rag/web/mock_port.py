@@ -234,9 +234,9 @@ def _time_bounds(filters: RetrievalFilters) -> tuple[datetime | None, datetime |
 
 
 def _abstain(reason: str) -> GroundedAnswer:
-    """The refusal shape: empty citations and a non-empty reason, never a guessed answer."""
+    """The refusal shape: a user-facing sentence, an empty citation list and a specific reason."""
     return GroundedAnswer(
-        answer=reason,
+        answer="当前快照中没有足够依据回答这个问题，因此不作答。",
         citations=[],
         cited_chunk_ids=[],
         abstained=True,
@@ -299,7 +299,7 @@ class MockKnowledgePort:
             citations.append(excerpt.citation)
 
         answer = (
-            "（模拟回答）本次检索返回 "
+            "（G1a 模拟回答）本次检索返回 "
             f"{len(excerpts)} 条片段，最相关来源为 {excerpts[0].citation.publisher}"
             f"（{excerpts[0].citation.source_type}）。以下引用均来自本次检索结果；"
             "客户端只展示，不补全或改写原文。"
