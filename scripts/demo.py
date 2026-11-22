@@ -1,4 +1,3 @@
-# ruff: noqa: RUF001 - the demo's default question is Chinese; the fullwidth question mark is correct.
 """One-command reproduce for the WP6 page: `uv run python scripts/demo.py`.
 
 Owner: C | Spec: docs/ROADMAP.md G2, issue #5 (D's W3 assignment, item 1)
