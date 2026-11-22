@@ -18,10 +18,12 @@ guards, never retrieval or answer quality. The real pipeline lives in `scripts/s
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
+import re
 import sys
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from fastapi.testclient import TestClient
 
@@ -37,22 +39,57 @@ ATTRIBUTION_FIELDS = ("source_type", "publisher", "title", "url", "published_at"
 SOURCE_TYPES = frozenset({"official", "media", "metadata"})
 
 
+#: WHATWG "forbidden host code point" (plus `%`): a host carrying one of these is not a URL the
+#: browser will parse, so the citation is not renderable.
+_FORBIDDEN_HOST_CHARS = frozenset(" #%/:<>?@[\\]^|")
+#: A well-formed percent escape; anything else left in the host is a bad escape, not a literal `%`.
+_PERCENT_ESCAPE = re.compile(r"%[0-9A-Fa-f]{2}")
+
+
+def _host_renderable(host: str) -> bool:
+    """Reject a host the browser refuses, including ones `urlparse` keeps verbatim.
+
+    `urlparse` accepts `https://exa mple.com/a` (space in the hostname) and `https://exa%20mple.com/a`,
+    while `new URL()` rejects both: for special schemes the host is percent-decoded and then checked
+    against the forbidden host code points. Decode first so `%65xample.com` (a legal escape) and
+    `%20` (an encoded space) are judged the way the page judges them.
+    """
+    if "%" in host:
+        if _PERCENT_ESCAPE.sub("", host).count("%"):
+            return False
+        host = unquote(host)
+    return not any(
+        char in _FORBIDDEN_HOST_CHARS or ord(char) <= 0x20 or ord(char) == 0x7F for char in host
+    )
+
+
 def _url_renderable(url: str) -> bool:
     """Mirror the page's `new URL(url)` acceptance: a URL the browser cannot parse is no card.
 
     `urlparse` alone is looser than the browser in both directions: it accepts `https://:443/a`
     (non-empty netloc, empty host) and **raises** `ValueError` on an unclosed IPv6 bracket — the
-    browser rejects the first and does not crash on the second. The transcript must therefore
-    parse defensively and reject exactly what `new URL()` would reject, without aborting the run.
+    browser rejects the first and does not crash on the second. It also keeps a hostname the
+    browser refuses (a space, a bad escape), which `_host_renderable` filters out. The transcript
+    must therefore parse defensively and reject exactly what `new URL()` would reject, without
+    aborting the run.
     """
+    # Special-scheme URLs strip tabs/newlines and read "\" as "/", so `https://exa\mple.com/a`
+    # reaches the browser as host `exa`. Normalise the same way before parsing.
+    cleaned = url.replace("\t", "").replace("\n", "").replace("\r", "").replace("\\", "/")
     try:
-        parsed = urlparse(url)
+        parsed = urlparse(cleaned)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             return False
         parsed.port  # noqa: B018 - an out-of-range or malformed port raises, like `new URL()`
     except ValueError:
         return False
-    return True
+    if parsed.netloc.startswith("["):
+        try:
+            ipaddress.IPv6Address(parsed.hostname)
+        except ValueError:
+            return False
+        return True
+    return _host_renderable(parsed.hostname)
 
 
 def is_renderable_citation(citation: Any) -> bool:
