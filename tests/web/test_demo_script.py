@@ -130,13 +130,15 @@ def _record(url: str, chunk_id: str) -> object:
 
 
 def test_a_mixed_validity_payload_counts_the_same_on_both_routes(monkeypatch) -> None:
-    """One malformed URL in a four-citation payload must read identically on both routes.
+    """One malformed URL in a five-citation payload must read identically on both routes.
 
     B's review of `e1517da`: an invalid port made both routes return HTTP 200 while the
     transcript counted three citations and the page kept two, and an unclosed IPv6 bracket made
     the transcript raise. The transcript now applies the page's URL rule defensively, so both
     counts agree and the malformed rows are dropped without aborting the run. #86 adds the
     hostname case: a host with a space is accepted by `urlparse` but refused by `new URL()`.
+    #120 adds userinfo before a bracketed IPv6 host: the page keeps it, so the transcript must
+    split `demo@` off `netloc` before deciding whether the host is a bracketed IPv6 address.
     """
     from acgn_rag.web.api import create_app as real_create_app
     from acgn_rag.web.mock_port import MockKnowledgePort
@@ -146,6 +148,7 @@ def test_a_mixed_validity_payload_counts_the_same_on_both_routes(monkeypatch) ->
         _record("https://:443/a", "20261105-demo::A::2"),
         _record("http://[::1", "20261105-demo::A::3"),
         _record("https://exa mple.com/a", "20261105-demo::A::4"),
+        _record("https://demo@[2001:db8::1]/a", "20261105-demo::A::5"),
     )
     monkeypatch.setattr(
         demo,
@@ -153,13 +156,15 @@ def test_a_mixed_validity_payload_counts_the_same_on_both_routes(monkeypatch) ->
         lambda backend=None: real_create_app(MockKnowledgePort(records=records)),
     )
 
-    report = demo.transcript(top_k=4)
+    report = demo.transcript(top_k=5)
 
     assert report["retrieve"]["status"] == 200
-    assert report["retrieve"]["excerpts"] == 4
-    assert len(report["retrieve"]["rendered"]) == 1
+    assert report["retrieve"]["excerpts"] == 5
+    assert [item["url"] for item in report["retrieve"]["rendered"]] == [
+        "https://example.com/valid",
+        "https://demo@[2001:db8::1]/a",
+    ]
     assert report["retrieve"]["dropped_unattributable"] == 3
-    assert report["retrieve"]["rendered"][0]["url"] == "https://example.com/valid"
     assert report["ask"]["status"] == 200
-    assert report["ask"]["citation_count"] == 1
+    assert report["ask"]["citation_count"] == 2
     assert report["ask"]["citations_dropped_unattributable"] == 3

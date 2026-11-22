@@ -82,7 +82,10 @@ def _url_renderable(url: str) -> bool:
         parsed.port  # noqa: B018 - an out-of-range or malformed port raises, like `new URL()`
     except ValueError:
         return False
-    if parsed.netloc.startswith("["):
+    # `netloc` carries userinfo too (`demo@[2001:db8::1]`), so strip it before looking for the
+    # bracketed IPv6 form; otherwise the address falls through to the domain-name rule and its
+    # colons are rejected even though `new URL()` accepts it.
+    if parsed.netloc.rsplit("@", 1)[-1].startswith("["):
         try:
             ipaddress.IPv6Address(parsed.hostname)
         except ValueError:
