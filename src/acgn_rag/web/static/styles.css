@@ -286,20 +286,6 @@ textarea {
   color: var(--ink);
 }
 
-.mode-chip {
-  padding: 7px 14px;
-  border-radius: var(--radius-pill);
-  background: rgb(255 255 255 / 92%);
-  color: var(--ink);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  transform: skewX(-8deg);
-  box-shadow: 3px 3px 0 rgb(172 77 109 / 35%);
-}
-
 /* ------------------------------------------------------------------ */
 /* Hero                                                                */
 /* ------------------------------------------------------------------ */
@@ -1086,6 +1072,30 @@ textarea {
   overflow: hidden;
   box-shadow: 0 28px 60px rgb(31 42 68 / 26%);
   animation: panel-in 320ms var(--ease) both;
+}
+
+.evidence-panel {
+  margin: clamp(22px, 3vw, 34px) 0 0;
+  padding-top: clamp(18px, 2.4vw, 26px);
+  border-top: 1px dashed rgb(90 104 138 / 32%);
+}
+
+.evidence-panel h3 {
+  margin: 0 0 6px;
+  font-size: 18px;
+  letter-spacing: 0.04em;
+}
+
+.evidence-note {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: 16px;
 }
 
 .answer-panel h3 {
@@ -2584,7 +2594,7 @@ html {
   color: #fbf7f9;
 }
 
-/* Active segment borrows the skewed ribbon-chip motif from `.mode-chip`. */
+/* Active segment borrows the skewed ribbon-chip motif. */
 .view-switch button.is-active::before {
   content: "";
   position: absolute;
@@ -3629,11 +3639,6 @@ html {
 @media (max-width: 600px) {
   .brand-sub {
     display: none;
-  }
-
-  .mode-chip {
-    padding: 6px 10px;
-    font-size: 10px;
   }
 
   .hero {

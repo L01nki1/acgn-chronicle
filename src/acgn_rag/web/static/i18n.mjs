@@ -20,7 +20,6 @@ const EN = {
   "nav.ask": "Ask",
   "nav.results": "Results",
   "nav.contract": "Contract",
-  "chip.demo": "DEMO · mock data",
   "lang.aria": "Language",
 
   "hero.eyebrow": "ACGN Daily · Daily archive",
@@ -30,6 +29,7 @@ const EN = {
   "hero.scroll": "Scroll to the archive",
 
   "form.question": "Question or search terms",
+  "form.question.default": "When does season 2 premiere?",
   "form.submit.retrieve": "Search excerpts",
   "form.submit.ask": "Answer with citations",
   "form.mode": "Output",
@@ -47,6 +47,10 @@ const EN = {
     "A refusal shows its reason with zero citations; an empty result is never called a refusal.",
   "form.count": "{used} / {limit}",
   "examples.title": "Example questions",
+  "examples.q1": "When does season 2 premiere?",
+  "examples.q2": "When does the first Blu-ray volume go on sale?",
+  "examples.q3": "When does the Moonlight Diner movie open?",
+  "examples.q4": "What is the director's private phone number?",
 
   "source.official": "Official",
   "source.media": "Media",
@@ -166,6 +170,8 @@ const EN = {
   "answer.noCitations":
     "This answer carries no citations; with an empty citation list the page renders no source cards.",
   "answer.citationMeta": "Citation drawn from this answer's retrieved evidence",
+  "evidence.title": "Agent-matched evidence",
+  "evidence.note": "Excerpts retrieved for the same question; the answer above cites their sources.",
 
   "empty.title": "No excerpts found",
   "empty.explainer":
@@ -325,7 +331,6 @@ const ZH = {
   "nav.ask": "问档案",
   "nav.results": "检索结果",
   "nav.contract": "页面契约",
-  "chip.demo": "DEMO · mock 数据",
   "lang.aria": "语言",
 
   "hero.eyebrow": "ACGN Daily · 每日档案",
@@ -335,6 +340,7 @@ const ZH = {
   "hero.scroll": "向下，查看档案",
 
   "form.question": "问题或检索词",
+  "form.question.default": "第二季什么时候开播？",
   "form.submit.retrieve": "检索片段",
   "form.submit.ask": "带引用问答",
   "form.mode": "输出",
@@ -350,6 +356,10 @@ const ZH = {
   "form.note.ask": "拒答会显示原因与空引用；空结果不会被说成拒答。",
   "form.count": "{used} / {limit}",
   "examples.title": "示例问题",
+  "examples.q1": "第二季什么时候开播？",
+  "examples.q2": "Blu-ray 第一卷什么时候发售？",
+  "examples.q3": "《月灯食堂》剧场版什么时候上映？",
+  "examples.q4": "导演的私人电话号码是多少？",
 
   "source.official": "官方",
   "source.media": "媒体",
@@ -464,6 +474,8 @@ const ZH = {
     "{n} 条引用带 URL 与来源字段，按契约展示；“打开原文”在新窗口打开来源链接。",
   "answer.noCitations": "本次回答没有附带引用；引用为空时页面不渲染任何来源卡片。",
   "answer.citationMeta": "引用来自本次回答的检索证据",
+  "evidence.title": "Agent 命中的片段",
+  "evidence.note": "同一问题经检索返回的片段，上方回答引用这些来源。",
 
   "empty.title": "没有检索到片段",
   "empty.explainer":
