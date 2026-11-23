@@ -16,6 +16,7 @@ from typing import Annotated
 
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -46,6 +47,14 @@ def create_app(backend: KnowledgePortBackend | None = None) -> FastAPI:
         title="ACGN Chronicle KnowledgePort",
         version="0.1.0",
         description="G1a mock host for the WP6 query page. Responses follow the wire contract.",
+    )
+    # The standalone demo is served from another origin (Vercel or a local preview). These routes
+    # are read-only and unauthenticated, so a wildcard allowlist is the intended policy.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Content-Type"],
     )
 
     @app.exception_handler(PortError)

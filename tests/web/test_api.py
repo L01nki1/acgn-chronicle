@@ -62,6 +62,26 @@ def _query(text: str = "第二季什么时候开播？", **overrides: Any) -> di
     return body
 
 
+def test_cross_origin_snapshot_read_is_allowed(client: TestClient) -> None:
+    response = client.get("/snapshots", headers={"Origin": "https://acgn-daily-page.vercel.app"})
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "*"
+
+
+def test_cross_origin_json_post_preflight_is_allowed(client: TestClient) -> None:
+    response = client.options(
+        "/retrieve",
+        headers={
+            "Origin": "https://acgn-daily-page.vercel.app",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "*"
+    assert "POST" in response.headers["access-control-allow-methods"]
+
+
 def test_snapshots_lists_current_first_and_retains_it(client: TestClient) -> None:
     payload = client.get("/snapshots").json()
     assert payload["current"] == CURRENT_SNAPSHOT_ID
