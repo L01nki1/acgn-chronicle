@@ -2043,6 +2043,13 @@ function applyStaticCopy() {
   document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => {
     node.setAttribute("placeholder", t(node.dataset.i18nPlaceholder));
   });
+  document.querySelectorAll("[data-i18n-value]").forEach((node) => {
+    const next = t(node.dataset.i18nValue);
+    if (!node.value.trim() || node.value === node.dataset.lastDefault) {
+      node.value = next;
+    }
+    node.dataset.lastDefault = next;
+  });
   document.title = t("site.title");
   const description = document.querySelector('meta[name="description"]');
   if (description) {
@@ -2101,9 +2108,11 @@ function bindEvents() {
     markFormChanged();
     setFormNote(t("note.switched"));
   });
-  document.querySelectorAll("[data-example]").forEach((button) => {
+  document.querySelectorAll("[data-example-key], [data-example]").forEach((button) => {
     button.addEventListener("click", () => {
-      dom.question.value = button.dataset.example ?? "";
+      dom.question.value = button.dataset.exampleKey
+        ? t(button.dataset.exampleKey)
+        : (button.dataset.example ?? "");
       dom.question.focus();
       autoGrowQuestion();
       syncQuestionCount();

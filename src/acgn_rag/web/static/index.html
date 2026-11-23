@@ -53,7 +53,6 @@
       </nav>
 
       <div class="nav-actions">
-        <span class="mode-chip" data-i18n="chip.demo">DEMO · mock data</span>
         <div class="lang-switch" role="group" data-i18n-aria="lang.aria" aria-label="Language">
           <button type="button" data-lang="en" aria-pressed="true">EN</button>
           <button type="button" data-lang="zh" aria-pressed="false">中文</button>
@@ -100,7 +99,8 @@
                 maxlength="500"
                 required
                 spellcheck="false"
-              >第二季什么时候开播？</textarea>
+                data-i18n-value="form.question.default"
+              >When does season 2 premiere?</textarea>
               <button type="submit" id="submit-button" data-i18n="form.submit.retrieve">
                 Search excerpts
               </button>
@@ -187,15 +187,17 @@
             Example questions
           </h2>
           <div class="example-list">
-            <button type="button" data-example="第二季什么时候开播？">第二季什么时候开播？</button>
-            <button type="button" data-example="蓝光第一卷什么时候发售？">
-              蓝光第一卷什么时候发售？
+            <button type="button" data-example-key="examples.q1" data-i18n="examples.q1">
+              When does season 2 premiere?
             </button>
-            <button type="button" data-example="月灯食堂剧场版什么时候上映？">
-              月灯食堂剧场版什么时候上映？
+            <button type="button" data-example-key="examples.q2" data-i18n="examples.q2">
+              When does the first Blu-ray volume go on sale?
             </button>
-            <button type="button" data-example="导演的私人电话是多少？">
-              导演的私人电话是多少？
+            <button type="button" data-example-key="examples.q3" data-i18n="examples.q3">
+              When does the Moonlight Diner movie open?
+            </button>
+            <button type="button" data-example-key="examples.q4" data-i18n="examples.q4">
+              What is the director's private phone number?
             </button>
           </div>
         </section>

@@ -1,4 +1,4 @@
-# ruff: noqa: RUF001 - the mock returns human-readable Chinese copy; fullwidth punctuation is correct.
+# ruff: noqa: RUF001 - the mock corpus contains Chinese copy; fullwidth punctuation is correct.
 """Contract-shaped mock data for the G1a query page.
 
 Owner: C | Spec: docs/ROADMAP.md G1a, contracts/KnowledgePort.md §3-§4
@@ -48,7 +48,16 @@ RETAINED_SNAPSHOT = CorpusSnapshot(
     window_end="2026-10-23",
 )
 
-_PRIVATE_TERMS = ("电话", "住址", "未公开", "私人")
+_PRIVATE_TERMS = (
+    "电话",
+    "住址",
+    "未公开",
+    "私人",
+    "private",
+    "phone",
+    "address",
+    "unpublished",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,7 +245,7 @@ def _time_bounds(filters: RetrievalFilters) -> tuple[datetime | None, datetime |
 def _abstain(reason: str) -> GroundedAnswer:
     """The refusal shape: a user-facing sentence, an empty citation list and a specific reason."""
     return GroundedAnswer(
-        answer="当前快照中没有足够依据回答这个问题，因此不作答。",
+        answer="There is not enough evidence in this snapshot to answer this question, so no answer is given.",
         citations=[],
         cited_chunk_ids=[],
         abstained=True,
@@ -283,12 +292,16 @@ class MockKnowledgePort:
         since, until = _time_bounds(query.filters or RetrievalFilters())
         text = query.text.strip()
         if not text:
-            return _abstain("问题为空，没有可检索的文本。")
+            return _abstain("The question is empty; there is no text to retrieve.")
         excerpts = self._select(query, since=since, until=until)
         if not excerpts:
-            return _abstain("当前筛选条件下没有可用证据；系统拒绝在没有依据时作答。")
-        if any(term in text for term in _PRIVATE_TERMS):
-            return _abstain("问题涉及未公开的个人信息，知识库没有相关证据。")
+            return _abstain(
+                "No usable evidence matches the current filters; the system refuses to answer without evidence."
+            )
+        if any(term in text.lower() for term in _PRIVATE_TERMS):
+            return _abstain(
+                "The question asks for unpublished personal information; the knowledge base has no evidence for it."
+            )
 
         citations: list[Citation] = []
         seen: set[str] = set()
@@ -299,10 +312,10 @@ class MockKnowledgePort:
             citations.append(excerpt.citation)
 
         answer = (
-            "（G1a 模拟回答）本次检索返回 "
-            f"{len(excerpts)} 条片段，最相关来源为 {excerpts[0].citation.publisher}"
-            f"（{excerpts[0].citation.source_type}）。以下引用均来自本次检索结果；"
-            "客户端只展示，不补全或改写原文。"
+            "(G1a mock answer) This retrieval returned "
+            f"{len(excerpts)} excerpts; the most relevant source is {excerpts[0].citation.publisher}"
+            f" ({excerpts[0].citation.source_type}). Every citation below comes from this retrieval; "
+            "the client only displays them and never completes or rewrites the original text."
         )
         return GroundedAnswer(
             answer=answer,
