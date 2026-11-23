@@ -307,3 +307,46 @@ def test_index_and_module_are_served(client: TestClient) -> None:
     assert module.status_code == 200
     assert "javascript" in module.headers["Content-Type"]
     assert "selectRenderableExcerpts" in module.text
+
+
+def test_cors_allows_loopback_preflight_and_json_post(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ACGN_CORS_ORIGINS", raising=False)
+    origin = "http://localhost:5173"
+    preflight_headers = {
+        "Origin": origin,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type",
+    }
+
+    with TestClient(create_app()) as client:
+        preflight = client.options("/ask", headers=preflight_headers)
+        response = client.post("/ask", json=_query(), headers={"Origin": origin})
+        unlisted = client.get("/snapshots", headers={"Origin": "https://unlisted.example"})
+
+    assert preflight.status_code == 200
+    assert preflight.headers["Access-Control-Allow-Origin"] == origin
+    assert "POST" in preflight.headers["Access-Control-Allow-Methods"].split(", ")
+    assert "content-type" in preflight.headers["Access-Control-Allow-Headers"].lower().split(", ")
+    assert response.status_code == 200
+    assert response.headers["Access-Control-Allow-Origin"] == origin
+    assert "Access-Control-Allow-Credentials" not in response.headers
+    assert unlisted.status_code == 200
+    assert "Access-Control-Allow-Origin" not in unlisted.headers
+
+
+def test_cors_configured_origin_can_read_retry_after(monkeypatch: pytest.MonkeyPatch) -> None:
+    origin = "https://preview.example"
+    monkeypatch.setenv("ACGN_CORS_ORIGINS", f"https://app.example, {origin}")
+    with TestClient(create_app(_NotServingBackend())) as client:
+        response = client.get("/snapshots", headers={"Origin": origin})
+        preflight = client.options(
+            "/ask",
+            headers={"Origin": "http://localhost:5173", "Access-Control-Request-Method": "POST"},
+        )
+
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "12"
+    assert response.headers["Access-Control-Allow-Origin"] == origin
+    assert response.headers["Access-Control-Expose-Headers"] == "Retry-After"
+    assert preflight.status_code == 400
+    assert "Access-Control-Allow-Origin" not in preflight.headers

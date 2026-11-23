@@ -11,11 +11,13 @@ it talks to these routes (or an in-process implementation of the same port).
 from __future__ import annotations
 
 import mimetypes
+import os
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -32,6 +34,7 @@ from acgn_rag.web.mock_port import MockKnowledgePort
 
 STATIC_DIR = Path(__file__).with_name("static")
 _API_PATHS = frozenset({"/snapshots", "/snapshot", "/retrieve", "/ask", "/daily"})
+_LOOPBACK_ORIGIN = r"https?://(?:localhost|127\.0\.0\.1|\[::1\])(?::[0-9]+)?"
 
 # A browser refuses to execute a module served as text/plain. Windows registries do not always
 # map .mjs, so pin the type here instead of inheriting the host's MIME database.
@@ -67,6 +70,17 @@ def create_app(backend: KnowledgePortBackend | None = None) -> FastAPI:
         if request.url.path in _API_PATHS:
             response.headers["Cache-Control"] = "no-store"
         return response
+
+    cors_origins = os.getenv("ACGN_CORS_ORIGINS")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            origin.strip() for origin in (cors_origins or "").split(",") if origin.strip()
+        ],
+        allow_origin_regex=_LOOPBACK_ORIGIN if cors_origins is None else None,
+        allow_methods=("GET", "POST"),
+        expose_headers=("Retry-After",),
+    )
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
