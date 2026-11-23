@@ -166,6 +166,8 @@ const EN = {
   "answer.noCitations":
     "This answer carries no citations; with an empty citation list the page renders no source cards.",
   "answer.citationMeta": "Citation drawn from this answer's retrieved evidence",
+  "evidence.title": "Agent-matched evidence",
+  "evidence.note": "Excerpts retrieved for the same question; the answer above cites their sources.",
 
   "empty.title": "No excerpts found",
   "empty.explainer":
@@ -464,6 +466,8 @@ const ZH = {
     "{n} 条引用带 URL 与来源字段，按契约展示；“打开原文”在新窗口打开来源链接。",
   "answer.noCitations": "本次回答没有附带引用；引用为空时页面不渲染任何来源卡片。",
   "answer.citationMeta": "引用来自本次回答的检索证据",
+  "evidence.title": "Agent 命中的片段",
+  "evidence.note": "同一问题经检索返回的片段，上方回答引用这些来源。",
 
   "empty.title": "没有检索到片段",
   "empty.explainer":

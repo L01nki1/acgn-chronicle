@@ -330,17 +330,32 @@ async function runQuery() {
     setFormNote(t("note.requesting"));
     const cache = state.cache[request.mode];
     if (cache.has(request.key)) {
-      renderResponse(request.mode, cache.get(request.key), request, true);
+      const cached = cache.get(request.key);
+      if (request.mode === "ask") {
+        renderResponse("ask", cached.answer, request, true, cached.evidence);
+      } else {
+        renderResponse("retrieve", cached, request, true);
+      }
       setFormNote(t("note.cache"));
       return;
     }
-    const path = request.mode === "ask" ? "/ask" : "/retrieve";
-    const payload = await requestJson(path, {
-      method: "POST",
-      body: JSON.stringify(request.body),
-    });
-    cache.set(request.key, payload);
-    renderResponse(request.mode, payload, request, false);
+    const post = (path) =>
+      requestJson(path, {
+        method: "POST",
+        body: JSON.stringify(request.body),
+      });
+    if (request.mode === "ask") {
+      const [answer, evidence] = await Promise.all([
+        post("/ask"),
+        post("/retrieve").catch(() => []),
+      ]);
+      cache.set(request.key, { answer, evidence });
+      renderResponse("ask", answer, request, false, evidence);
+    } else {
+      const payload = await post("/retrieve");
+      cache.set(request.key, payload);
+      renderResponse("retrieve", payload, request, false);
+    }
     setFormNote(t("note.done"));
   } catch (error) {
     renderApiError(error, request);
@@ -1041,7 +1056,7 @@ function setResultMeta(mode, request, fromCache) {
   ].join(" · ");
 }
 
-function renderResponse(mode, payload, request, fromCache) {
+function renderResponse(mode, payload, request, fromCache, evidence = null) {
   state.lastRequest = request;
   const stateName = viewState(mode, payload);
   setResultMeta(mode, request, fromCache);
@@ -1057,7 +1072,7 @@ function renderResponse(mode, payload, request, fromCache) {
     renderRefusal(payload);
     return;
   }
-  renderAnswer(payload, request, fromCache);
+  renderAnswer(payload, request, fromCache, evidence);
 }
 
 function renderRetrieve(payload, request, stateName, fromCache) {
@@ -1136,8 +1151,34 @@ function renderExcerptCard(row, detail, index) {
     meta,
     renderCitationUrl(citation),
   ]);
-  attachCardDetail(card, detail, index);
+  if (detail) {
+    attachCardDetail(card, detail, index);
+  }
   return card;
+}
+
+function buildEvidencePanel(rows, hiddenCount = 0) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return null;
+  }
+  const section = element(
+    "section",
+    { className: "evidence-panel", attrs: { "aria-label": t("evidence.title") } },
+    [
+      element("h3", { text: t("evidence.title") }),
+      element("p", { className: "evidence-note", text: t("evidence.note") }),
+      element("div", { className: "evidence-grid" }, rows.map((row) => renderExcerptCard(row))),
+    ],
+  );
+  if (hiddenCount > 0) {
+    section.append(
+      element("p", {
+        className: "compliance-note",
+        text: t("compliance.hidden", { n: hiddenCount }),
+      }),
+    );
+  }
+  return section;
 }
 
 function renderCitationUrl(citation) {
@@ -1179,10 +1220,11 @@ function buildAnswerPanel(payload, request) {
   ]);
 }
 
-function renderAnswer(payload, request, fromCache) {
+function renderAnswer(payload, request, fromCache, evidence = null) {
   const citations = Array.isArray(payload.citations) ? payload.citations : [];
   const visible = citations.filter((citation) => isRenderableCitation(citation));
   const hiddenCount = citations.length - visible.length;
+  const evidenceSelection = selectRenderableExcerpts(evidence);
   renderStats("ask", visible, request, payload);
 
   state.viewSeries += 1;
@@ -1193,6 +1235,8 @@ function renderAnswer(payload, request, fromCache) {
     payload,
     hiddenCount,
     fromCache,
+    evidence: normaliseRows("retrieve", evidenceSelection.items),
+    evidenceHiddenCount: evidenceSelection.hiddenCount,
   };
   state.viewData.details = buildDetails(state.viewData);
   renderOverview(state.viewData);
@@ -1390,6 +1434,12 @@ function paintResults() {
   }
   if (data.hiddenCount > 0) {
     children.push(renderHiddenNotice(data.hiddenCount));
+  }
+  if (data.mode === "ask") {
+    const evidencePanel = buildEvidencePanel(data.evidence, data.evidenceHiddenCount);
+    if (evidencePanel) {
+      children.push(evidencePanel);
+    }
   }
   replace(dom.resultState, ...children);
   observeReveals(dom.resultState);
