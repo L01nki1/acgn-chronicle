@@ -17,6 +17,15 @@ uv run python -m acgn_rag.web --reload # reload on source changes
 The page loads `/snapshots` at startup and runs one default query, so the first screen is not an
 empty form. `--host` and `--port` are also accepted.
 
+Cross-origin `GET` and `POST` requests are allowed by default from `localhost`, `127.0.0.1`,
+and `[::1]` on any port. To use a frontend on another host, set `ACGN_CORS_ORIGINS` in the API
+process to a comma-separated list of exact frontend origins. Include the scheme and any
+non-default port. This list replaces the loopback defaults.
+
+```bash
+ACGN_CORS_ORIGINS=https://app.example.org,http://localhost:5173 uv run python -m acgn_rag.web
+```
+
 ## What G1a delivers
 
 | Item | Where |
