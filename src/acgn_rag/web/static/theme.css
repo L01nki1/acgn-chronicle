@@ -142,34 +142,10 @@ body::before {
   grid-row: auto !important;
 }
 
-/* The board fills the row by default; clicking it hands the left side to the figure. */
+/* The board fills the row. */
 .query-card,
 .examples {
   width: 100%;
-  transition:
-    width 620ms var(--ease),
-    margin-left 620ms var(--ease);
-}
-
-.hero-copy {
-  transition:
-    opacity 340ms ease,
-    translate 520ms var(--ease);
-}
-
-.hero.is-stage-open .hero-copy {
-  opacity: 0;
-  visibility: hidden;
-  translate: 0 -14px;
-  pointer-events: none;
-}
-
-/* Explicit margin (not auto) so the right edge stays pinned while the left edge sweeps
-   leftwards on open and rightwards on close — the board collapses right to left. */
-.hero.is-stage-open .query-card,
-.hero.is-stage-open .examples {
-  width: min(640px, 54%);
-  margin-left: calc(100% - min(640px, 54%));
 }
 
 .hero .eyebrow {
@@ -209,252 +185,6 @@ body::before {
   color: rgb(236 232 255 / 82%);
 }
 
-/* Hero figure: hidden on the board pose, fades in on the left once the board shrinks. */
-.hero-figure {
-  position: absolute;
-  z-index: 0;
-  left: max(16px, calc((100% - var(--page-width)) / 2));
-  right: auto;
-  bottom: 0;
-  height: min(84%, 720px);
-  aspect-ratio: 478 / 760;
-  opacity: 0;
-  visibility: hidden;
-  translate: -28px 18px;
-  pointer-events: none;
-  transition:
-    opacity 420ms ease,
-    translate 640ms var(--ease),
-    visibility 0s linear 640ms;
-}
-
-.hero.is-stage-open .hero-figure {
-  height: min(78%, 680px);
-  opacity: 1;
-  visibility: visible;
-  translate: 0 0;
-  transition-delay: 120ms, 120ms, 0s;
-}
-
-.hero.is-stage-open .hero-figure-bubble {
-  right: auto;
-  left: 74%;
-  border-radius: 20px 20px 20px 4px;
-}
-
-.hero.is-stage-open .hero-figure-bubble::after {
-  right: auto;
-  left: -7px;
-  clip-path: polygon(100% 0, 100% 100%, 0 100%);
-}
-
-.hero-figure-ring {
-  position: absolute;
-  left: 50%;
-  top: 8%;
-  width: 150%;
-  aspect-ratio: 1;
-  translate: -50% 0;
-  border-radius: 50%;
-  background: radial-gradient(
-    circle,
-    rgb(255 214 227 / 34%) 0%,
-    rgb(198 168 255 / 18%) 38%,
-    transparent 66%
-  );
-  animation: halo-pulse 6s ease-in-out infinite;
-}
-
-.hero-figure-ring::before,
-.hero-figure-ring::after {
-  content: "";
-  position: absolute;
-  inset: 16%;
-  border-radius: 50%;
-  border: 1px dashed rgb(255 255 255 / 30%);
-  animation: spin 70s linear infinite;
-}
-
-.hero-figure-ring::after {
-  inset: 26%;
-  border: 1px solid rgb(255 214 227 / 22%);
-  border-top-color: rgb(255 214 227 / 70%);
-  animation-duration: 18s;
-  animation-direction: reverse;
-}
-
-.hero-figure-img {
-  position: relative;
-  display: block;
-  height: 100%;
-  width: auto;
-  margin: 0 auto;
-  pointer-events: auto;
-  cursor: pointer;
-  filter:
-    drop-shadow(0 30px 50px rgb(6 4 30 / 60%))
-    drop-shadow(0 0 28px rgb(198 168 255 / 28%));
-  transform-origin: 50% 100%;
-  animation: figure-float 7s ease-in-out infinite;
-}
-
-.hero-figure.is-waving .hero-figure-img {
-  animation: figure-wave 900ms var(--ease) both;
-}
-
-@keyframes figure-float {
-  0%,
-  100% {
-    translate: 0 0;
-  }
-  50% {
-    translate: 0 -12px;
-  }
-}
-
-@keyframes figure-wave {
-  0% {
-    rotate: 0deg;
-  }
-  25% {
-    rotate: -2.5deg;
-    translate: 0 -16px;
-  }
-  55% {
-    rotate: 2deg;
-  }
-  100% {
-    rotate: 0deg;
-  }
-}
-
-.hero-figure-bubble {
-  position: absolute;
-  top: 10%;
-  right: 74%;
-  width: max-content;
-  max-width: 230px;
-  margin: 0;
-  padding: 12px 16px;
-  border-radius: 20px 20px 4px 20px;
-  background: rgb(255 253 249 / 95%);
-  color: var(--ink);
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.55;
-  box-shadow: 0 20px 44px rgb(6 4 30 / 45%);
-  animation: bubble-bob 4.6s ease-in-out infinite;
-  transition: opacity 260ms, translate 260ms var(--ease);
-}
-
-.hero-figure-bubble.is-swapping {
-  opacity: 0;
-  translate: 0 6px;
-}
-
-.hero-figure-bubble::after {
-  content: "";
-  position: absolute;
-  right: -7px;
-  bottom: 6px;
-  width: 14px;
-  height: 14px;
-  background: inherit;
-  clip-path: polygon(0 0, 100% 100%, 0 100%);
-}
-
-@keyframes bubble-bob {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-6px);
-  }
-}
-
-.hero-sprite {
-  position: absolute;
-  width: 34px;
-  height: 34px;
-  image-rendering: pixelated;
-  filter: drop-shadow(0 0 10px rgb(255 214 227 / 70%));
-  animation: sprite-float 5.4s ease-in-out infinite;
-}
-
-.hero-sprite.s1 {
-  top: 4%;
-  left: 8%;
-}
-.hero-sprite.s2 {
-  top: 30%;
-  right: -6%;
-  animation-delay: -1.4s;
-}
-.hero-sprite.s3 {
-  top: 56%;
-  left: -10%;
-  animation-delay: -2.6s;
-}
-.hero-sprite.s4 {
-  top: 72%;
-  right: 2%;
-  width: 28px;
-  height: 28px;
-  animation-delay: -3.3s;
-}
-.hero-sprite.s5 {
-  top: 16%;
-  right: 10%;
-  width: 26px;
-  height: 26px;
-  animation-delay: -4.1s;
-}
-
-@keyframes sprite-float {
-  0%,
-  100% {
-    translate: 0 0;
-    rotate: -6deg;
-  }
-  50% {
-    translate: 0 -14px;
-    rotate: 6deg;
-  }
-}
-
-@media (max-width: 1100px) {
-  .hero.is-stage-open .query-card,
-  .hero.is-stage-open .examples {
-    width: min(560px, 58%);
-    margin-left: calc(100% - min(560px, 58%));
-  }
-  .hero.is-stage-open .hero-figure {
-    height: min(64%, 520px);
-  }
-  .hero.is-stage-open .hero-figure-bubble {
-    display: none;
-  }
-}
-
-@media (max-width: 700px) {
-  .hero-figure,
-  .query-peek {
-    display: none;
-  }
-  .hero.is-stage-open .query-card,
-  .hero.is-stage-open .examples {
-    width: 100%;
-    margin-left: 0;
-  }
-  .hero.is-stage-open .hero-copy {
-    opacity: 1;
-    visibility: visible;
-    translate: 0 0;
-    pointer-events: auto;
-  }
-}
-
 /* Query card: cream paper with a slowly turning iridescent rim. */
 .query-card {
   position: relative;
@@ -486,77 +216,6 @@ body::before {
 .query-card > * {
   position: relative;
   z-index: 1;
-}
-
-/* Ai-chan resting both hands on the top edge of the full-width board. */
-.query-card > .query-peek {
-  position: absolute;
-  z-index: 3;
-}
-
-.query-peek {
-  position: absolute;
-  left: 50%;
-  right: auto;
-  bottom: calc(100% - 2px);
-  z-index: 3;
-  width: 208px;
-  height: 132px;
-  margin-left: -104px;
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: pointer;
-  transition:
-    opacity 280ms ease,
-    translate 460ms var(--ease),
-    visibility 0s linear 280ms;
-}
-
-.query-peek-clip {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-}
-
-.query-peek-face {
-  position: absolute;
-  left: 50%;
-  top: 0;
-  width: 208px;
-  height: auto;
-  translate: -50% 0;
-  filter: drop-shadow(0 8px 12px rgb(60 40 120 / 22%));
-  animation: peek-sway 6.4s ease-in-out infinite;
-  transform-origin: 50% 100%;
-}
-
-.query-peek .paw {
-  bottom: -10px;
-  scale: 1.5;
-}
-.query-peek .paw.l {
-  left: 30px;
-}
-.query-peek .paw.r {
-  right: 30px;
-}
-
-.hero.is-stage-open .query-peek {
-  opacity: 0;
-  visibility: hidden;
-  translate: 0 14px;
-  pointer-events: none;
-}
-
-@keyframes peek-sway {
-  0%,
-  100% {
-    rotate: -1.4deg;
-  }
-  50% {
-    rotate: 1.4deg;
-  }
 }
 
 @keyframes rim-spin {
@@ -972,93 +631,6 @@ main#main::before {
   left: 36%;
 }
 
-/* Chibi lying on the card's bottom edge, chin resting on the paper. */
-.result-card.has-perch {
-  padding-bottom: 26px;
-}
-
-.result-card.has-perch > :last-child {
-  margin-right: 96px;
-}
-
-.card-perch {
-  position: absolute;
-  right: 12px;
-  bottom: 0;
-  z-index: 2;
-  width: 96px;
-  height: 74px;
-  border-radius: 14px;
-  pointer-events: auto;
-  cursor: pointer;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.card-perch:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 4px;
-}
-
-.card-perch-face {
-  position: absolute;
-  left: 50%;
-  bottom: -34px;
-  width: 96px;
-  height: auto;
-  translate: -50% 0;
-  scale: 1;
-  filter: drop-shadow(0 6px 10px rgb(60 40 120 / 18%));
-  transition:
-    translate 520ms var(--ease),
-    scale 520ms var(--ease);
-  animation: perch-sway 6s ease-in-out infinite;
-  transform-origin: 50% 100%;
-}
-
-.card-perch-spark {
-  position: absolute;
-  top: 2px;
-  right: 4px;
-  color: var(--accent);
-  font-size: 14px;
-  opacity: 0;
-  scale: 0.4;
-  transition:
-    opacity 260ms,
-    scale 360ms var(--ease);
-}
-
-.result-card:hover .card-perch-face {
-  translate: -50% -12px;
-}
-
-.result-card:hover .card-perch-spark {
-  opacity: 1;
-  scale: 1;
-}
-
-/* Poked chibi: the head sits up over the paper. */
-.card-perch.is-awake .card-perch-face {
-  translate: -50% -52px;
-  scale: 1.06;
-}
-
-.card-perch.is-awake .card-perch-spark {
-  opacity: 1;
-  scale: 1;
-}
-
-@keyframes perch-sway {
-  0%,
-  100% {
-    rotate: 0deg;
-  }
-  50% {
-    rotate: -3deg;
-  }
-}
-
 /* Pixel stickers for the cards that have no perch. */
 .card-sticker {
   position: absolute;
@@ -1159,11 +731,6 @@ main#main::before {
     inset 0 1px 0 rgb(255 255 255 / 12%);
 }
 
-.answer-panel.has-avatar {
-  padding-right: clamp(26px, 17vw, 210px);
-  min-height: 220px;
-}
-
 .answer-panel::before {
   content: "";
   position: absolute;
@@ -1228,34 +795,6 @@ main#main::before {
   }
 }
 
-.answer-avatar {
-  position: absolute !important;
-  right: 8px;
-  bottom: 0;
-  width: clamp(110px, 15vw, 180px);
-  pointer-events: none;
-  -webkit-mask-image: linear-gradient(180deg, #000 72%, transparent 100%);
-  mask-image: linear-gradient(180deg, #000 72%, transparent 100%);
-}
-
-.answer-avatar img {
-  display: block;
-  width: 100%;
-  height: auto;
-  filter: drop-shadow(0 0 24px rgb(255 143 177 / 35%));
-  animation: figure-float 6s ease-in-out infinite;
-}
-
-.answer-avatar::before {
-  content: "✦";
-  position: absolute;
-  top: 6%;
-  left: -6%;
-  color: var(--amber);
-  font-size: 18px;
-  animation: twinkle-star 2.4s ease-in-out infinite;
-}
-
 @keyframes twinkle-star {
   0%,
   100% {
@@ -1265,55 +804,6 @@ main#main::before {
   50% {
     opacity: 1;
     scale: 1.15;
-  }
-}
-
-@media (max-width: 640px) {
-  .answer-panel.has-avatar {
-    padding-right: clamp(22px, 4vw, 30px);
-    padding-bottom: 120px;
-  }
-  .answer-avatar {
-    width: 110px;
-  }
-}
-
-/* State panels get a reacting character. */
-.state-panel.has-mascot {
-  overflow: hidden;
-  min-height: 190px;
-  padding-right: clamp(24px, 22vw, 220px);
-}
-
-.panel-mascot {
-  position: absolute;
-  right: 18px;
-  bottom: -12px;
-  height: 172px;
-  width: auto;
-  pointer-events: none;
-  filter: drop-shadow(0 10px 18px rgb(40 30 80 / 18%));
-  animation: panel-mascot-in 700ms var(--ease) both;
-}
-
-@keyframes panel-mascot-in {
-  from {
-    opacity: 0;
-    translate: 0 30px;
-  }
-  to {
-    opacity: 1;
-    translate: 0 0;
-  }
-}
-
-@media (max-width: 640px) {
-  .state-panel.has-mascot {
-    padding-right: clamp(24px, 3vw, 32px);
-    padding-bottom: 130px;
-  }
-  .panel-mascot {
-    height: 128px;
   }
 }
 
@@ -1619,217 +1109,9 @@ main#main::before {
 .ts-sky i:nth-child(7) { top: 88%; left: 6%; animation-delay: -1.4s; width: 2px; height: 2px; }
 .ts-sky i:nth-child(8) { top: 30%; left: 96%; animation-delay: -0.9s; }
 
-.ts-figure {
-  position: relative;
-  z-index: 2;
-  display: grid;
-  place-items: end center;
-  height: 310px;
-}
-
-.ts-halo {
-  position: absolute;
-  bottom: 14px;
-  left: 50%;
-  width: 240px;
-  aspect-ratio: 1;
-  translate: -50% 0;
-  border-radius: 50%;
-  background: radial-gradient(
-    circle,
-    rgb(255 214 227 / 55%) 0%,
-    rgb(198 168 255 / 24%) 46%,
-    transparent 70%
-  );
-  animation: halo-pulse 2.8s ease-in-out infinite;
-}
-
-@keyframes halo-pulse {
-  0%,
-  100% {
-    opacity: 0.75;
-    scale: 0.96;
-  }
-  50% {
-    opacity: 1;
-    scale: 1.05;
-  }
-}
-
-.ts-orbit {
-  position: absolute;
-  left: 50%;
-  bottom: 78px;
-  width: 280px;
-  height: 280px;
-  margin-left: -140px;
-  transform: scaleY(0.42);
-  z-index: 1;
-}
-
-.ts-orbit-ring {
-  position: absolute;
-  inset: 0;
-  border: 1px dashed rgb(255 255 255 / 22%);
-  border-radius: 50%;
-  animation: spin 12s linear infinite;
-}
-
-.ts-orbit-item {
-  position: absolute;
-  width: 34px;
-  height: 34px;
-  margin: -17px 0 0 -17px;
-  animation: spin 12s linear infinite reverse;
-}
-
-.ts-orbit-item:nth-child(1) { top: 0; left: 50%; }
-.ts-orbit-item:nth-child(2) { top: 50%; left: 100%; }
-.ts-orbit-item:nth-child(3) { top: 100%; left: 50%; }
-.ts-orbit-item:nth-child(4) { top: 50%; left: 0; }
-.ts-orbit-item:nth-child(5) { top: 15%; left: 85%; }
-
-.ts-orbit-item img {
-  width: 100%;
-  height: 100%;
-  image-rendering: pixelated;
-  transform: scaleY(2.38);
-  filter: drop-shadow(0 0 8px rgb(255 214 227 / 80%));
-}
-
 @keyframes spin {
   to {
     rotate: 360deg;
-  }
-}
-
-.ts-face {
-  position: relative;
-  z-index: 2;
-  height: 252px;
-  width: auto;
-  filter: drop-shadow(0 18px 30px rgb(6 4 30 / 55%));
-  transform-origin: 50% 92%;
-  animation: think-tilt 3.2s ease-in-out infinite;
-}
-
-@keyframes think-tilt {
-  0%,
-  100% {
-    rotate: 0deg;
-    translate: 0 0;
-  }
-  30% {
-    rotate: -4deg;
-    translate: 0 -4px;
-  }
-  65% {
-    rotate: 3deg;
-    translate: 0 -2px;
-  }
-}
-
-.ts-book {
-  position: absolute;
-  z-index: 3;
-  left: 2%;
-  bottom: 6px;
-  height: 96px;
-  width: auto;
-  rotate: -14deg;
-  filter: drop-shadow(0 8px 14px rgb(6 4 30 / 50%));
-  animation: book-nudge 2.4s ease-in-out infinite;
-}
-
-@keyframes book-nudge {
-  0%,
-  100% {
-    rotate: -14deg;
-    translate: 0 0;
-  }
-  50% {
-    rotate: -8deg;
-    translate: 0 -6px;
-  }
-}
-
-/* Thought cloud */
-.ts-cloud {
-  position: absolute;
-  top: 2px;
-  right: -14px;
-  z-index: 4;
-}
-
-.ts-cloud-main {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  border-radius: var(--radius-pill);
-  background: #fffdf9;
-  box-shadow:
-    0 12px 26px rgb(6 4 30 / 40%),
-    inset 0 -3px 0 rgb(198 168 255 / 25%);
-  animation: bubble-bob 2.6s ease-in-out infinite;
-}
-
-.ts-cloud .c1,
-.ts-cloud .c2 {
-  position: absolute;
-  border-radius: 50%;
-  background: #fffdf9;
-  box-shadow: 0 6px 12px rgb(6 4 30 / 30%);
-  animation: cloud-pop 1.6s ease-in-out infinite;
-}
-
-.ts-cloud .c1 {
-  left: 8px;
-  bottom: -18px;
-  width: 14px;
-  height: 14px;
-}
-
-.ts-cloud .c2 {
-  left: -4px;
-  bottom: -34px;
-  width: 9px;
-  height: 9px;
-  animation-delay: -0.5s;
-}
-
-@keyframes cloud-pop {
-  0%,
-  100% {
-    scale: 0.8;
-    opacity: 0.7;
-  }
-  50% {
-    scale: 1.1;
-    opacity: 1;
-  }
-}
-
-.ts-cloud-sprite {
-  width: 28px;
-  height: 28px;
-  image-rendering: pixelated;
-}
-
-.ts-cloud-sprite.is-pop {
-  animation: sprite-pop 520ms var(--ease);
-}
-
-@keyframes sprite-pop {
-  from {
-    scale: 0.3;
-    rotate: -30deg;
-    opacity: 0;
-  }
-  to {
-    scale: 1;
-    rotate: 0deg;
-    opacity: 1;
   }
 }
 
@@ -2121,16 +1403,6 @@ main#main::before {
   opacity: 1;
 }
 
-.ts-reaction-face {
-  height: 176px;
-  width: auto;
-  filter: drop-shadow(0 16px 28px rgb(6 4 30 / 55%));
-}
-
-.think-stage[data-phase="react"] .ts-reaction-face {
-  animation: hop 700ms var(--ease) both;
-}
-
 .ts-reaction-text {
   margin: 0;
   padding: 8px 20px;
@@ -2179,24 +1451,6 @@ main#main::before {
   }
 }
 
-@keyframes hop {
-  0% {
-    transform: translateY(24px) scale(0.92);
-    opacity: 0;
-  }
-  45% {
-    transform: translateY(-14px) scale(1.03);
-    opacity: 1;
-  }
-  70% {
-    transform: translateY(3px) scale(0.99);
-  }
-  100% {
-    transform: none;
-    opacity: 1;
-  }
-}
-
 @media (max-width: 760px) {
   .think-stage {
     grid-template-columns: minmax(0, 1fr);
@@ -2205,25 +1459,6 @@ main#main::before {
   }
   .result-host.is-thinking {
     min-height: 540px;
-  }
-  .ts-figure {
-    height: 220px;
-  }
-  .ts-face {
-    height: 180px;
-  }
-  .ts-orbit {
-    bottom: 50px;
-    width: 220px;
-    height: 220px;
-    margin-left: -110px;
-  }
-  .ts-book {
-    height: 70px;
-    left: 14%;
-  }
-  .ts-cloud {
-    right: 12%;
   }
   .ts-steps {
     grid-template-columns: minmax(0, 1fr);
@@ -2236,7 +1471,6 @@ main#main::before {
 
 @media print {
   .think-stage,
-  .hero-figure,
   .sheet-peek {
     display: none !important;
   }
@@ -2249,24 +1483,15 @@ main#main::before {
 @media (prefers-reduced-motion: reduce) {
   body::before,
   .hero h1 > span:last-of-type,
-  .hero-figure-ring,
-  .hero-figure-ring::before,
-  .hero-figure-ring::after,
-  .hero-figure-img,
-  .hero-figure-bubble,
-  .hero-sprite,
   .query-card::before,
   #submit-button::after,
   .peek-clip img,
-  .card-perch-face,
   .card-sticker img,
   .card-sticker .zz,
   .rail-cat img,
   .rail-cat .zz,
   .answer-panel::before,
   .answer-text,
-  .answer-avatar img,
-  .answer-avatar::before,
   .think-stage *,
   .snapshot-dot {
     animation: none !important;
