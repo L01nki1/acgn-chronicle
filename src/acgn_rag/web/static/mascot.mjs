@@ -377,9 +377,15 @@ function finishThinking() {
   const outcome = think.painted ? detectOutcome() : null;
   const finish = () => {
     think.active = false;
+    // Stop the ticker and the monologue typer; nothing else clears them once the stage closes.
+    clearTimers();
+    stage.host.classList.remove("is-thinking");
   };
 
   if (reducedMotion.matches || !stage.root || !stage.root.dataset.phase) {
+    if (stage.root) {
+      stage.root.dataset.phase = "";
+    }
     finish();
     return;
   }
@@ -418,7 +424,9 @@ function mountStage() {
     } else if (busy && think.active && !stage.root.dataset.phase) {
       startThinking();
     } else if (!busy && think.active) {
-      finishThinking();
+      // The childList observer below runs after this attribute callback, so defer one task:
+      // by the time it fires the response is painted and detectOutcome has real panels to read.
+      later(finishThinking, 0);
     }
   }).observe(region, { attributes: true, attributeFilter: ["aria-busy"] });
 
