@@ -1,0 +1,14 @@
+Pixel sprites from Sprite Catalog (256 Arts) bundled catalog.
+file	name	artist	licence
+book.png	Book	Matt Firth (cheekyinkling)	CC BY
+potion.png	Potion	Quintino Pixels	CC0
+gem.png	Gem	Quintino Pixels	CC0
+moon.png	Moon	Matt Firth (cheekyinkling)	CC BY
+scroll.png	Scroll	Quintino Pixels	CC0
+heart.png	Heart	Matt Firth (cheekyinkling)	CC BY
+flower.png	Flower	Matt Firth (cheekyinkling)	CC BY
+coffee.png	Coffee	Matt Firth (cheekyinkling)	CC BY
+cake.png	Cake	Matt Firth (cheekyinkling)	CC BY
+candy.png	Candy	Matt Firth (cheekyinkling)	CC BY
+cat.png	Cat	SciGho	CC BY
+staff.png	Staff Gem	Matt Firth (cheekyinkling)	CC BY
