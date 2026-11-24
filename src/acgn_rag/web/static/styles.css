@@ -771,7 +771,7 @@ textarea {
   position: absolute;
   left: var(--gutter);
   right: var(--gutter);
-  bottom: 96px;
+  bottom: 30px;
   display: flex;
   align-items: center;
   justify-content: space-between;

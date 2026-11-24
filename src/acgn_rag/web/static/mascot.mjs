@@ -5,15 +5,12 @@
  * changes a request, and never edits result text. It watches the result region for two signals
  * app.mjs already emits - `aria-busy` on #result-state and the panels it paints - and reacts:
  *
- * - a "thinking stage" with an animated character, inner monologue, step list and question
+ * - a "thinking stage" with an animated inner monologue, step list and question
  *   tokens while a query is in flight, then a short reaction to the outcome;
- * - characters and pixel stickers resting on result cards, the answer panel and state panels;
- * - a hero figure and the Q-version white-haired GPT girl resting both hands on the query
- *   board, which steps aside when the board is clicked, a ribbon marquee, and an AI girl
- *   peeking over the results sheet.
+ * - pixel stickers resting on result cards and a small tag on the answer panel;
+ * - the Gemini girl peeking over the results sheet and a pixel cat on the rail.
  *
- * All characters are cut from ai-chan-sheets; pixel sprites come from Sprite Catalog
- * (see assets/sprites/CREDITS.txt).
+ * Pixel sprites come from Sprite Catalog (see assets/sprites/CREDITS.txt).
  */
 import { getLang } from "./i18n.mjs";
 
@@ -24,13 +21,6 @@ const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 const COPY = {
   en: {
-    hero: [
-      "Hi! I'm Ai-chan, your archive guide ✦",
-      "Ask about premieres, Blu-rays, films…",
-      "Every answer I give comes with a source.",
-      "Poke me if you get bored~",
-    ],
-    ribbon: ["ACGN CHRONICLE", "DAILY ARCHIVE", "TRACEABLE SOURCES", "REPLAYABLE SNAPSHOTS", "ASK · READ · CITE"],
     kicker: "Thinking",
     title: "Ai-chan is thinking…",
     stepsAsk: ["Reading your question", "Searching the archive", "Weighing the sources", "Writing a cited answer"],
@@ -49,18 +39,8 @@ const COPY = {
       error: "Something went wrong…",
     },
     answerTag: "Ai-chan's answer",
-    peekShow: "Show the archive assistant",
-    peekHide: "Put the assistant back on the board",
-    perchPoke: "Poke the chibi",
   },
   zh: {
-    hero: [
-      "你好！我是 Ai 酱，你的档案向导 ✦",
-      "首播、蓝光、剧场版……尽管问我～",
-      "我给出的每个回答都带着出处哦。",
-      "无聊的话可以戳戳我～",
-    ],
-    ribbon: ["ACGN 编年史", "每日档案", "来源可追溯", "快照可回放", "提问 · 阅读 · 引用"],
     kicker: "思考中",
     title: "Ai 酱正在思考……",
     stepsAsk: ["理解你的问题", "翻找档案库", "权衡信息来源", "撰写带引用的回答"],
@@ -79,9 +59,6 @@ const COPY = {
       error: "出了点问题……",
     },
     answerTag: "Ai 酱的回答",
-    peekShow: "唤出档案助手",
-    peekHide: "让助手回到问答板上",
-    perchPoke: "戳一下看板娘",
   },
 };
 
@@ -118,145 +95,15 @@ function img(src, className, attrs = {}) {
   return el("img", className, { src, alt: "", decoding: "async", draggable: "false", ...attrs });
 }
 
-// Warm the cache so faces swap without a flash.
-for (const name of [
-  "gpt-adult-full", "gpt-adult-smile", "gpt-adult-surprised", "gpt-adult-pout", "gpt-adult-sad",
-  "gpt-adult-calm", "gpt-adult-focus",
-  "gpt-q-peek", "ai-gemini",
-  "q-deepseek-smile", "q-deepseek-calm", "q-deepseek-surprised", "q-deepseek-shy",
-  "q-deepseek-pout", "q-deepseek-happy", "q-deepseek-serious", "q-deepseek-sad",
-]) {
+// Warm the cache so the peeking assistant is there on first paint.
+for (const name of ["ai-gemini"]) {
   const preload = new Image();
   preload.src = face(name);
 }
 
 /* ------------------------------------------------------------------ */
-/* Static decorations: hero figure, ribbon, sheet peek, rail cat       */
+/* Static decorations: sheet peek, rail cat                              */
 /* ------------------------------------------------------------------ */
-
-const heroBubble = el("p", "hero-figure-bubble");
-const heroQuery = window.matchMedia("(min-width: 701px)");
-let heroLine = 0;
-let heroRoot = null;
-let heroPeek = null;
-
-function setHeroStage(open) {
-  if (!heroRoot) {
-    return;
-  }
-  const next = Boolean(open && heroQuery.matches);
-  heroRoot.classList.toggle("is-stage-open", next);
-  if (heroPeek) {
-    heroPeek.setAttribute("aria-expanded", String(next));
-    heroPeek.setAttribute("aria-label", copy(next ? "peekHide" : "peekShow"));
-  }
-}
-
-function mountHero() {
-  const hero = document.querySelector(".hero");
-  const card = hero?.querySelector(".query-card");
-  if (!hero) {
-    return;
-  }
-  heroRoot = hero;
-  const figureImg = img(face("gpt-adult-full"), "hero-figure-img", { width: "478", height: "760" });
-  const figure = el("div", "hero-figure", { "aria-hidden": "true" }, [
-    el("span", "hero-figure-ring"),
-    figureImg,
-    heroBubble,
-    img(sprite("heart"), "hero-sprite s1"),
-    img(sprite("gem"), "hero-sprite s2"),
-    img(sprite("moon"), "hero-sprite s3"),
-    img(sprite("flower"), "hero-sprite s4"),
-    img(sprite("candy"), "hero-sprite s5"),
-  ]);
-  hero.append(figure);
-  heroBubble.textContent = copy("hero")[0];
-
-  // Default pose: only the head and both paws show, resting on the full-width board edge.
-  if (card) {
-    heroPeek = el(
-      "button",
-      "query-peek",
-      { type: "button", "aria-expanded": "false", "aria-label": copy("peekShow") },
-      [
-        el("span", "query-peek-clip", {}, [img(face("gpt-q-peek"), "query-peek-face")]),
-        el("span", "paw query-peek-paw l"),
-        el("span", "paw query-peek-paw r"),
-      ],
-    );
-    card.append(heroPeek);
-    heroPeek.addEventListener("click", (event) => {
-      event.stopPropagation();
-      setHeroStage(true);
-    });
-    // Clicking bare board surface toggles the stage; controls keep working as before.
-    card.addEventListener("click", (event) => {
-      if (!heroQuery.matches) {
-        return;
-      }
-      if (
-        event.target instanceof Element &&
-        event.target.closest("input, textarea, select, button, label, a, summary, details")
-      ) {
-        return;
-      }
-      setHeroStage(!hero.classList.contains("is-stage-open"));
-    });
-  }
-
-  figureImg.addEventListener("click", () => {
-    setHeroStage(false);
-  });
-
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      setHeroStage(false);
-    }
-  });
-  heroQuery.addEventListener("change", (event) => {
-    if (!event.matches) {
-      setHeroStage(false);
-    }
-  });
-
-  const nextLine = () => {
-    heroBubble.classList.add("is-swapping");
-    window.setTimeout(() => {
-      heroLine = (heroLine + 1) % copy("hero").length;
-      heroBubble.textContent = copy("hero")[heroLine];
-      heroBubble.classList.remove("is-swapping");
-    }, 260);
-  };
-  window.setInterval(() => {
-    if (!document.hidden) {
-      nextLine();
-    }
-  }, 5200);
-}
-
-const ribbonTrack = el("div", "ribbon-track");
-const RIBBON_SPRITES = ["heart", "gem", "moon", "flower", "potion"];
-
-function paintRibbon() {
-  const words = copy("ribbon");
-  const half = () =>
-    words.map((word, index) =>
-      el("span", "", {}, [img(sprite(RIBBON_SPRITES[index % RIBBON_SPRITES.length]), ""), document.createTextNode(word)]),
-    );
-  // Two identical halves: the track slides by exactly one half, so the loop has no seam.
-  ribbonTrack.replaceChildren(...half(), ...half(), ...half(), ...half());
-}
-
-function mountRibbon() {
-  const hero = document.querySelector(".hero");
-  if (!hero) {
-    return;
-  }
-  const ribbon = el("div", "ribbon", { "aria-hidden": "true" }, [ribbonTrack]);
-  hero.after(ribbon);
-  paintRibbon();
-}
 
 function mountSheetPeek() {
   const main = document.querySelector("main#main");
@@ -289,13 +136,6 @@ const MIN_THINK_MS = 1600;
 const REACT_MS = 1000;
 const OUT_MS = 420;
 const STEP_MS = 460;
-const CLOUD_SPRITES = ["book", "scroll", "potion", "gem", "moon", "heart"];
-const REACT_FACE = {
-  success: "gpt-adult-smile",
-  empty: "gpt-adult-surprised",
-  refusal: "gpt-adult-pout",
-  error: "gpt-adult-sad",
-};
 
 const think = {
   active: false,
@@ -351,29 +191,6 @@ function wavePath(amplitude, period, phase) {
 function buildStage() {
   const sky = el("div", "ts-sky", {}, Array.from({ length: 8 }, () => el("i")));
 
-  const ring = el(
-    "span",
-    "ts-orbit-ring",
-    {},
-    ["book", "potion", "gem", "moon", "heart"].map((name) =>
-      el("span", "ts-orbit-item", {}, [img(sprite(name), "")]),
-    ),
-  );
-  stage.face = img(face("gpt-adult-focus"), "ts-face");
-  stage.cloudSprite = img(sprite("book"), "ts-cloud-sprite");
-  const cloud = el("div", "ts-cloud", {}, [
-    el("div", "ts-cloud-main", {}, [stage.cloudSprite, el("span", "ts-dots", {}, [el("i"), el("i"), el("i")])]),
-    el("span", "c1"),
-    el("span", "c2"),
-  ]);
-  const figure = el("div", "ts-figure", {}, [
-    el("span", "ts-halo"),
-    el("div", "ts-orbit", {}, [ring]),
-    stage.face,
-    img(face("prop-book"), "ts-book"),
-    cloud,
-  ]);
-
   stage.kicker = el("span", "ts-kicker-text");
   stage.timer = el("span", "ts-timer", { text: "0.0s" });
   stage.title = el("h3", "ts-title");
@@ -416,13 +233,11 @@ function buildStage() {
       });
     }),
   );
-  stage.reactFace = img(face("gpt-adult-smile"), "ts-reaction-face");
   stage.reactText = el("p", "ts-reaction-text");
-  stage.reaction = el("div", "ts-reaction", {}, [confetti, stage.reactFace, stage.reactText]);
+  stage.reaction = el("div", "ts-reaction", {}, [confetti, stage.reactText]);
 
   stage.root = el("div", "think-stage", { "aria-hidden": "true", "data-phase": "" }, [
     sky,
-    figure,
     mind,
     stage.reaction,
   ]);
@@ -508,7 +323,6 @@ function startThinking() {
   stage.tokens.replaceChildren(
     ...questionTokens().map((word, index) => el("span", "", { text: word, style: `--i:${index}` })),
   );
-  stage.face.src = face("gpt-adult-focus");
   stage.reaction.removeAttribute("data-outcome");
   stage.host.classList.add("is-thinking");
   stage.root.dataset.phase = "";
@@ -526,21 +340,6 @@ function startThinking() {
   };
   tick();
   every(tick, 100, run);
-
-  let spriteIndex = 0;
-  every(() => {
-    spriteIndex = (spriteIndex + 1) % CLOUD_SPRITES.length;
-    stage.cloudSprite.src = sprite(CLOUD_SPRITES[spriteIndex]);
-    stage.cloudSprite.classList.remove("is-pop");
-    void stage.cloudSprite.offsetWidth;
-    stage.cloudSprite.classList.add("is-pop");
-  }, 720, run);
-
-  let calm = false;
-  every(() => {
-    calm = !calm;
-    stage.face.src = face(calm ? "gpt-adult-calm" : "gpt-adult-focus");
-  }, 1700, run);
 
   typeMonologue(run);
 }
@@ -595,7 +394,6 @@ function finishThinking() {
       return;
     }
     stage.reaction.dataset.outcome = outcome;
-    stage.reactFace.src = face(REACT_FACE[outcome]);
     stage.reactText.textContent = copy("react")[outcome];
     stage.root.dataset.phase = "react";
     finish();
@@ -636,16 +434,6 @@ function mountStage() {
 /* Result decorations                                                  */
 /* ------------------------------------------------------------------ */
 
-const PERCH_FACES = [
-  "q-deepseek-smile",
-  "q-deepseek-calm",
-  "q-deepseek-surprised",
-  "q-deepseek-shy",
-  "q-deepseek-pout",
-  "q-deepseek-happy",
-  "q-deepseek-serious",
-  "q-deepseek-sad",
-];
 const STICKERS = [
   ["cat"],
   ["book", "heart"],
@@ -654,61 +442,24 @@ const STICKERS = [
   ["scroll", "flower"],
   ["moon", "candy"],
 ];
-const PANEL_FACE = {
-  "empty-panel": "gpt-adult-surprised",
-  "refusal-panel": "gpt-adult-pout",
-  "error-panel": "gpt-adult-sad",
-};
-
 function decorateCard(card) {
   card.dataset.deco = "1";
   // Decorations are prepended so the card's own last child keeps its `:last-child` styling.
   const extras = [el("span", "card-tape", { "aria-hidden": "true" })];
-  if (card.classList.contains("source-official")) {
-    // Official cards get an ai-chan-sheet chibi, never Claude or GPT.
-    card.classList.add("has-perch");
-    let current = pick(PERCH_FACES);
-    const perchFace = img(face(current), "card-perch-face");
-    const perch = el("span", "card-perch", { role: "button", tabindex: "0", "aria-label": copy("perchPoke") }, [
-      perchFace,
-      el("span", "card-perch-spark", { text: "✦" }),
-    ]);
-    // Poke: the head sits up over the paper and each poke brings a new face.
-    const poke = (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (!perch.classList.toggle("is-awake")) {
-        return;
-      }
-      const next = pick(PERCH_FACES.filter((name) => name !== current));
-      current = next;
-      perchFace.src = face(next);
-    };
-    perch.addEventListener("click", poke);
-    perch.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        poke(event);
-      }
-    });
-    extras.push(perch);
-  } else {
-    // Every other source type gets a Sprite Catalog sticker set.
-    card.classList.add("has-sticker");
-    const set = pick(STICKERS);
-    const sticker = el("span", "card-sticker", { "aria-hidden": "true" }, set.map((name) => img(sprite(name), "")));
-    if (set[0] === "cat") {
-      sticker.append(el("span", "zz", { text: "z z" }));
-    }
-    extras.push(sticker);
+  // Every source type, official included, gets a Sprite Catalog sticker set.
+  card.classList.add("has-sticker");
+  const set = pick(STICKERS);
+  const sticker = el("span", "card-sticker", { "aria-hidden": "true" }, set.map((name) => img(sprite(name), "")));
+  if (set[0] === "cat") {
+    sticker.append(el("span", "zz", { text: "z z" }));
   }
+  extras.push(sticker);
   card.prepend(...extras);
 }
 
 function decorateAnswer(panel) {
   panel.dataset.deco = "1";
-  panel.classList.add("has-avatar");
   panel.prepend(
-    el("span", "answer-avatar", { "aria-hidden": "true" }, [img(face("gpt-adult-smile"), "")]),
     el("span", "answer-tag", { "aria-hidden": "true" }, [
       img(sprite("staff"), ""),
       el("span", "answer-tag-text", { text: copy("answerTag") }),
@@ -716,20 +467,9 @@ function decorateAnswer(panel) {
   );
 }
 
-function decoratePanel(panel) {
-  panel.dataset.deco = "1";
-  const kind = Object.keys(PANEL_FACE).find((name) => panel.classList.contains(name));
-  if (!kind) {
-    return;
-  }
-  panel.classList.add("has-mascot");
-  panel.prepend(img(face(PANEL_FACE[kind]), "panel-mascot", { "aria-hidden": "true" }));
-}
-
 function decorate(root) {
   root.querySelectorAll(".result-card:not([data-deco])").forEach(decorateCard);
   root.querySelectorAll(".answer-panel:not([data-deco])").forEach(decorateAnswer);
-  root.querySelectorAll(".state-panel:not(.placeholder-panel):not([data-deco])").forEach(decoratePanel);
 }
 
 /* ------------------------------------------------------------------ */
@@ -737,20 +477,13 @@ function decorate(root) {
 /* ------------------------------------------------------------------ */
 
 function refreshCopy() {
-  heroBubble.textContent = copy("hero")[heroLine % copy("hero").length];
-  paintRibbon();
   paintStageCopy();
   document.querySelectorAll(".answer-tag-text").forEach((node) => {
     node.textContent = copy("answerTag");
   });
-  if (heroPeek) {
-    heroPeek.setAttribute("aria-label", copy(heroRoot?.classList.contains("is-stage-open") ? "peekHide" : "peekShow"));
-  }
 }
 
 function boot() {
-  mountHero();
-  mountRibbon();
   mountSheetPeek();
   mountRailCat();
   mountStage();

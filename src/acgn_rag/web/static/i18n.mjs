@@ -29,7 +29,7 @@ const EN = {
   "hero.scroll": "Scroll to the archive",
 
   "form.question": "Question or search terms",
-  "form.question.default": "When does season 2 premiere?",
+  "form.question.default": "When does the live-action Chihayafuru sequel series premiere?",
   "form.submit.retrieve": "Search excerpts",
   "form.submit.ask": "Answer with citations",
   "form.mode": "Output",
@@ -340,7 +340,7 @@ const ZH = {
   "hero.scroll": "向下，查看档案",
 
   "form.question": "问题或检索词",
-  "form.question.default": "第二季什么时候开播？",
+  "form.question.default": "真人版《花牌情缘》续篇剧集什么时候开播？",
   "form.submit.retrieve": "检索片段",
   "form.submit.ask": "带引用问答",
   "form.mode": "输出",
