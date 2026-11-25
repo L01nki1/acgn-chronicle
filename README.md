@@ -7,9 +7,29 @@ Three names, one project: repository `acgn-chronicle` · Python package `acgn_ra
 Scope in one line: the only production artifact is `src/acgn_rag/core/`; the website, the daily digest and Isla are merely KnowledgePort consumers.
 Model training / fine-tuning is **never** done here (C6, spec 06).
 
-- Submission: 2026-11-24 23:59 (Canvas) — 6 pages of main content + a separate contribution page + appended slides + a 15-minute demo
+- Submitted 2026-11-24 23:59 (Canvas): 6 pages of main content, a separate contribution page, appended slides, and a 15-minute demo
 - Planning and collaboration live in the library space `GroupProjctMartial` (documents 00–07); this repo holds **engineering artifacts only**
 - Work breakdown and acceptance gates: [`docs/ROADMAP.md`](docs/ROADMAP.md)
+
+## Final results
+
+The system is complete end to end: ingestion → immutable three-year snapshot → chunk / embed / store → retrieval → grounded answers with per-claim citations → human-graded evaluation. Every acceptance gate is recorded in [`docs/DECISIONS.md`](docs/DECISIONS.md), and the evidence runs are archived under [`eval/runs/`](eval/runs/).
+
+Delivery set — 34 questions (27 answerable, 7 unanswerable), every gold span asserted as a verbatim slice of the stored page body:
+
+| Metric | Result |
+|---|---|
+| Retrieval hit@5 | 26/27 (96.3%) |
+| MRR | 0.85 |
+| Unanswerable questions refused | 7/7 |
+| False refusals (answerable) | 1/27 — the same item as the single retrieval miss |
+| False answers | 0 |
+| Citation containment | 1.0 (n = 26), 0 violations |
+| Answer correctness (human-graded) | 92.3% — 24 fully correct, 2 partially correct, 0 incorrect (n = 26) |
+
+Retrieval, abstention and citation figures come from the archived, window-verified adopted run [`eval/runs/eval-bge-m3-Ap-live-adopted-r1`](eval/runs/eval-bge-m3-Ap-live-adopted-r1); answer correctness is the human grading of the 2026-11-21 post-fix delivery run. The frozen 32-item research set with first-party gold stays the gate instrument — its lower hit rate reflects first-party pages that carry headlines but no full bodies — while the delivery set measures the product against media-gold pages that are fully present in the snapshot. Protocol: [`docs/EVAL_PROTOCOL.md`](docs/EVAL_PROTOCOL.md).
+
+Chunking was compared before adoption: A (512/64), A′ (256/0) and A0 (512/0) ran on the same frozen index and QA set, and A′ was adopted for the final lane (equal hit@5, higher MRR and more gold-at-rank-1).
 
 ## Layout
 
@@ -19,17 +39,17 @@ src/acgn_rag/
 │   ├── ports.py   # contract source of truth (Pydantic) -> contracts/*.json is exported from it
 │   ├── ingest/    # WP1 · A: four adapter families / normalization / dedup clustering / snapshots
 │   ├── facts/     # WP2 · F: L0 fact-field extraction
-│   ├── chunk/     # WP2 · F: A(512/64) / A'(256/0) / B(event aggregation)
+│   ├── chunk/     # WP2 · F: A(512/64) / A'(256/0) / A0(512/0)
 │   ├── embed/     # WP2 · F: GPU lane for G1b builds (Colab T4) + identity-keyed cache
 │   ├── store/     # WP2 · F: fact zone / raw zone (two-zone design)
-│   ├── retrieve/  # WP3 · E: vector-only + filters; stretch BM25 + RRF
+│   ├── retrieve/  # WP3 · E: vector top-k + three filter families
 │   ├── ground/    # WP4 · B: grounded generation / abstention / compliance clipping
-│   └── eval/      # WP5 · D+E: QA set / three metrics / runner / report tables
-├── daily/         # WP6 · C: daily digest consumer (later stage)
+│   └── eval/      # WP5 · D+E: QA sets / metrics / runner / run archives
+├── daily/         # WP6 · C: daily digest consumer (scaffold; not part of the delivered path)
 └── web/           # WP6 · C: FastAPI + web/static
 scripts/           # repeatable entry points (backfill / build_index / run_eval / export_schema ...)
 contracts/         # cross-language contract: knowledge_port.schema.json (+ KnowledgePort.md)
-eval/              # tracked: qa_set.jsonl + runs/ (small, reproducible evidence)
+eval/              # tracked: frozen + delivery QA sets, calibration sets, dedup sweep, run archives
 data/              # never tracked: raw / facts / index / snapshots
 tests/             # includes tests/compliance/ (no full text out, <=200 chars, no media paraphrase)
 docs/              # RUNBOOK / DECISIONS / EVAL_PROTOCOL / COMPLIANCE / ONBOARDING
@@ -137,7 +157,7 @@ python scripts/check.py            # all four gates, same order as CI, stops at 
 python scripts/check.py --fix      # apply ruff fixes first, then gate
 ```
 
-Once the pipeline lands, also:
+To rebuild the corpus and indexes from scratch:
 
 ```bash
 python scripts/backfill.py --since 2026-07-30 --until 2026-10-28   # WP1 backfill
